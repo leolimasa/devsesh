@@ -17,6 +17,7 @@ devsesh/
 │   ├── db/
 │   │   ├── db.go
 │   │   ├── migrate.go
+│   │   ├── maintenance.go
 │   │   └── queries.go
 │   ├── server/
 │   │   ├── server.go
@@ -95,8 +96,9 @@ type Config struct {
     JWTExpiry          time.Duration // default 24h (login)
     JWTPairExpiry      time.Duration // default 30d (pairing)
     PairingCodeExpiry  time.Duration // default 5m
-    AllowUserCreation  bool          // default false
-    Port               int           // default 8080
+    AllowUserCreation   bool          // default false
+    Port                int           // default 8080
+    MaintenanceInterval time.Duration // default 1h
 }
 ```
 
@@ -157,6 +159,8 @@ Sequential SQL files for each table. Each file contains only a `CREATE TABLE IF 
 - Runs pending migrations via `db.RunMigrations(conn)`.
 - Resolves the JWT secret via `db.ResolveJWTSecret(conn, cfg.JWTSecret)` and stores it back in `cfg.JWTSecret`.
 - Creates a `auth.ChallengeStore` via `auth.NewChallengeStore(5 * time.Minute)`.
+- Creates a `context.Context` with cancel, wired to `os.Signal` (SIGINT/SIGTERM) for graceful shutdown.
+- Starts the maintenance loop via `db.StartMaintenance(ctx, conn, cfg.MaintenanceInterval)`.
 - Creates the HTTP server via `server.New(cfg, conn, challengeStore)` and calls `server.Start()`.
 
 ### `cmd/migrate.go` (created) [req.ix4ta6]
@@ -173,7 +177,7 @@ Sequential SQL files for each table. Each file contains only a `CREATE TABLE IF 
 **`LoadFromEnv() Config`**
 - Reads all configuration from environment variables with sensible defaults.
 - `DEVSESH_DB_PATH`, `DEVSESH_JWT_SECRET` (optional — if unset, auto-generated), `DEVSESH_JWT_EXPIRY`, `DEVSESH_JWT_PAIR_EXPIRY`,
-  `DEVSESH_PAIRING_CODE_EXPIRY`, `DEVSESH_ALLOW_USER_CREATION`, `DEVSESH_PORT`.
+  `DEVSESH_PAIRING_CODE_EXPIRY`, `DEVSESH_ALLOW_USER_CREATION`, `DEVSESH_PORT`, `DEVSESH_MAINTENANCE_INTERVAL`.
 - Returns a fully populated `Config`. `JWTSecret` may be empty string if not set in env — resolution happens after DB is open.
 
 ---
@@ -202,6 +206,21 @@ var migrationFS embed.FS
 - Reads all `*.sql` files from the embedded FS, sorted by filename.
 - For each file not already in the `migrations` table, executes it in a transaction and inserts a row into `migrations`.
 - Returns on first error.
+
+### `internal/db/maintenance.go` (created)
+
+**`StartMaintenance(ctx context.Context, db *sql.DB, interval time.Duration)`**
+- Starts a background goroutine that ticks every `interval`.
+- On each tick, runs all registered cleanup tasks sequentially, logging errors without stopping.
+- Returns when `ctx` is cancelled (i.e. the server is shutting down).
+- Cleanup tasks performed on each tick:
+  - `DeleteExpiredPairingCodes(db)` — deletes rows from `pairing_codes` where `expires_at < now`.
+
+**`DeleteExpiredPairingCodes(db *sql.DB) error`**
+- Executes `DELETE FROM pairing_codes WHERE expires_at < CURRENT_TIMESTAMP`.
+- Returns any database error.
+
+---
 
 ### `internal/db/queries.go` (created)
 

@@ -72,17 +72,17 @@ Both handlers now accept JSON and decode the body into `map[string]any`. `StartH
 
 ### 7. Undocumented `pair/exchange` endpoint
 
-**Severity: Minor**
+**Severity: Minor — Fixed in requirements.md**
 
-The requirements specify `pair/start` [req.sq63yf] and `pair/complete` [req.hq0gcy] but the implementation adds `pair/exchange`. This endpoint is necessary for the full pairing flow (web client approves the code after WebAuthn authentication), and is a reasonable design extension. It should be explicitly documented in the requirements or at minimum have its own req tag in the implementation.
+Added `/api/v1/auth/pair/exchange` to requirements.md with req tags [req.p2xw1a, req.n3hk7b, req.q8mv5c, req.r7ft2d]. Also added [req.w5yn3x] to `pair/complete` to make the approval dependency explicit.
 
 ---
 
 ### 8. No cleanup for expired pairing codes
 
-**Severity: Minor / Operational concern**
+**Severity: Minor / Operational concern — Fixed in implementation.md**
 
-Expired pairing codes accumulate in the `pairing_codes` table indefinitely. Consider adding a periodic cleanup (e.g. on `pair/start`, delete codes older than their expiry) or a background goroutine. Low priority for early stages, but worth noting.
+Added `internal/db/maintenance.go` with a `StartMaintenance(ctx, db, interval)` function that runs a background goroutine ticking at `cfg.MaintenanceInterval` (default 1h, configurable via `DEVSESH_MAINTENANCE_INTERVAL`). Each tick calls `DeleteExpiredPairingCodes` which issues a single `DELETE` against `pairing_codes`. The context is cancelled on SIGINT/SIGTERM, stopping the loop cleanly on server shutdown. Additional cleanup tasks can be added to the tick in the future.
 
 ---
 
