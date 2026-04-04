@@ -118,20 +118,19 @@ The HTTP server is written in Go. It shares the same codebase as the command lin
 	* There should be a `migrations` table in the database to keep track of which migrations have been run
 * `/` serves the web client. 
 	* The web client is embedded in the go binary using `embed.FS`.
-	* A `settings` table in the database can be used to store any necessary settings for the web client and server
 * `/api/v1/auth/login`
 	* Authenticates a user and returns a JWT token
 	* The token should be used in the `Authorization` header for all subsequent requests
-	* Token expires in 24 hours or as configured per settings table
+	* Token expires in 24 hours or as configured per env var
 * `/api/v1/auth/create_user`
 	* Creates a new user
 	* By default, a user can only be created if there are not users in the database OR user creation setting is enabled.
 * `/api/v1/auth/pair/start`
 	* Generates a pairing code for the provided username and returns it in the response. The user needs to enter this code in the web client to complete the authentication process. Once the code is entered in the web client, a JWT token is generated and returned in the response which should be stored in the config file for future requests. 
-	* Paring codes are single use and expire in 5 minutes or as configured per settings table
+	* Paring codes are single use and expire in 5 minutes or as configured per env var
 * `/api/v1/auth/pair/complete`
 	* Completes the pairing process by validating the provided pairing code and returning a JWT token if the code is valid. The token should be used in the `Authorization` header for all subsequent requests.
-	* JWT token expires in one month or as configured per settings table
+	* JWT token expires in one month or as configured per env var
 * `/api/v1/sessions/[session_id]/start`
 	* Creates a new session in the database with the provided session id and start time 
 * `/api/v1/sessions/[session_id]/ping`
