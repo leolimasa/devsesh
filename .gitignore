@@ -30,3 +30,15 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Build artifacts
+devsesh
+devsesh-new
+
+# Web build artifacts
+web/dist/
+web/node_modules/
+
+# Test artifacts
+.playwright/
+test-browser.js
