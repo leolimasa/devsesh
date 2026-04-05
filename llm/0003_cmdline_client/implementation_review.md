@@ -22,59 +22,33 @@ README updated to use versioned paths (`/api/v1/...`) throughout, matching imple
 
 Session files moved from `/tmp/devsesh/sessions/` to `~/.devsesh/sessions/`. Home directory is owned by the user, eliminating the TOCTOU symlink attack vector present with shared `/tmp`.
 
+### ~~4. Missing Signal Handling~~ ✓ RESOLVED
+
+Added step 8 to `runStart()`: Set up signal handler to catch SIGINT/SIGTERM. On signal: call `NotifySessionEnd()`, kill tmux session, clean up session file, then exit.
+
+### ~~7. MonitorOutput Polling Efficiency~~ ✓ RESOLVED
+
+Replaced `tmux capture-pane` polling with `io.MultiWriter` approach. `StartSession()` now takes an `onOutput` callback and monitors tmux stdout/stderr directly. Any rendering output triggers a debounced ping - no polling or subprocess spawning needed.
+
+### ~~6. Missing tmux Dependency Check~~ ✓ RESOLVED
+
+Added step 1 to `runStart()`: Check if tmux is installed via `exec.LookPath("tmux")`. Returns error if not found.
+
+### ~~8. Missing Debounce for Session File Watcher~~ ✓ RESOLVED
+
+Added `debounceDelay` parameter to `WatchSessionFile()`. Debounces file change events before calling `onChange` callback.
+
+### ~~10. Missing Concurrent Session Handling~~ ✓ RESOLVED
+
+Added step 1 to `runStart()`: Check if `DEVSESH_SESSION_ID` env var is set. If so, return error: "already inside a devsesh session".
+
+### ~~11. Config File Permission Verification~~ ✓ RESOLVED
+
+Added permission check to `LoadConfig()` step 2a: If config file exists but permissions are not 0600, return error.
+
 ---
 
 ## Open Issues
-
-### 4. Missing Signal Handling
-
-**Location:** `cmd/start.go` - `runStart()`
-
-No mention of handling SIGINT/SIGTERM. If the devsesh process is killed, the session should still be properly ended on the server.
-
-**Recommendation:** Add step to handle signals:
-- Catch SIGINT, SIGTERM
-- Call `NotifySessionEnd()` before exit
-- Kill tmux session or leave it running (document which behavior)
-
----
-
-### 6. Missing tmux Dependency Check
-
-**Location:** `cmd/start.go` - `runStart()` or `internal/client/tmux.go`
-
-No check for tmux being installed before attempting to start a session.
-
-**Recommendation:** Add early check in `runStart()`:
-```go
-if _, err := exec.LookPath("tmux"); err != nil {
-    return fmt.Errorf("tmux is required but not installed")
-}
-```
-
----
-
-### 7. MonitorOutput Polling Efficiency
-
-**Location:** `internal/client/tmux.go` - `MonitorOutput()`
-
-Using `tmux capture-pane` in a loop is inefficient.
-
-**Alternative:** Consider `tmux pipe-pane -t [sessionID] 'cat >> /tmp/output'` with file watching, or hooks via `set-hook` for certain tmux versions.
-
-**Note:** Current approach is simpler and more portable. Document this trade-off.
-
----
-
-### 8. Missing Debounce for Session File Watcher
-
-**Location:** `internal/client/session.go` - `WatchSessionFile()`
-
-The `MonitorOutput` function specifies ~1 second debounce, but `WatchSessionFile` doesn't specify debounce timing. Rapid file modifications could cause excessive API calls.
-
-**Recommendation:** Specify debounce behavior (e.g., 500ms - 1s delay after last change).
-
----
 
 ### 9. Crash Recovery / Orphaned Sessions
 
@@ -88,33 +62,6 @@ The `MonitorOutput` function specifies ~1 second debounce, but `WatchSessionFile
 - On `devsesh start`, check for existing session files
 - Verify if corresponding tmux session exists
 - Clean up orphaned files and optionally notify server
-
----
-
-### 10. Missing Concurrent Session Handling
-
-**Location:** `cmd/start.go`
-
-No specification for what happens if user runs `devsesh start` while already inside a devsesh session (nested sessions).
-
-**Recommendation:** Add check:
-```go
-if os.Getenv("DEVSESH_SESSION_ID") != "" {
-    return fmt.Errorf("already inside a devsesh session")
-}
-```
-
----
-
-### 11. Config File Permission Verification
-
-**Location:** `internal/client/config.go` - `LoadConfig()`
-
-`SaveConfig()` sets 0600 permissions, but `LoadConfig()` doesn't verify permissions when reading. Malicious actor could:
-1. Create world-readable config file before first use
-2. User runs login, JWT is written to insecure file
-
-**Recommendation:** Verify file permissions in `LoadConfig()` and warn/fail if insecure.
 
 ---
 
@@ -132,7 +79,7 @@ The `SessionFile` struct uses `Extra map[string]string` with `yaml:",inline"` fo
 
 ## Minor Suggestions
 
-1. **Logging**: No mention of logging for debugging. Consider adding structured logging with configurable verbosity.
+1. ~~**Logging**~~: Added note to use `slog` for structured logging, consistent with the rest of the project.
 
 2. **List command filtering**: `devsesh list` shows all sessions. Consider adding flags like `--all` to include ended sessions.
 
@@ -146,15 +93,20 @@ The `SessionFile` struct uses `Extra map[string]string` with `yaml:",inline"` fo
 
 The implementation plan covers all functional requirements with appropriate requirement traceability tags.
 
-**Resolved (4 issues):**
+**Resolved (10 issues):**
 - ~~Login flow UX ambiguity~~ - README updated to use polling approach
 - ~~Login command signature mismatch~~ - README updated to match requirements
 - ~~API endpoint path inconsistency~~ - README updated to use `/api/v1/...` paths
 - ~~Session directory race condition~~ - Changed from `/tmp` to `~/.devsesh/sessions/`
+- ~~Missing signal handling~~ - Added SIGINT/SIGTERM handler to `runStart()`
+- ~~MonitorOutput polling efficiency~~ - Replaced with `io.MultiWriter` on tmux stdout/stderr
+- ~~Missing tmux dependency check~~ - Added `exec.LookPath("tmux")` check to `runStart()`
+- ~~Missing debounce for file watcher~~ - Added `debounceDelay` parameter to `WatchSessionFile()`
+- ~~Missing concurrent session handling~~ - Added nested session check to `runStart()`
+- ~~Config file permission verification~~ - Added 0600 permission check to `LoadConfig()`
 
-**Remaining (8 issues):**
-- Missing resilience features (signal handling, crash recovery, nested session detection)
-- Security hardening (config permissions verification)
-- Implementation details (tmux dependency check, debounce for file watcher, extra field handling)
+**Remaining (2 issues):**
+- Missing resilience features (crash recovery)
+- Implementation details (extra field handling)
 
 These remaining issues should be addressed in implementation.md before coding begins.

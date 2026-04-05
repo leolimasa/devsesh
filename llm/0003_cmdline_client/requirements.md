@@ -61,4 +61,6 @@ cwd: [current working directory]
 | `devsesh stop`          | Gracefully end the current session                      |
 | `devsesh list`          | Show active local session(s)                            |
 | `devsesh attach [name]` | Reattach to an existing tmux session tracked by devsesh |
+| `devsesh resume [name]` | Resume an inactive session with a new tmux process      |
+| `devsesh delete [name]` | Delete an inactive session                              |
 | `devsesh logout`        | Clear stored credentials                                |
