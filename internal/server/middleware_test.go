@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/leobeosab/devsesh/internal/auth"
-	"github.com/leobeosab/devsesh/internal/sessions"
+	"github.com/leolimasa/devsesh/internal/auth"
+	"github.com/leolimasa/devsesh/internal/sessions"
 )
 
 func TestRequireJWTValidToken(t *testing.T) {

@@ -4,11 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/leobeosab/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/db"
 )
 
 type contextKey string
@@ -67,6 +68,7 @@ func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		}
 
 		if err := db.CreateSession(database, s); err != nil {
+			slog.Error("failed to create session", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -91,6 +93,7 @@ func PingHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 
 		now := time.Now()
 		if err := db.UpdateSessionPing(database, session.ID, now); err != nil {
+			slog.Error("failed to update session ping", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -116,6 +119,7 @@ func EndHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 
 		now := time.Now()
 		if err := db.EndSession(database, session.ID, now); err != nil {
+			slog.Error("failed to end session", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -149,6 +153,7 @@ func MetaHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		metaStr := string(metaJSON)
 
 		if err := db.UpdateSessionMeta(database, session.ID, metaStr); err != nil {
+			slog.Error("failed to update session meta", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -174,6 +179,7 @@ func ListHandler(database *sql.DB) http.HandlerFunc {
 
 		sessions, err := db.GetSessionsByUserID(database, userID)
 		if err != nil {
+			slog.Error("failed to get sessions by user id", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}

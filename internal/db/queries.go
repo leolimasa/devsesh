@@ -31,7 +31,7 @@ type WebAuthnCredential struct {
 
 type PairingCode struct {
 	Code      string
-	UserID    int64
+	UserID    *int64
 	Approved  bool
 	Used      bool
 	ExpiresAt time.Time
@@ -80,6 +80,21 @@ func GetUserByEmail(db *sql.DB, email string) (*User, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get user by email: %w", err)
+	}
+	u.CreatedAt, _ = parseTime(createdAt)
+	return &u, nil
+}
+
+func GetUserByID(db *sql.DB, id int64) (*User, error) {
+	var u User
+	var createdAt string
+	err := db.QueryRow("SELECT id, email, created_at FROM users WHERE id = ?", id).
+		Scan(&u.ID, &u.Email, &createdAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get user by id: %w", err)
 	}
 	u.CreatedAt, _ = parseTime(createdAt)
 	return &u, nil
@@ -134,10 +149,10 @@ func UpdateCredentialSignCount(db *sql.DB, credID string, count uint32) error {
 	return nil
 }
 
-func CreatePairingCode(db *sql.DB, code string, userID int64, expiresAt time.Time) error {
+func CreatePairingCode(db *sql.DB, code string, expiresAt time.Time) error {
 	_, err := db.Exec(
-		"INSERT INTO pairing_codes (code, user_id, expires_at) VALUES (?, ?, ?)",
-		code, userID, expiresAt.UTC().Format(timeFormat),
+		"INSERT INTO pairing_codes (code, expires_at) VALUES (?, ?)",
+		code, expiresAt.UTC().Format(timeFormat),
 	)
 	if err != nil {
 		return fmt.Errorf("create pairing code: %w", err)
@@ -149,15 +164,19 @@ func GetPairingCode(db *sql.DB, code string) (*PairingCode, error) {
 	var pc PairingCode
 	var expiresAt string
 	var approved, used int
+	var userID sql.NullInt64
 	err := db.QueryRow(
 		"SELECT code, user_id, approved, used, expires_at FROM pairing_codes WHERE code = ?",
 		code,
-	).Scan(&pc.Code, &pc.UserID, &approved, &used, &expiresAt)
+	).Scan(&pc.Code, &userID, &approved, &used, &expiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get pairing code: %w", err)
+	}
+	if userID.Valid {
+		pc.UserID = &userID.Int64
 	}
 	pc.Approved = approved != 0
 	pc.Used = used != 0
@@ -165,8 +184,8 @@ func GetPairingCode(db *sql.DB, code string) (*PairingCode, error) {
 	return &pc, nil
 }
 
-func ApprovePairingCode(db *sql.DB, code string) error {
-	_, err := db.Exec("UPDATE pairing_codes SET approved = 1 WHERE code = ?", code)
+func ApprovePairingCode(db *sql.DB, code string, userID int64) error {
+	_, err := db.Exec("UPDATE pairing_codes SET approved = 1, user_id = ? WHERE code = ?", userID, code)
 	if err != nil {
 		return fmt.Errorf("approve pairing code: %w", err)
 	}

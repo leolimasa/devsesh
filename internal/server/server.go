@@ -4,13 +4,14 @@ import (
 	"database/sql"
 	"io/fs"
 	"net/http"
+	"strconv"
 
 	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/leobeosab/devsesh/internal/auth"
-	"github.com/leobeosab/devsesh/internal/config"
-	"github.com/leobeosab/devsesh/internal/sessions"
-	"github.com/leobeosab/devsesh/internal/ssh"
-	"github.com/leobeosab/devsesh/web"
+	"github.com/leolimasa/devsesh/internal/auth"
+	"github.com/leolimasa/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/sessions"
+	"github.com/leolimasa/devsesh/internal/ssh"
+	"github.com/leolimasa/devsesh/web"
 )
 
 type Server struct {
@@ -23,7 +24,7 @@ type Server struct {
 }
 
 func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server, error) {
-	wa, err := auth.NewWebAuthn("localhost", "http://localhost:8080")
+	wa, err := auth.NewWebAuthn(cfg.RPID, cfg.RPOrigin)
 	if err != nil {
 		return nil, err
 	}
@@ -65,20 +66,6 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 }
 
 func (s *Server) Start() error {
-	addr := ":" + itoa(s.cfg.Port)
+	addr := ":" + strconv.Itoa(s.cfg.Port)
 	return http.ListenAndServe(addr, s.mux)
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	n := len(buf)
-	for i > 0 {
-		n--
-		buf[n] = byte('0' + i%10)
-		i /= 10
-	}
-	return string(buf[n:])
 }

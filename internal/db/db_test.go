@@ -125,7 +125,7 @@ func TestPairingCodeCRUD(t *testing.T) {
 	userID, _ := CreateUser(db, "pair@example.com")
 	expiresAt := time.Now().Add(5 * time.Minute)
 
-	err := CreatePairingCode(db, "ABC123", userID, expiresAt)
+	err := CreatePairingCode(db, "ABC123", expiresAt)
 	if err != nil {
 		t.Fatalf("create pairing code: %v", err)
 	}
@@ -137,8 +137,8 @@ func TestPairingCodeCRUD(t *testing.T) {
 	if pc == nil {
 		t.Fatal("expected pairing code, got nil")
 	}
-	if pc.UserID != userID {
-		t.Errorf("expected user id %d, got %d", userID, pc.UserID)
+	if pc.UserID != nil {
+		t.Errorf("expected user id nil, got %d", *pc.UserID)
 	}
 	if pc.Approved {
 		t.Error("expected approved to be false")
@@ -147,7 +147,7 @@ func TestPairingCodeCRUD(t *testing.T) {
 		t.Error("expected used to be false")
 	}
 
-	err = ApprovePairingCode(db, "ABC123")
+	err = ApprovePairingCode(db, "ABC123", userID)
 	if err != nil {
 		t.Fatalf("approve pairing code: %v", err)
 	}
@@ -155,6 +155,9 @@ func TestPairingCodeCRUD(t *testing.T) {
 	pc, _ = GetPairingCode(db, "ABC123")
 	if !pc.Approved {
 		t.Error("expected approved to be true after approval")
+	}
+	if pc.UserID == nil || *pc.UserID != userID {
+		t.Errorf("expected user id %d, got %v", userID, pc.UserID)
 	}
 
 	err = MarkPairingCodeUsed(db, "ABC123")
@@ -233,14 +236,14 @@ func TestDeleteExpiredPairingCodes(t *testing.T) {
 	db := openTestDB(t)
 	_, _ = RunMigrations(db)
 
-	userID, _ := CreateUser(db, "expired@example.com")
+	_, _ = CreateUser(db, "expired@example.com")
 
-	err := CreatePairingCode(db, "EXPIRED1", userID, time.Now().Add(-time.Hour))
+	err := CreatePairingCode(db, "EXPIRED1", time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("create expired pairing code: %v", err)
 	}
 
-	err = CreatePairingCode(db, "VALID1", userID, time.Now().Add(time.Hour))
+	err = CreatePairingCode(db, "VALID1", time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("create valid pairing code: %v", err)
 	}

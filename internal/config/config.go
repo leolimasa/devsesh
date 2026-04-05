@@ -15,18 +15,22 @@ type Config struct {
 	AllowUserCreation   bool
 	Port                int
 	MaintenanceInterval time.Duration
+	RPID                string
+	RPOrigin            string
 }
 
 func LoadFromEnv() Config {
 	cfg := Config{
 		DBPath:              getEnv("DEVSESH_DB_PATH", "devsesh.db"),
 		JWTSecret:           os.Getenv("DEVSESH_JWT_SECRET"),
-		JWTExpiry:           parseDuration("DEVSESH_JWT_EXPIRY", 24*time.Hour),
+		JWTExpiry:           parseDuration("DEVSESH_JWT_EXPIRY", 24*30*time.Hour),
 		JWTPairExpiry:       parseDuration("DEVSESH_JWT_PAIR_EXPIRY", 720*time.Hour),
 		PairingCodeExpiry:   parseDuration("DEVSESH_PAIRING_CODE_EXPIRY", 5*time.Minute),
 		AllowUserCreation:   parseBool("DEVSESH_ALLOW_USER_CREATION", false),
 		Port:                parseInt("DEVSESH_PORT", 8080),
 		MaintenanceInterval: parseDuration("DEVSESH_MAINTENANCE_INTERVAL", 1*time.Hour),
+		RPID:                getEnv("DEVSESH_RP_ID", "localhost"),
+		RPOrigin:            getEnv("DEVSESH_RP_ORIGIN", "http://localhost:8080"),
 	}
 	return cfg
 }

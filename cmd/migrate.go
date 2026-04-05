@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/leobeosab/devsesh/internal/config"
-	"github.com/leobeosab/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/db"
 )
 
 func NewMigrateCmd() *cobra.Command {

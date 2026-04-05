@@ -4,14 +4,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/leobeosab/devsesh/internal/config"
-	"github.com/leobeosab/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/db"
 	_ "modernc.org/sqlite"
 )
 
@@ -155,16 +156,18 @@ func LoginBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeSto
 
 		user, err := db.GetUserByEmail(database, req.Email)
 		if err != nil {
+			slog.Error("failed to get user by email", "error", err, "email", req.Email)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		if user == nil {
-			http.Error(w, "user not found", http.StatusNotFound)
-			return
+			slog.Warn("user not found during login begin", "email", req.Email)
+			user = &db.User{ID: 0, Email: req.Email}
 		}
 
 		creds, err := db.GetCredentialsByUserID(database, user.ID)
 		if err != nil {
+			slog.Error("failed to get credentials by user id", "error", err, "userId", user.ID)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -172,6 +175,7 @@ func LoginBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeSto
 		waUser := &webauthnUser{id: user.ID, email: user.Email, credentials: creds}
 		options, sessionData, err := wa.BeginLogin(waUser)
 		if err != nil {
+			slog.Error("failed to begin webauthn login", "error", err, "email", req.Email)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -200,29 +204,42 @@ func LoginFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Conf
 		}
 
 		user, err := db.GetUserByEmail(database, req.Email)
-		if err != nil || user == nil {
-			http.Error(w, "user not found", http.StatusNotFound)
+		if err != nil {
+			slog.Error("failed to get user by email", "error", err, "email", req.Email)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if user == nil {
+			slog.Warn("user not found during login finish", "email", req.Email)
+			http.Error(w, "invalid credential", http.StatusUnauthorized)
 			return
 		}
 
 		creds, err := db.GetCredentialsByUserID(database, user.ID)
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			slog.Error("failed to get credentials by user id", "error", err, "userId", user.ID)
+			http.Error(w, "invalid credential", http.StatusUnauthorized)
 			return
 		}
 
 		waUser := &webauthnUser{id: user.ID, email: user.Email, credentials: creds}
 		credential, err := wa.FinishLogin(waUser, *sessionData, r)
 		if err != nil {
+			slog.Error("failed to finish webauthn login", "error", err)
 			http.Error(w, "invalid credential", http.StatusUnauthorized)
 			return
 		}
 
-		db.UpdateCredentialSignCount(database, string(credential.ID), credential.Authenticator.SignCount)
+		if err := db.UpdateCredentialSignCount(database, string(credential.ID), credential.Authenticator.SignCount); err != nil {
+			slog.Error("failed to update credential sign count", "error", err, "credentialId", string(credential.ID))
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 		cs.Delete(req.Email)
 
 		token, err := GenerateToken(cfg.JWTSecret, user.ID, cfg.JWTExpiry)
 		if err != nil {
+			slog.Error("failed to generate token", "error", err, "userId", user.ID)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -242,6 +259,7 @@ func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Co
 
 		count, err := db.CountUsers(database)
 		if err != nil {
+			slog.Error("failed to count users", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -252,6 +270,7 @@ func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Co
 
 		options, sessionData, err := wa.BeginRegistration(&webauthnUser{email: req.Email})
 		if err != nil {
+			slog.Error("failed to begin webauthn registration", "error", err, "email", req.Email)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -281,6 +300,7 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 
 		user, err := db.GetUserByEmail(database, req.Email)
 		if err != nil {
+			slog.Error("failed to get user by email", "error", err, "email", req.Email)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -295,6 +315,7 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 
 		credential, err := wa.FinishRegistration(waUser, *sessionData, r)
 		if err != nil {
+			slog.Error("failed to finish webauthn registration", "error", err)
 			http.Error(w, "invalid registration", http.StatusUnauthorized)
 			return
 		}
@@ -302,6 +323,7 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 		if user == nil {
 			id, err := db.CreateUser(database, req.Email)
 			if err != nil {
+				slog.Error("failed to create user", "error", err, "email", req.Email)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
@@ -315,6 +337,7 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 			SignCount: credential.Authenticator.SignCount,
 		}
 		if err := db.SaveCredential(database, dbCred); err != nil {
+			slog.Error("failed to save credential", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}

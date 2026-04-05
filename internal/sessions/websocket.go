@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-	"github.com/leobeosab/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/db"
 )
 
 type SessionUpdate struct {

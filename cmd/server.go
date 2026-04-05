@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,10 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/leobeosab/devsesh/internal/auth"
-	"github.com/leobeosab/devsesh/internal/config"
-	"github.com/leobeosab/devsesh/internal/db"
-	"github.com/leobeosab/devsesh/internal/server"
+	"github.com/leolimasa/devsesh/internal/auth"
+	"github.com/leolimasa/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/server"
 )
 
 func NewServerCmd() *cobra.Command {
@@ -35,7 +35,7 @@ func NewServerCmd() *cobra.Command {
 				return fmt.Errorf("run migrations: %w", err)
 			}
 			for _, name := range applied {
-				log.Printf("applied migration: %s", name)
+				slog.Info("applied migration", "name", name)
 			}
 
 			secret, err := db.ResolveJWTSecret(database, cfg.JWTSecret)
@@ -53,18 +53,18 @@ func NewServerCmd() *cobra.Command {
 			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 			go func() {
 				<-sigCh
-				log.Println("shutting down...")
+				slog.Info("shutting down...")
 				cancel()
 			}()
 
-			db.StartMaintenance(ctx, database, cfg.MaintenanceInterval)
+			db.StartMaintenance(ctx, database, cfg.MaintenanceInterval, cmd.Context().Value("logger").(*slog.Logger))
 
 			srv, err := server.New(cfg, database, challengeStore)
 			if err != nil {
 				return fmt.Errorf("create server: %w", err)
 			}
 
-			log.Printf("starting server on port %d", cfg.Port)
+			slog.Info("starting server", "port", cfg.Port)
 			return srv.Start()
 		},
 	}

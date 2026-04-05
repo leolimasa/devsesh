@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/leobeosab/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/db"
 	_ "modernc.org/sqlite"
 )
 

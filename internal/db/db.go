@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/leobeosab/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/config"
 	_ "modernc.org/sqlite"
 )
 

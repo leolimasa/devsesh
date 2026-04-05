@@ -2,10 +2,11 @@ package ssh
 
 import (
 	"database/sql"
+	"log/slog"
 	"net/http"
 
-	"github.com/leobeosab/devsesh/internal/db"
-	"github.com/leobeosab/devsesh/internal/sessions"
+	"github.com/leolimasa/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/sessions"
 )
 
 func RegisterRoutes(mux *http.ServeMux, database *sql.DB, jwtMiddleware func(http.Handler) http.Handler) {
@@ -26,6 +27,7 @@ func ConnectHandler(database *sql.DB) http.HandlerFunc {
 
 		session, err := db.GetSession(database, sessionID)
 		if err != nil {
+			slog.Error("failed to get session", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}

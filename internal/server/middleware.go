@@ -3,11 +3,12 @@ package server
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"net/http"
 
-	"github.com/leobeosab/devsesh/internal/auth"
-	"github.com/leobeosab/devsesh/internal/db"
-	"github.com/leobeosab/devsesh/internal/sessions"
+	"github.com/leolimasa/devsesh/internal/auth"
+	"github.com/leolimasa/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/sessions"
 )
 
 func RequireJWT(secret string) func(http.Handler) http.Handler {
@@ -22,6 +23,7 @@ func RequireJWT(secret string) func(http.Handler) http.Handler {
 			tokenStr := authHeader[7:]
 			claims, err := auth.ValidateToken(secret, tokenStr)
 			if err != nil {
+				slog.Error("failed to validate token", "error", err)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -45,6 +47,7 @@ func RequireSessionOwner(database *sql.DB) func(http.Handler) http.Handler {
 
 			s, err := db.GetSession(database, sessionID)
 			if err != nil {
+				slog.Error("failed to get session", "error", err)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}

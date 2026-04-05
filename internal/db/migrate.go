@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/leobeosab/devsesh/sql"
+	"github.com/leolimasa/devsesh/sql"
 )
 
 func RunMigrations(db *sql.DB) ([]string, error) {

@@ -25,8 +25,8 @@ func TestLoadFromEnvDefaults(t *testing.T) {
 	if cfg.JWTSecret != "" {
 		t.Errorf("expected empty JWTSecret, got '%s'", cfg.JWTSecret)
 	}
-	if cfg.JWTExpiry != 24*time.Hour {
-		t.Errorf("expected JWTExpiry 24h, got %v", cfg.JWTExpiry)
+	if cfg.JWTExpiry != 30*24*time.Hour {
+		t.Errorf("expected JWTExpiry 30d (720h), got %v", cfg.JWTExpiry)
 	}
 	if cfg.JWTPairExpiry != 720*time.Hour {
 		t.Errorf("expected JWTPairExpiry 720h, got %v", cfg.JWTPairExpiry)
@@ -48,7 +48,7 @@ func TestLoadFromEnvDefaults(t *testing.T) {
 func TestLoadFromEnvOverrides(t *testing.T) {
 	os.Setenv("DEVSESH_DB_PATH", "/tmp/test.db")
 	os.Setenv("DEVSESH_JWT_SECRET", "mysecret")
-	os.Setenv("DEVSESH_JWT_EXPIRY", "48h")
+	os.Setenv("DEVSESH_JWT_EXPIRY", "720h0m0s")
 	os.Setenv("DEVSESH_JWT_PAIR_EXPIRY", "720h")
 	os.Setenv("DEVSESH_PAIRING_CODE_EXPIRY", "10m")
 	os.Setenv("DEVSESH_ALLOW_USER_CREATION", "true")
@@ -63,8 +63,8 @@ func TestLoadFromEnvOverrides(t *testing.T) {
 	if cfg.JWTSecret != "mysecret" {
 		t.Errorf("expected JWTSecret 'mysecret', got '%s'", cfg.JWTSecret)
 	}
-	if cfg.JWTExpiry != 48*time.Hour {
-		t.Errorf("expected JWTExpiry 48h, got %v", cfg.JWTExpiry)
+	if cfg.JWTExpiry != 720*time.Hour {
+		t.Errorf("expected JWTExpiry 720h (30d), got %v", cfg.JWTExpiry)
 	}
 	if cfg.JWTPairExpiry != 720*time.Hour {
 		t.Errorf("expected JWTPairExpiry 720h, got %v", cfg.JWTPairExpiry)

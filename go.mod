@@ -1,4 +1,4 @@
-module github.com/leobeosab/devsesh
+module github.com/leolimasa/devsesh
 
 go 1.25.0
 

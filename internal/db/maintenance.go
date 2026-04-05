@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 )
 
-func StartMaintenance(ctx context.Context, db *sql.DB, interval time.Duration) {
+func StartMaintenance(ctx context.Context, db *sql.DB, interval time.Duration, logger *slog.Logger) {
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -19,7 +19,7 @@ func StartMaintenance(ctx context.Context, db *sql.DB, interval time.Duration) {
 				return
 			case <-ticker.C:
 				if err := DeleteExpiredPairingCodes(db); err != nil {
-					log.Printf("maintenance: delete expired pairing codes: %v", err)
+					logger.Error("maintenance: delete expired pairing codes", "error", err)
 				}
 			}
 		}

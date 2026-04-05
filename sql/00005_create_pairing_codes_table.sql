@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS pairing_codes (
     code TEXT PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id),
+    user_id INTEGER REFERENCES users(id),
     approved BOOLEAN NOT NULL DEFAULT FALSE,
     used BOOLEAN NOT NULL DEFAULT FALSE,
     expires_at DATETIME NOT NULL
