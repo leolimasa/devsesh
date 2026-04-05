@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,10 @@ import (
 	"github.com/leolimasa/devsesh/internal/db"
 	_ "modernc.org/sqlite"
 )
+
+type contextKey string
+
+const ContextKeyUserID contextKey = "userID"
 
 func NewWebAuthn(rpID, rpOrigin string) (*webauthn.WebAuthn, error) {
 	wa, err := webauthn.New(&webauthn.Config{
@@ -345,5 +350,190 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 		cs.Delete(req.Email)
 
 		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+func AuthStatusHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		count, err := db.CountUsers(database)
+		if err != nil {
+			slog.Error("failed to count users", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"exists": count > 0})
+	}
+}
+
+type passkeyResponse struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func ListPasskeysHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		creds, err := db.GetCredentialsByUserID(database, userID)
+		if err != nil {
+			slog.Error("failed to get credentials", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		passkeys := make([]passkeyResponse, len(creds))
+		for i, c := range creds {
+			passkeys[i] = passkeyResponse{
+				ID:        c.ID,
+				CreatedAt: c.CreatedAt,
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(passkeys)
+	}
+}
+
+func AddPasskeyBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := db.GetUserByID(database, userID)
+		if err != nil || user == nil {
+			slog.Error("failed to get user", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		creds, err := db.GetCredentialsByUserID(database, userID)
+		if err != nil {
+			slog.Error("failed to get credentials", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		options, sessionData, err := wa.BeginRegistration(&webauthnUser{id: user.ID, email: user.Email, credentials: creds})
+		if err != nil {
+			slog.Error("failed to begin passkey registration", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		cs.Set(user.Email, sessionData)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(options)
+	}
+}
+
+func AddPasskeyFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := db.GetUserByID(database, userID)
+		if err != nil || user == nil {
+			slog.Error("failed to get user", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		sessionData, ok := cs.Get(user.Email)
+		if !ok {
+			http.Error(w, "challenge not found or expired", http.StatusUnauthorized)
+			return
+		}
+
+		creds, err := db.GetCredentialsByUserID(database, userID)
+		if err != nil {
+			slog.Error("failed to get credentials", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		credential, err := wa.FinishRegistration(&webauthnUser{id: user.ID, email: user.Email, credentials: creds}, *sessionData, r)
+		if err != nil {
+			slog.Error("failed to finish passkey registration", "error", err)
+			http.Error(w, "invalid registration", http.StatusUnauthorized)
+			return
+		}
+
+		dbCred := db.WebAuthnCredential{
+			ID:        string(credential.ID),
+			UserID:    userID,
+			PublicKey: credential.PublicKey,
+			SignCount: credential.Authenticator.SignCount,
+		}
+		if err := db.SaveCredential(database, dbCred); err != nil {
+			slog.Error("failed to save credential", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		cs.Delete(user.Email)
+
+		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+func UserIDFromContext(ctx context.Context) (int64, bool) {
+	userID, ok := ctx.Value(ContextKeyUserID).(int64)
+	return userID, ok
+}
+
+func DeletePasskeyHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		credID := r.PathValue("id")
+
+		creds, err := db.GetCredentialsByUserID(database, userID)
+		if err != nil {
+			slog.Error("failed to get credentials", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		if len(creds) <= 1 {
+			http.Error(w, "cannot delete last passkey", http.StatusBadRequest)
+			return
+		}
+
+		found := false
+		for _, c := range creds {
+			if c.ID == credID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.Error(w, "passkey not found", http.StatusNotFound)
+			return
+		}
+
+		if err := db.DeleteCredential(database, credID); err != nil {
+			slog.Error("failed to delete credential", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

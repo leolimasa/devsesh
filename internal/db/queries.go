@@ -307,3 +307,23 @@ func GetSession(db *sql.DB, id string) (*Session, error) {
 	}
 	return &s, nil
 }
+
+func DeleteStaleSessions(db *sql.DB) (int64, error) {
+	threshold := time.Now().Add(-1 * time.Hour)
+	result, err := db.Exec(
+		"DELETE FROM sessions WHERE ended_at IS NULL AND last_ping_at < ?",
+		threshold.UTC().Format(timeFormat),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("delete stale sessions: %w", err)
+	}
+	return result.RowsAffected()
+}
+
+func DeleteCredential(db *sql.DB, id string) error {
+	_, err := db.Exec("DELETE FROM webauthn_credentials WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete credential: %w", err)
+	}
+	return nil
+}

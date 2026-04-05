@@ -20,6 +20,7 @@
             gotools
             sqlite
             golangci-lint
+            nodejs_22
           ];
 
           shellHook = ''

@@ -64,8 +64,24 @@ func NewServerCmd() *cobra.Command {
 				return fmt.Errorf("create server: %w", err)
 			}
 
-			slog.Info("starting server", "port", cfg.Port)
-			return srv.Start()
+			errCh := make(chan error, 1)
+			go func() {
+				slog.Info("starting server", "port", cfg.Port)
+				errCh <- srv.Start()
+			}()
+
+			select {
+			case <-ctx.Done():
+				shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer shutdownCancel()
+				slog.Info("shutting down server...")
+				if err := srv.Shutdown(shutdownCtx); err != nil {
+					return fmt.Errorf("server shutdown: %w", err)
+				}
+				return nil
+			case err := <-errCh:
+				return fmt.Errorf("server error: %w", err)
+			}
 		},
 	}
 

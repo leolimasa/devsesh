@@ -1,0 +1,6 @@
+status: to-be-started
+task: llm/0002_webclient
+current-phase: 0
+
+# Uncomment to enable tests
+# test-cmd: some-test-cmd
