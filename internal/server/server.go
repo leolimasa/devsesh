@@ -35,7 +35,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	hub := sessions.NewHub()
 	mux := http.NewServeMux()
 
-	webContent, _ := fs.Sub(web.FS, ".")
+	webContent, _ := fs.Sub(web.FS, "dist")
 	webFS := http.FileServer(http.FS(webContent))
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

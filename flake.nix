@@ -21,6 +21,9 @@
             sqlite
             golangci-lint
             nodejs_22
+            firefox
+            playwright
+            xvfb
           ];
 
           shellHook = ''

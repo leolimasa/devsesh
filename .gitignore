@@ -40,9 +40,10 @@ web/dist/
 web/node_modules/
 
 # Test artifacts
-.playwright/
+.playwrightsdasd/
 test-browser.js
 
 devsesh.db
 project-status.yml
 .claude-cur-command
+node_modules
