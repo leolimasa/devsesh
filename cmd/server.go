@@ -19,8 +19,9 @@ import (
 
 func NewServerCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "server",
-		Short: "Start the devsesh HTTP server",
+		Use:          "server",
+		Short:        "Start the devsesh HTTP server",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := config.LoadFromEnv()
 

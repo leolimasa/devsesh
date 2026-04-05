@@ -20,6 +20,7 @@ func main() {
 	rootCmd.SetContext(ctx)
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		logger.Error("command failed", "error", err)
 		os.Exit(1)
 	}
 }
