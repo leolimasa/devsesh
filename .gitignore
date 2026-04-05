@@ -42,3 +42,5 @@ web/node_modules/
 # Test artifacts
 .playwright/
 test-browser.js
+
+devsesh.db
