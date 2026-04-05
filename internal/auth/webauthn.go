@@ -1,0 +1,326 @@
+package auth
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/leobeosab/devsesh/internal/config"
+	"github.com/leobeosab/devsesh/internal/db"
+	_ "modernc.org/sqlite"
+)
+
+func NewWebAuthn(rpID, rpOrigin string) (*webauthn.WebAuthn, error) {
+	wa, err := webauthn.New(&webauthn.Config{
+		RPDisplayName: "devsesh",
+		RPID:          rpID,
+		RPOrigins:     []string{rpOrigin},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create webauthn: %w", err)
+	}
+	return wa, nil
+}
+
+type challengeEntry struct {
+	data      *webauthn.SessionData
+	expiresAt time.Time
+}
+
+type ChallengeStore struct {
+	mu      sync.Mutex
+	entries map[string]challengeEntry
+	ttl     time.Duration
+}
+
+func NewChallengeStore(ttl time.Duration) *ChallengeStore {
+	cs := &ChallengeStore{
+		entries: make(map[string]challengeEntry),
+		ttl:     ttl,
+	}
+	go cs.cleanupLoop()
+	return cs
+}
+
+func (s *ChallengeStore) cleanupLoop() {
+	ticker := time.NewTicker(s.ttl)
+	defer ticker.Stop()
+	for range ticker.C {
+		s.cleanup()
+	}
+}
+
+func (s *ChallengeStore) cleanup() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for k, v := range s.entries {
+		if now.After(v.expiresAt) {
+			delete(s.entries, k)
+		}
+	}
+}
+
+func (s *ChallengeStore) Set(email string, data *webauthn.SessionData) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries[email] = challengeEntry{
+		data:      data,
+		expiresAt: time.Now().Add(s.ttl),
+	}
+}
+
+func (s *ChallengeStore) Get(email string) (*webauthn.SessionData, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[email]
+	if !ok || time.Now().After(entry.expiresAt) {
+		if ok {
+			delete(s.entries, email)
+		}
+		return nil, false
+	}
+	return entry.data, true
+}
+
+func (s *ChallengeStore) Delete(email string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.entries, email)
+}
+
+type webauthnUser struct {
+	id          int64
+	email       string
+	credentials []db.WebAuthnCredential
+}
+
+func (u *webauthnUser) WebAuthnID() []byte {
+	return []byte(fmt.Sprintf("%d", u.id))
+}
+
+func (u *webauthnUser) WebAuthnName() string {
+	return u.email
+}
+
+func (u *webauthnUser) WebAuthnDisplayName() string {
+	return u.email
+}
+
+func (u *webauthnUser) WebAuthnCredentials() []webauthn.Credential {
+	creds := make([]webauthn.Credential, len(u.credentials))
+	for i, c := range u.credentials {
+		creds[i] = webauthn.Credential{
+			ID:              c.PublicKey,
+			AttestationType: "",
+			PublicKey:       c.PublicKey,
+			Authenticator: webauthn.Authenticator{
+				AAGUID:   nil,
+				SignCount: c.SignCount,
+			},
+		}
+	}
+	return creds
+}
+
+func (u *webauthnUser) WebAuthnIcon() string {
+	return ""
+}
+
+func (u *webauthnUser) WebAuthnCredentialDescriptors() []protocol.CredentialDescriptor {
+	creds := u.WebAuthnCredentials()
+	descs := make([]protocol.CredentialDescriptor, len(creds))
+	for i, c := range creds {
+		descs[i] = c.Descriptor()
+	}
+	return descs
+}
+
+type emailRequest struct {
+	Email string `json:"email"`
+}
+
+func LoginBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req emailRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		user, err := db.GetUserByEmail(database, req.Email)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if user == nil {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+
+		creds, err := db.GetCredentialsByUserID(database, user.ID)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		waUser := &webauthnUser{id: user.ID, email: user.Email, credentials: creds}
+		options, sessionData, err := wa.BeginLogin(waUser)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		cs.Set(req.Email, sessionData)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(options)
+	}
+}
+
+func LoginFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Config, cs *ChallengeStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Email string `json:"email"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		sessionData, ok := cs.Get(req.Email)
+		if !ok {
+			http.Error(w, "challenge not found or expired", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := db.GetUserByEmail(database, req.Email)
+		if err != nil || user == nil {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+
+		creds, err := db.GetCredentialsByUserID(database, user.ID)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		waUser := &webauthnUser{id: user.ID, email: user.Email, credentials: creds}
+		credential, err := wa.FinishLogin(waUser, *sessionData, r)
+		if err != nil {
+			http.Error(w, "invalid credential", http.StatusUnauthorized)
+			return
+		}
+
+		db.UpdateCredentialSignCount(database, string(credential.ID), credential.Authenticator.SignCount)
+		cs.Delete(req.Email)
+
+		token, err := GenerateToken(cfg.JWTSecret, user.ID, cfg.JWTExpiry)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"token": token})
+	}
+}
+
+func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Config, cs *ChallengeStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req emailRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		count, err := db.CountUsers(database)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if count > 0 && !cfg.AllowUserCreation {
+			http.Error(w, "user creation disabled", http.StatusForbidden)
+			return
+		}
+
+		options, sessionData, err := wa.BeginRegistration(&webauthnUser{email: req.Email})
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		cs.Set(req.Email, sessionData)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(options)
+	}
+}
+
+func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Email string `json:"email"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		sessionData, ok := cs.Get(req.Email)
+		if !ok {
+			http.Error(w, "challenge not found or expired", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := db.GetUserByEmail(database, req.Email)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		var waUser webauthn.User
+		if user != nil {
+			creds, _ := db.GetCredentialsByUserID(database, user.ID)
+			waUser = &webauthnUser{id: user.ID, email: user.Email, credentials: creds}
+		} else {
+			waUser = &webauthnUser{email: req.Email}
+		}
+
+		credential, err := wa.FinishRegistration(waUser, *sessionData, r)
+		if err != nil {
+			http.Error(w, "invalid registration", http.StatusUnauthorized)
+			return
+		}
+
+		if user == nil {
+			id, err := db.CreateUser(database, req.Email)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			user = &db.User{ID: id, Email: req.Email}
+		}
+
+		dbCred := db.WebAuthnCredential{
+			ID:        string(credential.ID),
+			UserID:    user.ID,
+			PublicKey: credential.PublicKey,
+			SignCount: credential.Authenticator.SignCount,
+		}
+		if err := db.SaveCredential(database, dbCred); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		cs.Delete(req.Email)
+
+		w.WriteHeader(http.StatusCreated)
+	}
+}
