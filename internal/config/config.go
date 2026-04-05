@@ -20,8 +20,14 @@ type Config struct {
 }
 
 func LoadFromEnv() Config {
+	homeDir, _ := os.UserHomeDir()
+	defaultDBPath := "devsesh.db"
+	if homeDir != "" {
+		defaultDBPath = homeDir + "/.devsesh/devsesh.db"
+	}
+
 	cfg := Config{
-		DBPath:              getEnv("DEVSESH_DB_PATH", "devsesh.db"),
+		DBPath:              getEnv("DEVSESH_DB_PATH", defaultDBPath),
 		JWTSecret:           os.Getenv("DEVSESH_JWT_SECRET"),
 		JWTExpiry:           parseDuration("DEVSESH_JWT_EXPIRY", 24*30*time.Hour),
 		JWTPairExpiry:       parseDuration("DEVSESH_JWT_PAIR_EXPIRY", 720*time.Hour),

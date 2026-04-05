@@ -18,6 +18,10 @@ README updated from `devsesh login [email] [url]` to `devsesh login [url]`, matc
 
 README updated to use versioned paths (`/api/v1/...`) throughout, matching implementation.md and the server section.
 
+### ~~5. Session Directory Race Condition~~ ✓ RESOLVED
+
+Session files moved from `/tmp/devsesh/sessions/` to `~/.devsesh/sessions/`. Home directory is owned by the user, eliminating the TOCTOU symlink attack vector present with shared `/tmp`.
+
 ---
 
 ## Open Issues
@@ -32,18 +36,6 @@ No mention of handling SIGINT/SIGTERM. If the devsesh process is killed, the ses
 - Catch SIGINT, SIGTERM
 - Call `NotifySessionEnd()` before exit
 - Kill tmux session or leave it running (document which behavior)
-
----
-
-### 5. Session Directory Race Condition
-
-**Location:** `cmd/start.go` - `runStart()` step 3
-
-Creating `/tmp/devsesh/sessions/` with 0700 permissions has a potential TOCTOU (time-of-check-time-of-use) issue on shared systems:
-1. Attacker creates `/tmp/devsesh/` as a symlink before first devsesh run
-2. User's sessions get written to attacker-controlled location
-
-**Recommendation:** Use `$XDG_RUNTIME_DIR` if available (typically `/run/user/$UID`), or verify ownership after creation.
 
 ---
 
@@ -154,14 +146,15 @@ The `SessionFile` struct uses `Extra map[string]string` with `yaml:",inline"` fo
 
 The implementation plan covers all functional requirements with appropriate requirement traceability tags.
 
-**Resolved (3 issues):**
+**Resolved (4 issues):**
 - ~~Login flow UX ambiguity~~ - README updated to use polling approach
 - ~~Login command signature mismatch~~ - README updated to match requirements
 - ~~API endpoint path inconsistency~~ - README updated to use `/api/v1/...` paths
+- ~~Session directory race condition~~ - Changed from `/tmp` to `~/.devsesh/sessions/`
 
-**Remaining (9 issues):**
+**Remaining (8 issues):**
 - Missing resilience features (signal handling, crash recovery, nested session detection)
-- Security hardening (temp directory race condition, config permissions verification)
+- Security hardening (config permissions verification)
 - Implementation details (tmux dependency check, debounce for file watcher, extra field handling)
 
 These remaining issues should be addressed in implementation.md before coding begins.

@@ -48,8 +48,8 @@ Creates the `devsesh start [name]` command. Sets up flags and calls `runStart`.
 Main entry point for the start command:
 1. Load client config via `client.LoadConfig()`. If config is missing required fields and environment variables are not set, return error prompting user to login.
 2. Generate a new UUID for `DEVSESH_SESSION_ID`.
-3. Create the session file directory `/tmp/devsesh/sessions/` with 0700 permissions if it doesn't exist.
-4. Set `DEVSESH_SESSION_FILE` to `/tmp/devsesh/sessions/[uuid].yml`.
+3. Create the session file directory `~/.devsesh/sessions/` with 0700 permissions if it doesn't exist.
+4. Set `DEVSESH_SESSION_FILE` to `~/.devsesh/sessions/[uuid].yml`.
 5. Determine session name from args or default to "Unnamed Session".
 6. Write the initial session file with session_id, name, start_time, hostname, and cwd.
 7. Call `client.NotifySessionStart()` to notify the server.
@@ -110,7 +110,7 @@ Creates the `devsesh list` command.
 
 #### `runList(cmd *cobra.Command, args []string) error`
 Lists active local sessions:
-1. Read all session files from `/tmp/devsesh/sessions/`.
+1. Read all session files from `~/.devsesh/sessions/`.
 2. For each file, check if the corresponding tmux session is still running.
 3. Print a table of active sessions with session ID, name, and start time.
 
@@ -123,7 +123,7 @@ Creates the `devsesh attach [name]` command.
 
 #### `runAttach(cmd *cobra.Command, args []string) error`
 Reattaches to an existing tmux session:
-1. If name is provided, find the session by name in `/tmp/devsesh/sessions/`.
+1. If name is provided, find the session by name in `~/.devsesh/sessions/`.
 2. If no name, list available sessions and prompt user to select.
 3. Call `tmux -2 attach-session -t [session_id]`.
 

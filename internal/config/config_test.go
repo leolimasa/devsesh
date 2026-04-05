@@ -19,8 +19,10 @@ func TestLoadFromEnvDefaults(t *testing.T) {
 
 	cfg := LoadFromEnv()
 
-	if cfg.DBPath != "devsesh.db" {
-		t.Errorf("expected DBPath 'devsesh.db', got '%s'", cfg.DBPath)
+	homeDir, _ := os.UserHomeDir()
+	expectedDBPath := homeDir + "/.devsesh/devsesh.db"
+	if cfg.DBPath != expectedDBPath {
+		t.Errorf("expected DBPath '%s', got '%s'", expectedDBPath, cfg.DBPath)
 	}
 	if cfg.JWTSecret != "" {
 		t.Errorf("expected empty JWTSecret, got '%s'", cfg.JWTSecret)

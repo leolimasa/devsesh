@@ -16,7 +16,7 @@ When a user runs `devsesh start`, the following happens:
 * Read the config file (default `~/.devsesh/config.yml` or `$DEVSESH_CONFIG_FILE`) to get the server URL and JWT token.  [req.o5oh2n]
 	* If the config file does not exist or is missing any of the required fields and the variables are not already set in the environment, prompt the user to login first. [req.l3x8pd]
 * Set `$DEVSESH_SESSION_ID` to a new uuid [req.bklg10]
-* Set `$DEVSESH_SESSION_FILE` to a temporary file path that is solely owned by the current user. Ex: `/tmp/devsesh/sessions/[uuid].yml`  [req.x6pxmb]
+* Set `$DEVSESH_SESSION_FILE` to a file path in the user's home directory. Ex: `~/.devsesh/sessions/[uuid].yml`  [req.x6pxmb]
 * Set `$DEVSESH_SESSION_NAME` to the provided name or default to "Unnamed Session" if no name is provided [req.pgs54g]
 * Generate a new `$DEVSESH_SESSION_FILE` for the current session. The file should be a yaml file with the following structure: [req.xeab93]
 

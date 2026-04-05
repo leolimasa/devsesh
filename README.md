@@ -13,7 +13,7 @@ When a user runs `devsesh start`, the following happens:
 * Read the config file (default `~/.devsesh/config.yml` or `$DEVSESH_CONFIG_FILE`) to get the server URL and JWT token. 
 	* If the config file does not exist or is missing any of the required fields and the variables are not already set in the environment, prompt the user to login first.
 * Set `$DEVSESH_SESSION_ID` to a new uuid
-* Set `$DEVSESH_SESSION_FILE` to a temporary file path that is solely owned by the current user. Ex: `/tmp/devsesh/sessions/[uuid].yml` 
+* Set `$DEVSESH_SESSION_FILE` to a file path in the user's home directory. Ex: `~/.devsesh/sessions/[uuid].yml` 
 * Set `$DEVSESH_SESSION_NAME` to the provided name or default to "Unnamed Session" if no name is provided
 * Generate a new `$DEVSESH_SESSION_FILE` for the current session. The file should be a yaml file with the following structure:
 
@@ -115,8 +115,8 @@ cwd: [current working directory]
 The HTTP server is written in Go. It shares the same codebase as the command line client.
 
 * Started with `devsesh server` command
-* Uses either postgres or sqlite database (as configured per env var) to store any necessary data (e.g. users, sessions, etc.)
-	* Defaults to sqlite for easy setup and testing, but can be configured to use postgres for production use 
+* Uses either postgres or sqlite database (as configured per `DEVSESH_DB_PATH` env var) to store any necessary data (e.g. users, sessions, etc.)
+	* Defaults to sqlite at `~/.devsesh/devsesh.db` for easy setup and testing, but can be configured to use postgres for production use 
 	* Migrations are also embedded in the go binary using `embed.FS` and can be run with the command `devsesh migrate`
 	* Migrations are sequential SQL files stored in the `sql/` folder. Ex: `00001_create_users_table.sql`, `00002_create_sessions_table.sql`, etc.
 	* There should be a `migrations` table in the database to keep track of which migrations have been run
