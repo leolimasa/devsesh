@@ -1,5 +1,14 @@
 # Command Line Client Implementation Checklist
 
+## Project Status
+
+- 🟡 Phase 1: Core Infrastructure (debouncer.go, config.go, tests)
+- 🟡 Phase 2: Session File Management (session.go, tests)
+- 🟡 Phase 3: API Client (api.go, tests)
+- 🟡 Phase 4: Tmux Integration (tmux.go, tests)
+- 🟡 Phase 5: Commands (all cmd files, tests)
+- 🟡 Phase 6: Final Integration and testing
+
 ## Phase 1: Core Infrastructure
 
 ### Debouncer (internal/client/debounce.go)

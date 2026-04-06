@@ -24,6 +24,7 @@
             firefox
             playwright
             xvfb
+            tmux
           ];
 
           shellHook = ''
