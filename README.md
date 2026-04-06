@@ -1,154 +1,103 @@
-# devsesh
+# Devsesh
 
-Centralized dev session management and monitoring
+Devsesh is a centralized development session management and monitoring system. It tracks your development sessions across machines, providing real-time visibility into your work through a web dashboard. Sessions are created using the command line tool.
 
-## Command line client
+Ideal for monitoring AI agents and long running processes across machines.
 
-The command line client is written in Go and provides the commands below.
+## Features
 
-### `devsesh start [name]`
+- **Session Tracking** - Automatically track tmux sessions with metadata like project name, branch, and working directory
+- **Passkey Authentication** - Secure WebAuthn/FIDO2 passkey-based login
+- **Real-time Updates** - Live session updates via WebSocket
+- **Device Pairing** - Easily pair CLI clients with the web interface
+- **SSH Integration** - Connect to sessions remotely via SSH
+- **Cross-Platform UI** - Responsive web dashboard works on desktop and mobile
 
-When a user runs `devsesh start`, the following happens:
+## Quick Start
 
-* Read the config file (default `~/.devsesh/config.yml` or `$DEVSESH_CONFIG_FILE`) to get the server URL and JWT token. 
-	* If the config file does not exist or is missing any of the required fields and the variables are not already set in the environment, prompt the user to login first.
-* Set `$DEVSESH_SESSION_ID` to a new uuid
-* Set `$DEVSESH_SESSION_FILE` to a file path in the user's home directory. Ex: `~/.devsesh/sessions/[uuid].yml` 
-* Set `$DEVSESH_SESSION_NAME` to the provided name or default to "Unnamed Session" if no name is provided
-* Generate a new `$DEVSESH_SESSION_FILE` for the current session. The file should be a yaml file with the following structure:
+### Run the Server
 
-```yaml
-session_id: [uuid]
-name: [name]
-start_time: [timestamp]
-hostname: [hostname]
-cwd: [current working directory]
+```bash
+devsesh server
 ```
 
-* Start a new tmux session where the session name is the same as the session id
-* Calls `$DEVSESH_SERVER_URL/api/v1/sessions/[session_id]/start` to notify the server that a new session has started
-* Monitor the tmux session stdout/stderr and call `$DEVSESH_SERVER_URL/api/v1/sessions/[session_id]/ping` everytime there is new output (with appropriate debounce)
-* Monitor the tmux session for exit and call `$DEVSESH_SERVER_URL/api/v1/sessions/[session_id]/end` when the session ends
-	* Process ends if the tmux process ends
-* Continuously observe `$DEVSESH_SESSION_FILE` and post any changes to `$DEVSESH_SERVER_URL/api/v1/sessions/[session_id]/meta`
-* Tmux should be interactive. That means as long as `devsesh start` is running, the stdout/stderr from TMUX is forwarded to the current process' stdout/stderr
-	* Tmux should also receive all inputs sent to the original process
+The server starts on `http://localhost:8080` by default.
 
-### `devsesh login [url]`
+### Start a session
 
-* URL is the server URL
-* Get a pairing code by calling `$DEVSESH_SERVER_URL/api/v1/auth/pair/start`. The server will return a pairing code which the user needs to enter in the web client to complete the authentication process.
-* Prompt the user to visit the web client and enter the pairing code to complete the authentication process.
-* Poll `$DEVSESH_SERVER_URL/api/v1/auth/pair/complete` with the pairing code every 5 seconds until a valid JWT is returned. Timeout after 10 minutes.
-* Save both the JWT token and the server URL to the config file. 
-	* The config file will be set 0600 permissions
-	* If DEVSESH_SERVER_URL is set, it will override the server URL in the config file.
-	* If DEVSESH_JWT_TOKEN is set, it will override the JWT token in the config file.
+1. Open the web interface at http://localhost:8080
+2. Create an account with your email and a passkey
+3. Start a session from the CLI:
 
-### `devsesh set [key] [value]`
+```bash
+devsesh login http://localhost:8080
+devsesh start
+```
 
-* Set a key-value pair in the session file and post the updated session file to the server
-* Only works if the session is active (i.e. $DEVSESH_SESSION_ID is set and the session has not ended)
+## Usage
 
-### Additional commands
+### CLI Commands
 
+| Command                     | Description                               |
+|-----------------------------|-------------------------------------------|
+| `devsesh server`            | Start the devsesh server                  |
+| `devsesh migrate`           | Run database migrations                   |
+| `devsesh start [name]`      | Start a new tracked session               |
+| `devsesh stop`              | End the current session                   |
+| `devsesh list`              | List all sessions for the current machine |
+| `devsesh attach [name]`     | Attach to a session                       |
+| `devsesh resume [name]`     | Resume an inactive session                |
+| `devsesh delete [name]`     | Delete a session                          |
+| `devsesh set [key] [value]` | Set session metadata                      |
+| `devsesh login [url]`       | Pair CLI with server                      |
+| `devsesh logout`            | Clear stored credentials                  |
 
-| Command                 | Purpose                                                 |
-|-------------------------|---------------------------------------------------------|
-| `devsesh stop`          | Gracefully end the current session                      |
-| `devsesh list`          | Show active local session(s)                            |
-| `devsesh attach [name]` | Reattach to an existing tmux session tracked by devsesh |
-| `devsesh resume [name]` | Resume an inactive session with a new tmux process      |
-| `devsesh delete [name]` | Delete an inactive session                              |
-| `devsesh logout`        | Clear stored credentials                                |
-| `devsesh server`        | See server section below                                |
+### Environment Variables
 
-## Web Client
+| Variable                      | Description               | Default                 |
+|-------------------------------|---------------------------|-------------------------|
+| `DEVSESH_SERVER_URL`          | Server URL                | (from config)           |
+| `DEVSESH_JWT_TOKEN`           | JWT token                 | (from config)           |
+| `DEVSESH_SESSION_DIR`         | Sessions directory        | `~/.devsesh/sessions/`  |
+| `DEVSESH_CONFIG_FILE`         | Config file path          | `~/.devsesh/config.yml` |
+| `DEVSESH_PORT`                | Server port               | `8080`                  |
+| `DEVSESH_JWT_SECRET`          | JWT signing secret        | (auto-generated)        |
+| `DEVSESH_ALLOW_USER_CREATION` | Allow public registration | `false`                 |
 
-* Is written in React + Typescript. 
-* Is embedded in the go binary using `embed.FS` and served by the server.
-* Is responsive and can be accessed from both desktop and mobile devices.
-* Dark mode by default
+## Architecture
 
-### Login
+For a detailed architecture overview, see [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md).
 
-* User logs in by providing:
-  * an e-mail 
-  * a passkey (FIDO2/WebAuthn)
-* Calls `$DEVSESH_SERVER_URL/api/v1/auth/login` to authenticate the user
-* If there are no users, the user is prompted to create a new user
+### Tech Stack
 
-### Create user
+- **Backend**: Go with standard library (HTTP, WebSocket, SQLite)
+- **Frontend**: React + TypeScript + Vite + Tailwind + shadcn/ui
+- **Session Management**: tmux
+- **Database**: SQLite (embedded, no external DB required)
+- **Authentication**: WebAuthn/FIDO2 passkeys + JWT
 
-* User can create a new user by providing:
-  * an e-mail
-  * a passkey (FIDO2/WebAuthn)
-* Calls `$DEVSESH_SERVER_URL/api/v1/auth/create_user` to create a new user
+## Development
 
-### Pairing
+### Build
 
-* User can pair their account by providing:
-  * an e-mail
-  * a pairing code generated by the `devsesh login` command
-* Upon successful pairing, the CLI (which is polling the server) will automatically receive the JWT token
+Install Nix: https://nixos.org/download.html, then:
 
-### Passkey management
+```bash
+# Enter development shell (includes all dependencies)
+nix develop
 
-* Adds a new passkey to the current user's account
-* Allows removing existing passkeys from the current user's account
-* For logged in users only
+# Build the binary
+./build.sh
 
-### Dashboard
+# Test
+./test.sh
+```
 
-* Display a list of active sessions for the current user with the following information:
-  * Session ID
-  * Start time
-  * Last ping time
-  * Status (active/inactive)
-  	* Session is inactive when there is no ping for more than 5 minutes
-  * Any additional metadata from the session file (e.g. project name, branch name, etc.)
-* Clicking the session will open a new easyssh session to the tmux session running on the user's machine
-* The dashboard is updated in real-time as new sessions are started, pinged, ended, and updated
-* Button to remove ALL staled sessions that have not been pinged for at least one hour
-* For logged in users only
+## Documentation
 
-## Server
+- [API Endpoints](doc/SERVER_ENDPOINTS.md)
+- [Architecture](doc/ARCHITECTURE.md)
 
-The HTTP server is written in Go. It shares the same codebase as the command line client.
+## License
 
-* Started with `devsesh server` command
-* Uses either postgres or sqlite database (as configured per `DEVSESH_DB_PATH` env var) to store any necessary data (e.g. users, sessions, etc.)
-	* Defaults to sqlite at `~/.devsesh/devsesh.db` for easy setup and testing, but can be configured to use postgres for production use 
-	* Migrations are also embedded in the go binary using `embed.FS` and can be run with the command `devsesh migrate`
-	* Migrations are sequential SQL files stored in the `sql/` folder. Ex: `00001_create_users_table.sql`, `00002_create_sessions_table.sql`, etc.
-	* There should be a `migrations` table in the database to keep track of which migrations have been run
-* `/` serves the web client. 
-	* The web client is embedded in the go binary using `embed.FS`.
-* `/api/v1/auth/login`
-	* Authenticates a user and returns a JWT token
-	* The token should be used in the `Authorization` header for all subsequent requests
-	* Token expires in 24 hours or as configured per env var
-* `/api/v1/auth/create_user`
-	* Creates a new user
-	* By default, a user can only be created if there are not users in the database OR user creation setting is enabled.
-* `/api/v1/auth/pair/start`
-	* Generates a pairing code for the provided username and returns it in the response. The user needs to enter this code in the web client to complete the authentication process. Once the code is entered in the web client, a JWT token is generated and returned in the response which should be stored in the config file for future requests. 
-	* Paring codes are single use and expire in 5 minutes or as configured per env var
-* `/api/v1/auth/pair/complete`
-	* Completes the pairing process by validating the provided pairing code and returning a JWT token if the code is valid. The token should be used in the `Authorization` header for all subsequent requests.
-	* JWT token expires in one month or as configured per env var
-* `/api/v1/sessions/[session_id]/start`
-	* Creates a new session in the database with the provided session id and start time 
-* `/api/v1/sessions/[session_id]/ping`
-	* Updates the last ping time for the session in the database 
-* `/api/v1/sessions/[session_id]/end`
-	* Updates the session status to inactive and sets the end time in the database 
-* `/api/v1/sessions/[session_id]/meta`
-	* Updates the session metadata in the database with the provided session file data
-* `/api/v1/sessions/updates`
-	* A websocket endpoint that the web client can connect to for receiving real-time updates about the user's sessions. Whenever a session is started, pinged, ended, or updated, a message is sent to the connected clients with the updated session information.
-* `/api/v1/sessions`
-	* Returns a list of all sessions for the current user. This endpoint is used by the web client to display the list of sessions in the dashboard. 
-* Add extra endpoints as needed for ssheasy
-	* Use webauthn + ssheasy to use the local FIDO2 token for SSH authentication 
-	* Ssheasy (https://github.com/hullarb/ssheasy) is a Go library, so it should be possible to integrate it directly into the server codebase and use it to establish SSH connections to the tmux sessions running on the user's machine when the user clicks on a session in the dashboard.
+MIT
