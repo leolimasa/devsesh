@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -38,7 +39,7 @@ func LoadFromEnv() Config {
 		Port:                parseInt("DEVSESH_PORT", 8080),
 		MaintenanceInterval: parseDuration("DEVSESH_MAINTENANCE_INTERVAL", 1*time.Hour),
 		RPID:                getEnv("DEVSESH_RP_ID", "localhost"),
-		RPOrigin:            getEnv("DEVSESH_RP_ORIGIN", "http://localhost:8080"),
+		RPOrigin:            getEnv("DEVSESH_RP_ORIGIN", fmt.Sprintf("http://localhost:%d", parseInt("DEVSESH_PORT", 8080))),
 	}
 	return cfg
 }

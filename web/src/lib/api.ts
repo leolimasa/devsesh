@@ -54,16 +54,12 @@ export async function loginBegin(email: string): Promise<unknown> {
 }
 
 export async function loginFinish(email: string, credential: unknown): Promise<{ token: string }> {
-  const formData = new FormData()
-  formData.append("email", email)
-  formData.append("credential", JSON.stringify(credential))
-
   const response = await fetch(`/api/v1/auth/login/finish`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      "Content-Type": "application/json",
     },
-    body: formData,
+    body: JSON.stringify({ email, credential }),
   })
 
   if (!response.ok) {
@@ -88,9 +84,6 @@ export async function registerFinish(email: string, credential: unknown): Promis
 
   const response = await fetch(`/api/v1/auth/register/finish`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${getToken()}`,
-    },
     body: formData,
   })
 
@@ -146,15 +139,13 @@ export async function addPasskeyBegin(): Promise<unknown> {
 }
 
 export async function addPasskeyFinish(credential: unknown): Promise<void> {
-  const formData = new FormData()
-  formData.append("credential", JSON.stringify(credential))
-
   const response = await fetch(`/api/v1/auth/passkeys/finish`, {
     method: "POST",
     headers: {
+      "Content-Type": "application/json",
       Authorization: `Bearer ${getToken()}`,
     },
-    body: formData,
+    body: JSON.stringify({ credential }),
   })
 
   if (!response.ok) {
