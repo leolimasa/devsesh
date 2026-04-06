@@ -4,22 +4,33 @@ This document provides a high-level overview of the devsesh system architecture.
 
 ## System Overview
 
-Devsesh is a client-server system for tracking development sessions. The server runs locally on the developer's machine, while the web dashboard and CLI client connect to it to display and manage sessions.
+Devsesh is a client-server system for tracking development sessions and long running processes across machines.
 
-```
-┌─────────────┐         ┌─────────────┐
-│  CLI Client │◄───────►│   Server    │
-│  (devsesh)  │  HTTP   │   (Go)      │
-└─────────────┘         └──────┬──────┘
-                                │
-                    ┌───────────┼───────────┐
-                    ▼           ▼           ▼
-              ┌─────────┐ ┌─────────┐ ┌─────────┐
-              │ Web UI  │ │ SQLite  │ │  tmux   │
-              │(React)  │ │   DB    │ │Sessions │
-              └─────────┘ └─────────┘ └─────────┘
-```
+### How It Works
 
+1. **Start the server** - Run `devsesh server` to start a server
+2. **Create an account** - Open the web UI, register with email and a passkey
+3. **Pair the CLI** - Run `devsesh login <server-url>` on all target machines to pair the CLI with the server
+4. **Start sessions** - Run `devsesh start` on any paired machine to create a tracked tmux session
+5. **Monitor** - View all sessions in real-time on the web dashboard
+
+
+### Session Sync
+
+When a session starts, the CLI:
+1. Creates a session file (`~/.devsesh/sessions/<uuid>.yml`) with metadata
+2. Starts a tmux session
+3. Notifies the server via `POST /api/v1/sessions/{id}/start`
+
+While the session runs, the CLI:
+- **Pings the server** when there's output from the tmux session (debounced)
+- **Watches the session file** for changes and syncs metadata to the server
+- **Notifies the server** when the session ends
+
+The server broadcasts all updates via WebSocket to connected web clients for real-time display.
+
+ Users can edit the session YAML file (manually or through automated processes) at any time. The CLI watches the file and automatically syncs any changes to the server (as long as the session is active), making the metadata available in the web dashboard in real-time.
+ 
 ## Components
 
 ### Server (Go)
@@ -94,46 +105,18 @@ A React SPA embedded in the Go binary and served by the server.
 
 The SQLite database uses migrations stored in `sql/*.sql`:
 
-| Table | Purpose |
-|-------|---------|
-| `migrations` | Track applied migrations |
-| `server_config` | Key-value config (includes JWT secret) |
-| `users` | User accounts |
-| `webauthn_credentials` | Passkey credentials |
-| `pairing_codes` | Temporary pairing codes |
-| `sessions` | Session records with metadata |
+| Table                  | Purpose                                |
+|------------------------|----------------------------------------|
+| `migrations`           | Track applied migrations               |
+| `server_config`        | Key-value config (includes JWT secret) |
+| `users`                | User accounts                          |
+| `webauthn_credentials` | Passkey credentials                    |
+| `pairing_codes`        | Temporary pairing codes                |
+| `sessions`             | Session records with metadata          |
 
-## API Architecture
+## API Endpoints
 
-### Authentication Endpoints
-
-- `POST /api/v1/auth/register/begin` - Start passkey registration
-- `POST /api/v1/auth/register/finish` - Complete registration
-- `POST /api/v1/auth/login/begin` - Start passkey login
-- `POST /api/v1/auth/login/finish` - Complete login
-- `POST /api/v1/auth/pair/start` - Request pairing code
-- `POST /api/v1/auth/pair/exchange` - Approve pairing (web client)
-- `POST /api/v1/auth/pair/complete` - Get JWT from pairing code
-- `GET /api/v1/auth/passkeys` - List user's passkeys
-- `POST /api/v1/auth/passkeys/begin` - Add new passkey
-- `POST /api/v1/auth/passkeys/finish` - Complete passkey addition
-
-### Session Endpoints
-
-- `GET /api/v1/sessions` - List user's sessions
-- `GET /api/v1/sessions/:id` - Get session details
-- `POST /api/v1/sessions/:id/start` - Create session
-- `POST /api/v1/sessions/:id/ping` - Update last ping
-- `POST /api/v1/sessions/:id/end` - End session
-- `POST /api/v1/sessions/:id/meta` - Update metadata
-- `DELETE /api/v1/sessions/stale` - Remove stale sessions
-- `GET /api/v1/sessions/updates` - WebSocket for real-time updates
-
-### SSH Endpoints
-
-- `GET /api/v1/ssh/connect/:session_id` - WebSocket SSH tunnel
-- `POST /api/v1/ssh/webauthn/begin` - SSH key authorization
-- `POST /api/v1/ssh/webauthn/complete` - Complete SSH auth
+All API endpoints are documented in [SERVER_ENDPOINTS.md](SERVER_ENDPOINTS.md).
 
 ## Security
 
@@ -145,14 +128,14 @@ The SQLite database uses migrations stored in `sql/*.sql`:
 
 ## Deployment
 
-The server is designed to run locally on the developer's machine. The web client is embedded in the binary, making deployment a single-file operation.
+The web client is embedded in the binary, making deployment a single-file operation.
 
 ```bash
-# Build
-./build.sh
-
-# Run
+# Run with defaults (localhost:8080)
 ./devsesh server
+
+# Run on a specific host/port
+DEVSESH_HOST=0.0.0.0 DEVSESH_PORT=9000 ./devsesh server
 
 # Access
 open http://localhost:8080

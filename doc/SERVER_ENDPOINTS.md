@@ -87,7 +87,7 @@ This document describes all API endpoints available in the devsesh server.
 
 ### Pairing - Exchange
 - **Endpoint:** `POST /api/v1/auth/pair/exchange`
-- **Description:** Exchange a pairing code for a JWT token.
+- **Description:** Approve a pairing code from the web client (after user enters the code).
 - **Authentication:** Requires JWT token
 - **Request Body:**
 ```json
@@ -95,12 +95,8 @@ This document describes all API endpoints available in the devsesh server.
   "code": "ABC123"
 }
 ```
-- **Response:**
-```json
-{
-  "token": "jwt-token-here"
-}
-```
+- **Response:** HTTP 200 OK
+- **Notes:** After calling this, the CLI can poll `/pair/complete` to get the JWT token.
 
 ### Pairing - Complete
 - **Endpoint:** `POST /api/v1/auth/pair/complete`
@@ -241,10 +237,21 @@ This document describes all API endpoints available in the devsesh server.
 
 ## SSH Endpoints
 
-### SSH Config
-- **Endpoint:** `GET /api/v1/ssh/config`
+### SSH Connect
+- **Endpoint:** `GET /api/v1/ssh/connect/{session_id}`
 - **Authentication:** Requires JWT token
-- **Description:** Get SSH configuration for the user.
+- **Description:** WebSocket endpoint to connect to a session via SSH.
+- **Response:** JSON with hostname for the session
+
+### SSH WebAuthn Begin
+- **Endpoint:** `POST /api/v1/ssh/webauthn/begin`
+- **Authentication:** Requires JWT token
+- **Description:** Begin WebAuthn authentication for SSH key authorization.
+
+### SSH WebAuthn Complete
+- **Endpoint:** `POST /api/v1/ssh/webauthn/complete`
+- **Authentication:** Requires JWT token
+- **Description:** Complete WebAuthn authentication for SSH key authorization.
 
 ## Static Files
 

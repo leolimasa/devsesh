@@ -11,7 +11,7 @@ func TestLoadFromEnvDefaults(t *testing.T) {
 	envVars := []string{
 		"DEVSESH_DB_PATH", "DEVSESH_JWT_SECRET", "DEVSESH_JWT_EXPIRY",
 		"DEVSESH_JWT_PAIR_EXPIRY", "DEVSESH_PAIRING_CODE_EXPIRY",
-		"DEVSESH_ALLOW_USER_CREATION", "DEVSESH_PORT", "DEVSESH_MAINTENANCE_INTERVAL",
+		"DEVSESH_ALLOW_USER_CREATION", "DEVSESH_HOST", "DEVSESH_PORT", "DEVSESH_MAINTENANCE_INTERVAL",
 	}
 	for _, k := range envVars {
 		os.Unsetenv(k)
@@ -39,6 +39,9 @@ func TestLoadFromEnvDefaults(t *testing.T) {
 	if cfg.AllowUserCreation {
 		t.Error("expected AllowUserCreation false")
 	}
+	if cfg.Host != "localhost" {
+		t.Errorf("expected Host 'localhost', got '%s'", cfg.Host)
+	}
 	if cfg.Port != 8080 {
 		t.Errorf("expected Port 8080, got %d", cfg.Port)
 	}
@@ -54,6 +57,7 @@ func TestLoadFromEnvOverrides(t *testing.T) {
 	os.Setenv("DEVSESH_JWT_PAIR_EXPIRY", "720h")
 	os.Setenv("DEVSESH_PAIRING_CODE_EXPIRY", "10m")
 	os.Setenv("DEVSESH_ALLOW_USER_CREATION", "true")
+	os.Setenv("DEVSESH_HOST", "0.0.0.0")
 	os.Setenv("DEVSESH_PORT", "9090")
 	os.Setenv("DEVSESH_MAINTENANCE_INTERVAL", "30m")
 
@@ -77,6 +81,9 @@ func TestLoadFromEnvOverrides(t *testing.T) {
 	if !cfg.AllowUserCreation {
 		t.Error("expected AllowUserCreation true")
 	}
+	if cfg.Host != "0.0.0.0" {
+		t.Errorf("expected Host '0.0.0.0', got '%s'", cfg.Host)
+	}
 	if cfg.Port != 9090 {
 		t.Errorf("expected Port 9090, got %d", cfg.Port)
 	}
@@ -88,7 +95,7 @@ func TestLoadFromEnvOverrides(t *testing.T) {
 	for _, k := range []string{
 		"DEVSESH_DB_PATH", "DEVSESH_JWT_SECRET", "DEVSESH_JWT_EXPIRY",
 		"DEVSESH_JWT_PAIR_EXPIRY", "DEVSESH_PAIRING_CODE_EXPIRY",
-		"DEVSESH_ALLOW_USER_CREATION", "DEVSESH_PORT", "DEVSESH_MAINTENANCE_INTERVAL",
+		"DEVSESH_ALLOW_USER_CREATION", "DEVSESH_HOST", "DEVSESH_PORT", "DEVSESH_MAINTENANCE_INTERVAL",
 	} {
 		os.Unsetenv(k)
 	}

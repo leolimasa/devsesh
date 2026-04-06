@@ -88,7 +88,11 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 }
 
 func (s *Server) Start() error {
-	addr := ":" + strconv.Itoa(s.cfg.Port)
+	host := s.cfg.Host
+	if host == "" {
+		host = "localhost"
+	}
+	addr := host + ":" + strconv.Itoa(s.cfg.Port)
 	s.srv = &http.Server{
 		Addr:    addr,
 		Handler: s.mux,

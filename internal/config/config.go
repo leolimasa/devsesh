@@ -13,6 +13,7 @@ type Config struct {
 	JWTPairExpiry       time.Duration
 	PairingCodeExpiry   time.Duration
 	AllowUserCreation   bool
+	Host                string
 	Port                int
 	MaintenanceInterval time.Duration
 	RPID                string
@@ -33,6 +34,7 @@ func LoadFromEnv() Config {
 		JWTPairExpiry:       parseDuration("DEVSESH_JWT_PAIR_EXPIRY", 720*time.Hour),
 		PairingCodeExpiry:   parseDuration("DEVSESH_PAIRING_CODE_EXPIRY", 5*time.Minute),
 		AllowUserCreation:   parseBool("DEVSESH_ALLOW_USER_CREATION", false),
+		Host:                getEnv("DEVSESH_HOST", "localhost"),
 		Port:                parseInt("DEVSESH_PORT", 8080),
 		MaintenanceInterval: parseDuration("DEVSESH_MAINTENANCE_INTERVAL", 1*time.Hour),
 		RPID:                getEnv("DEVSESH_RP_ID", "localhost"),

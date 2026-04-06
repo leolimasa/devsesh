@@ -57,12 +57,13 @@ devsesh start
 | Variable                      | Description               | Default                 |
 |-------------------------------|---------------------------|-------------------------|
 | `DEVSESH_SERVER_URL`          | Server URL                | (from config)           |
-| `DEVSESH_JWT_TOKEN`           | JWT token                 | (from config)           |
-| `DEVSESH_SESSION_DIR`         | Sessions directory        | `~/.devsesh/sessions/`  |
-| `DEVSESH_CONFIG_FILE`         | Config file path          | `~/.devsesh/config.yml` |
-| `DEVSESH_PORT`                | Server port               | `8080`                  |
-| `DEVSESH_JWT_SECRET`          | JWT signing secret        | (auto-generated)        |
-| `DEVSESH_ALLOW_USER_CREATION` | Allow public registration | `false`                 |
+| `DEVSESH_JWT_TOKEN`          | JWT token                 | (from config)           |
+| `DEVSESH_SESSION_DIR`        | Sessions directory        | `~/.devsesh/sessions/` |
+| `DEVSESH_CONFIG_FILE`        | Config file path          | `~/.devsesh/config.yml` |
+| `DEVSESH_HOST`               | Server host               | `localhost`             |
+| `DEVSESH_PORT`               | Server port               | `8080`                  |
+| `DEVSESH_JWT_SECRET`         | JWT signing secret        | (auto-generated)        |
+| `DEVSESH_ALLOW_USER_CREATION`| Allow public registration | `false`                 |
 
 ## Architecture
 
