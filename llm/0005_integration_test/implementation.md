@@ -1,455 +1,212 @@
-# Implementation Plan
+# Implementation: Integration Tests for Devsesh
 
-This document describes the implementation for integration tests covering all devsesh functionality.
+This document describes how to implement integration tests for the devsesh project, starting with the user registration flow using Playwright and WebAuthn emulation.
 
-## Overview
+## Data Structures
 
-The integration tests will use Playwright as the unified testing framework for both web UI and CLI tests. Tests will be organized by feature area and run against a fresh server instance with a temporary database per test.
+No new data structures are needed. Integration tests will interact with existing database tables and API responses.
 
-## Files to Create
+---
 
-### integration_tests/ (new directory)
+## Files and Functions
 
-```
-integration_tests/
-├── package.json
-├── playwright.config.ts
-├── fixtures/
-│   └── test-fixtures.ts
-├── tests/
-│   ├── auth/
-│   │   ├── register.spec.ts
-│   │   └── login.spec.ts
-│   ├── sessions/
-│   │   ├── session-lifecycle.spec.ts
-│   │   └── session-metadata.spec.ts
-│   ├── pairing/
-│   │   └── device-pairing.spec.ts
-│   ├── cli/
-│   │   ├── cli-commands.spec.ts
-│   │   └── cli-session.spec.ts
-│   └── pages/
-│       ├── dashboard.spec.ts
-│       ├── session-detail.spec.ts
-│       └── passkey-management.spec.ts
-└── helpers/
-    ├── server.ts
-    ├── cli.ts
-    └── webauthn.ts
-```
+### 1. `integration_tests/integration_tests.sh` (create) [req.gd4jig] [req.pf3q47]
 
-### integration_tests.sh [req.gd4jig]
+Main entry point script that runs all integration tests.
 
-Entry point script that runs all integration tests.
+**Purpose:** Execute Playwright tests (assumes nix flake environment is already active).
+
+**Precondition:** User must enter `nix develop` before running this script.
 
 **Implementation:**
-- Change to the `integration_tests/` directory
-- Run `npm install` if `node_modules` doesn't exist
-- Install Playwright browsers if needed (`npx playwright install`)
-- Execute `npx playwright test` with any passed arguments
-- Support running individual tests via arguments (e.g., `./integration_tests.sh tests/auth/`) [req.o5gj47]
-- Exit with the test runner's exit code
+- Verify required tools are available (node, npx, go)
+- Install npm dependencies in `integration_tests/` directory
+- Build the Go binary (`go build`)
+- Execute `npx playwright test` with appropriate configuration
+- Exit with the test result code
 
 ---
 
-## Helpers (integration_tests/helpers/)
+### 2. `integration_tests/package.json` (create) [req.pmu63v]
 
-### server.ts [req.ysdxv4] [req.ukgow2]
+Node.js package configuration for Playwright tests.
 
-Helper module for managing the devsesh server during tests.
+**Purpose:** Define test dependencies and scripts.
 
-**Functions to create:**
+**Implementation:**
+- Include `@playwright/test` as dev dependency
+- Include TypeScript and related tooling
+- Define test script
 
-#### `startServer(options: ServerOptions): Promise<ServerInstance>`
-Starts a fresh devsesh server instance for testing.
-- Create a temporary directory for the database [req.aef5gm]
-- Set environment variables: `DEVSESH_PORT` (random available port), `DEVSESH_HOST=localhost`, `DEVSESH_ALLOW_USER_CREATION=true`, database path
-- Spawn the `devsesh server` process
-- Wait for the server to be ready (poll `/api/v1/auth/status`)
-- Return a `ServerInstance` object with `url`, `port`, `process`, and `cleanup` function
+---
+
+### 3. `integration_tests/tsconfig.json` (create)
+
+TypeScript configuration for test files.
+
+**Purpose:** Configure TypeScript for Playwright tests.
+
+**Implementation:**
+- Target ESNext modules
+- Enable strict mode
+
+---
+
+### 4. `integration_tests/playwright.config.ts` (create) [req.pmu63v]
+
+Playwright test configuration.
+
+**Purpose:** Configure Playwright test runner with appropriate settings for devsesh testing.
+
+**Implementation:**
+- Set timeout values appropriate for server startup
+- Configure browser settings (Chromium with WebAuthn support)
+- Set up test output directories
+- Disable parallel execution (each test needs its own server)
+
+---
+
+### 5. `integration_tests/helpers/server.ts` (create) [req.v4jfhx] [req.ysdxv4] [req.aef5gm] [req.ukgow2] [req.74e81k] [req.pgme3l]
+
+Server management utility for tests.
+
+**Purpose:** Start and stop the Go server for each test, with clean database state. This is a reusable utility for future tests.
+
+**Functions:**
+
+#### `startServer(options?: ServerOptions): Promise<ServerInstance>`
+Start a fresh devsesh server instance with a temporary database.
+- Create a unique temporary database file (blank database)
+- Find an available port
+- Set environment variables: `DEVSESH_DB_PATH`, `DEVSESH_PORT`, `DEVSESH_HOST`, `DEVSESH_RP_ID`, `DEVSESH_RP_ORIGIN`, `DEVSESH_ALLOW_USER_CREATION=true`
+- Spawn `devsesh server` as a child process
+- Wait for server to be ready by polling the health endpoint
+- Return server instance with URL, port, process handle, and database path
 
 #### `stopServer(instance: ServerInstance): Promise<void>`
-Stops the server and cleans up resources.
-- Kill the server process
-- Delete the temporary database file [req.aef5gm]
-- Clean up session files from the temporary session directory [req.74e81k]
+Stop the server and clean up resources.
+- Send SIGTERM to the server process
+- Wait for graceful shutdown
+- Delete the temporary database file
+- Clean up session files from `~/.devsesh/sessions/`
 
-### cli.ts [req.yrg291] [req.cceh4b]
-
-Helper module for executing CLI commands.
-
-**Functions to create:**
-
-#### `runCli(args: string[], options?: CliOptions): Promise<CliResult>`
-Executes a devsesh CLI command and returns the result.
-- Use Node.js `child_process.execSync` or `spawn`
-- Set environment variables for config file and session directory to test-specific paths
-- Capture stdout, stderr, and exit code
-- Return `{ stdout, stderr, exitCode }`
-
-#### `runCliAsync(args: string[], options?: CliOptions): ChildProcess`
-Starts a CLI command that runs in the background (for `devsesh start`).
-- Spawn the process without waiting
-- Return the `ChildProcess` for later control
-
-### webauthn.ts [req.ddmaai]
-
-Helper module for WebAuthn emulation setup.
-
-**Functions to create:**
-
-#### `setupVirtualAuthenticator(context: BrowserContext): Promise<CDPSession>`
-Configures Playwright's virtual authenticator for WebAuthn testing.
-- Create a CDP session
-- Call `WebAuthn.enable` and `WebAuthn.addVirtualAuthenticator`
-- Configure authenticator with: `protocol: 'ctap2'`, `transport: 'internal'`, `hasUserVerification: true`, `isUserVerified: true`
-- Return the CDP session for cleanup
-
-#### `removeVirtualAuthenticator(cdp: CDPSession, authenticatorId: string): Promise<void>`
-Removes the virtual authenticator after test completion.
+#### `waitForServer(url: string, timeout?: number): Promise<void>`
+Wait for server to be ready to accept requests.
+- Poll `/api/v1/auth/status` endpoint
+- Retry with exponential backoff
+- Throw error if timeout exceeded
 
 ---
 
-## Test Fixtures (integration_tests/fixtures/)
+### 6. `integration_tests/helpers/webauthn.ts` (create) [req.ddmaai]
 
-### test-fixtures.ts [req.3ch3dq]
+WebAuthn emulation helpers for Playwright.
 
-Playwright test fixtures for common setup/teardown.
+**Purpose:** Configure Playwright's virtual authenticator for WebAuthn testing.
 
-**Fixtures to create:**
+**Functions:**
 
-#### `serverFixture`
-Provides a running server instance per test.
-- Before each test: start server with `startServer()`
-- After each test: stop server with `stopServer()`
-- Expose `serverUrl` to tests
-
-#### `authenticatedPage`
-Provides a page with a registered and logged-in user.
-- Start server
-- Set up virtual authenticator
-- Navigate to register page, complete registration
-- Return page with authenticated session
-
-#### `cliConfigFixture`
-Provides CLI configuration pointing to test server.
-- Create temporary config file with server URL and JWT token
-- Set `DEVSESH_CONFIG_FILE` environment variable
-- Clean up after test
+#### `setupVirtualAuthenticator(page: Page): Promise<{ cdpSession: CDPSession, authenticatorId: string }>`
+Set up a virtual WebAuthn authenticator for the browser context.
+- Create CDP session to the page
+- Enable WebAuthn emulation via CDP
+- Add virtual authenticator with internal transport and resident key support
+- Return CDP session and authenticator ID for later use
 
 ---
 
-## Test Files (integration_tests/tests/)
-
-### auth/register.spec.ts [req.ra9irr] [req.ofvba1] [req.azeczb] [req.og61px] [req.a38eez]
+### 7. `integration_tests/tests/auth/register.spec.ts` (create) [req.u2rh0f] [req.bsqvjs] [req.og61px] [req.a38eez] [req.9zv9zk]
 
 Tests for user registration flow.
 
-**Tests to create:**
+**Test Cases:**
 
-#### `test('should show registration form when no users exist')`
-- Start fresh server (no users)
-- Navigate to `/`
-- Verify redirect to `/register`
-- Verify registration form is displayed
+#### `test('user can register with webauthn passkey')`
+Test the complete registration flow with descriptive name indicating the scenario.
+- Start fresh server instance
+- Set up virtual WebAuthn authenticator
+- Navigate to registration page
+- Enter email address
+- Trigger WebAuthn registration ceremony (virtual authenticator handles it automatically)
+- Verify successful registration and redirect to dashboard
+- Stop server and clean up
 
-#### `test('should register new user with passkey')`
-- Set up virtual authenticator
-- Navigate to register page
-- Enter email, click register
-- Complete WebAuthn ceremony
-- Verify redirect to dashboard
-- Verify user is logged in
+---
 
-#### `test('should reject duplicate email registration')`
-- Register first user
-- Attempt to register with same email
-- Verify error message displayed
-
-### auth/login.spec.ts [req.ra9irr] [req.ofvba1] [req.azeczb]
+### 8. `integration_tests/tests/auth/login.spec.ts` (create) [req.og61px] [req.a38eez] [req.9zv9zk]
 
 Tests for user login flow.
 
-**Tests to create:**
+**Test Cases:**
 
-#### `test('should login with existing passkey')`
-- Register a user first
+#### `test('registered user can login with webauthn passkey')`
+Test login after registration with descriptive name indicating the scenario.
+- Start fresh server instance
+- Set up virtual WebAuthn authenticator
+- Register a user first (via web UI)
 - Log out (clear localStorage)
 - Navigate to login page
-- Enter email, complete WebAuthn
-- Verify redirect to dashboard
-
-#### `test('should show error for non-existent user')`
-- Navigate to login page
-- Enter non-existent email
-- Verify error message
-
-#### `test('should redirect to login when users exist')`
-- Register a user
-- Clear session
-- Navigate to `/`
-- Verify redirect to `/login` (not `/register`)
-
-### sessions/session-lifecycle.spec.ts [req.ra9irr] [req.azeczb]
-
-Tests for session creation, updates, and termination.
-
-**Tests to create:**
-
-#### `test('should display new session on dashboard when CLI starts session')`
-- Set up authenticated user and CLI config
-- Run `devsesh start test-session` via CLI helper
-- Navigate to dashboard
-- Verify session appears in list with correct name and hostname
-
-#### `test('should update session status in real-time via WebSocket')`
-- Start a session via CLI
-- Open dashboard
-- Verify initial session state
-- Stop session via CLI (`devsesh stop`)
-- Verify dashboard shows session as ended (without page refresh)
-
-#### `test('should show session ping updates')`
-- Start session via CLI
-- Open dashboard
-- Trigger activity in tmux session
-- Verify `last_ping_at` updates on dashboard
-
-### sessions/session-metadata.spec.ts [req.ra9irr]
-
-Tests for session metadata functionality.
-
-**Tests to create:**
-
-#### `test('should update metadata via CLI set command')`
-- Start session
-- Run `devsesh set project my-project`
-- Verify metadata appears on dashboard
-
-#### `test('should sync metadata changes from session file')`
-- Start session
-- Directly edit the session YAML file
-- Verify changes appear on dashboard via WebSocket
-
-### pairing/device-pairing.spec.ts [req.ra9irr] [req.azeczb]
-
-Tests for CLI-to-web pairing flow.
-
-**Tests to create:**
-
-#### `test('should complete pairing flow between CLI and web')`
-- Register and login via web
-- Run `devsesh login <server-url>` in background (captures pairing code from stdout)
-- Navigate to pairing page in browser
-- Enter the pairing code
-- Verify CLI completes and config file contains token
-
-#### `test('should reject expired pairing code')`
-- Generate pairing code via CLI
-- Wait for expiration (or mock time)
-- Enter code in web
-- Verify error message
-
-#### `test('should reject invalid pairing code')`
-- Login via web
-- Navigate to pairing page
-- Enter invalid code
-- Verify error message
-
-### cli/cli-commands.spec.ts [req.yrg291] [req.cceh4b]
-
-Tests for all CLI commands.
-
-**Tests to create:**
-
-#### `test('devsesh server starts and serves web UI')`
-- Start server via `startServer()`
-- Fetch `/` via HTTP
-- Verify HTML response (React app)
-
-#### `test('devsesh migrate runs without error')`
-- Run `devsesh migrate` with test database
-- Verify exit code 0
-
-#### `test('devsesh list shows sessions for current machine')`
-- Start session
-- Run `devsesh list`
-- Verify output contains session name
-
-#### `test('devsesh attach attaches to existing session')`
-- Start session `test-session`
-- Run `devsesh attach test-session` (in background)
-- Verify tmux attachment (check process)
-
-#### `test('devsesh resume resumes inactive session')`
-- Start and stop a session
-- Run `devsesh resume <session-name>`
-- Verify session becomes active again
-
-#### `test('devsesh delete removes session')`
-- Start and stop a session
-- Run `devsesh delete <session-name>`
-- Verify session no longer in list
-
-#### `test('devsesh logout clears credentials')`
-- Login via pairing
-- Run `devsesh logout`
-- Verify config file no longer contains token
-
-### cli/cli-session.spec.ts [req.yrg291]
-
-Tests for CLI session management.
-
-**Tests to create:**
-
-#### `test('devsesh start creates tmux session')`
-- Run `devsesh start my-session`
-- Verify tmux session exists (`tmux has-session -t my-session`)
-
-#### `test('devsesh start with custom name')`
-- Run `devsesh start custom-name`
-- Verify session created with that name
-
-#### `test('devsesh stop ends current session')`
-- Start session
-- Run `devsesh stop`
-- Verify session file marked as ended
-- Verify server shows session as ended
-
-### pages/dashboard.spec.ts [req.ofvba1] [req.azeczb]
-
-Tests for the dashboard page.
-
-**Tests to create:**
-
-#### `test('should display list of all sessions')`
-- Create multiple sessions via CLI
-- Navigate to dashboard
-- Verify all sessions displayed in table
-
-#### `test('should show session status badges correctly')`
-- Create active and ended sessions
-- Verify status badges display correctly
-
-#### `test('should navigate to session detail on row click')`
-- Create a session
-- Click on session row
-- Verify navigation to `/sessions/<id>`
-
-#### `test('should allow deleting stale sessions')`
-- Create stale sessions (mock old ping times)
-- Click delete stale button
-- Verify sessions removed
-
-### pages/session-detail.spec.ts [req.ofvba1]
-
-Tests for the session detail page.
-
-**Tests to create:**
-
-#### `test('should display session details')`
-- Create session with metadata
-- Navigate to session detail page
-- Verify name, hostname, metadata displayed
-
-#### `test('should show real-time updates')`
-- Open session detail page
-- Update metadata via CLI
-- Verify changes appear without refresh
-
-### pages/passkey-management.spec.ts [req.ofvba1]
-
-Tests for passkey management page.
-
-**Tests to create:**
-
-#### `test('should list existing passkeys')`
-- Register user (creates first passkey)
-- Navigate to passkey management
-- Verify passkey listed
-
-#### `test('should add new passkey')`
-- Login
-- Navigate to passkey management
-- Click add passkey
-- Complete WebAuthn ceremony
-- Verify new passkey in list
-
-#### `test('should delete passkey (when multiple exist)')`
-- Add second passkey
-- Delete first passkey
-- Verify only one remains
-
-#### `test('should prevent deleting last passkey')`
-- With only one passkey
-- Attempt delete
-- Verify error or disabled button
+- Enter email address
+- Complete WebAuthn login ceremony (virtual authenticator handles it automatically)
+- Verify successful login and redirect to dashboard
+- Stop server and clean up
 
 ---
 
-## Configuration Files
+### 9. `flake.nix` (verify/modify if needed) [req.840wbb]
 
-### integration_tests/package.json [req.3ch3dq]
+Verify dependencies for integration testing are present.
 
-```json
-{
-  "name": "devsesh-integration-tests",
-  "private": true,
-  "scripts": {
-    "test": "playwright test",
-    "test:headed": "playwright test --headed"
-  },
-  "devDependencies": {
-    "@playwright/test": "^1.40.0",
-    "@types/node": "^20.0.0",
-    "typescript": "^5.0.0"
-  }
-}
+**Current state:** Already includes `nodejs_22`, `chromium`, `playwright`, `xvfb`, and `tmux`.
+
+**Modifications:** None expected - dependencies are already present.
+
+---
+
+## Test Organization [req.9zv9zk] [req.og61px]
+
+```
+integration_tests/
+├── integration_tests.sh          # Main entry point
+├── package.json                  # Node dependencies
+├── tsconfig.json                 # TypeScript config
+├── playwright.config.ts          # Playwright config
+├── helpers/
+│   ├── server.ts                 # Server management (reusable)
+│   └── webauthn.ts               # WebAuthn emulation
+└── tests/
+    └── auth/                     # Auth feature tests
+        ├── register.spec.ts      # User registration test
+        └── login.spec.ts         # User login test
 ```
 
-### integration_tests/playwright.config.ts [req.3ch3dq] [req.9zv9zk]
+---
 
-Configure Playwright test runner.
+## Environment Variables for Tests
 
-**Configuration:**
-- Set `testDir` to `./tests`
-- Configure test timeout (60 seconds for tests involving server startup)
-- Set `fullyParallel: false` (tests may share server resources)
-- Configure reporter for CI output
-- Set browser to Chromium (required for WebAuthn emulation)
-- Configure `use.baseURL` dynamically from server fixture
+| Variable | Purpose |
+|----------|---------|
+| `DEVSESH_DB_PATH` | Temporary SQLite database path |
+| `DEVSESH_PORT` | Dynamic port for test server |
+| `DEVSESH_HOST` | Localhost binding |
+| `DEVSESH_RP_ID` | WebAuthn Relying Party ID (localhost) |
+| `DEVSESH_RP_ORIGIN` | WebAuthn origin (http://localhost:PORT) |
+| `DEVSESH_ALLOW_USER_CREATION` | Enable public registration for tests |
 
 ---
 
-## Modifications to Existing Files
+## Execution Flow [req.k1384u]
 
-### flake.nix [req.vofp0j]
-
-No modifications needed - Playwright and Node.js are already included in the dev shell.
-
----
-
-## Test Execution [req.nih7aj] [req.k1384u]
-
-Tests are run inside the Nix flake environment:
-
-```bash
-# Enter flake environment
-nix develop
-
-# Run all tests
-./integration_tests.sh
-
-# Run specific test file
-./integration_tests.sh tests/auth/register.spec.ts
-
-# Run tests in headed mode (visible browser)
-./integration_tests.sh --headed
-```
-
-The script will:
-1. Build the devsesh binary if needed
-2. Install npm dependencies
-3. Install Playwright browsers
-4. Run the test suite
-5. Report results and exit with appropriate code
+1. User enters nix shell via `nix develop` (prerequisite)
+2. User runs `./integration_tests/integration_tests.sh`
+3. Script verifies required tools are available
+4. Script installs npm dependencies
+5. Script builds the Go binary (`go build`)
+6. Script runs `npx playwright test`
+7. Playwright runs tests sequentially
+8. Each test:
+   - Starts fresh server instance with blank database [req.ukgow2] [req.aef5gm]
+   - Sets up virtual WebAuthn authenticator
+   - Runs test assertions (registration or login flow)
+   - Cleans up server and database
+9. Returns exit code based on test results
