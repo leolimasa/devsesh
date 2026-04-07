@@ -20,8 +20,8 @@ export default function RegisterPage() {
     setLoading(true)
 
     try {
-      const options = await registerBegin(email)
-      const credential = await startRegistration(options as PublicKeyCredentialCreationOptionsJSON)
+      const response = await registerBegin(email) as { publicKey: PublicKeyCredentialCreationOptionsJSON }
+      const credential = await startRegistration(response.publicKey)
       await registerFinish(email, credential)
       navigate("/login")
     } catch (err) {

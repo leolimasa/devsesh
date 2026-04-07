@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -122,11 +123,11 @@ func (u *webauthnUser) WebAuthnCredentials() []webauthn.Credential {
 	creds := make([]webauthn.Credential, len(u.credentials))
 	for i, c := range u.credentials {
 		creds[i] = webauthn.Credential{
-			ID:              c.PublicKey,
+			ID:              []byte(c.ID),
 			AttestationType: "",
 			PublicKey:       c.PublicKey,
 			Authenticator: webauthn.Authenticator{
-				AAGUID:   nil,
+				AAGUID:    nil,
 				SignCount: c.SignCount,
 			},
 		}
@@ -195,9 +196,11 @@ func LoginBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeSto
 func LoginFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Config, cs *ChallengeStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Email string `json:"email"`
+			Email      string          `json:"email"`
+			Credential json.RawMessage `json:"credential"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			slog.Error("failed to decode login finish request", "error", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -228,7 +231,16 @@ func LoginFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Conf
 		}
 
 		waUser := &webauthnUser{id: user.ID, email: user.Email, credentials: creds}
-		credential, err := wa.FinishLogin(waUser, *sessionData, r)
+
+		// Parse the credential from the JSON
+		parsedResponse, err := protocol.ParseCredentialRequestResponseBody(bytes.NewReader(req.Credential))
+		if err != nil {
+			slog.Error("failed to parse credential request response", "error", err)
+			http.Error(w, "invalid credential", http.StatusBadRequest)
+			return
+		}
+
+		credential, err := wa.ValidateLogin(waUser, *sessionData, parsedResponse)
 		if err != nil {
 			slog.Error("failed to finish webauthn login", "error", err)
 			http.Error(w, "invalid credential", http.StatusUnauthorized)
@@ -290,9 +302,11 @@ func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Co
 func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Email string `json:"email"`
+			Email      string          `json:"email"`
+			Credential json.RawMessage `json:"credential"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			slog.Error("failed to decode register finish request", "error", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -318,7 +332,15 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 			waUser = &webauthnUser{email: req.Email}
 		}
 
-		credential, err := wa.FinishRegistration(waUser, *sessionData, r)
+		// Parse the credential from the JSON
+		parsedResponse, err := protocol.ParseCredentialCreationResponseBody(bytes.NewReader(req.Credential))
+		if err != nil {
+			slog.Error("failed to parse credential creation response", "error", err)
+			http.Error(w, "invalid credential", http.StatusBadRequest)
+			return
+		}
+
+		credential, err := wa.CreateCredential(waUser, *sessionData, parsedResponse)
 		if err != nil {
 			slog.Error("failed to finish webauthn registration", "error", err)
 			http.Error(w, "invalid registration", http.StatusUnauthorized)
@@ -444,6 +466,15 @@ func AddPasskeyFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challe
 			return
 		}
 
+		var req struct {
+			Credential json.RawMessage `json:"credential"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			slog.Error("failed to decode add passkey finish request", "error", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
 		user, err := db.GetUserByID(database, userID)
 		if err != nil || user == nil {
 			slog.Error("failed to get user", "error", err)
@@ -464,7 +495,15 @@ func AddPasskeyFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challe
 			return
 		}
 
-		credential, err := wa.FinishRegistration(&webauthnUser{id: user.ID, email: user.Email, credentials: creds}, *sessionData, r)
+		// Parse the credential from the JSON
+		parsedResponse, err := protocol.ParseCredentialCreationResponseBody(bytes.NewReader(req.Credential))
+		if err != nil {
+			slog.Error("failed to parse credential creation response", "error", err)
+			http.Error(w, "invalid credential", http.StatusBadRequest)
+			return
+		}
+
+		credential, err := wa.CreateCredential(&webauthnUser{id: user.ID, email: user.Email, credentials: creds}, *sessionData, parsedResponse)
 		if err != nil {
 			slog.Error("failed to finish passkey registration", "error", err)
 			http.Error(w, "invalid registration", http.StatusUnauthorized)

@@ -78,13 +78,12 @@ export async function registerBegin(email: string): Promise<unknown> {
 }
 
 export async function registerFinish(email: string, credential: unknown): Promise<void> {
-  const formData = new FormData()
-  formData.append("email", email)
-  formData.append("credential", JSON.stringify(credential))
-
   const response = await fetch(`/api/v1/auth/register/finish`, {
     method: "POST",
-    body: formData,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, credential }),
   })
 
   if (!response.ok) {

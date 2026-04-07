@@ -49,8 +49,8 @@ export default function PasskeyManagementPage() {
     setAdding(true)
     setError("")
     try {
-      const options = await addPasskeyBegin()
-      const credential = await startRegistration(options as PublicKeyCredentialCreationOptionsJSON)
+      const response = await addPasskeyBegin() as { publicKey: PublicKeyCredentialCreationOptionsJSON }
+      const credential = await startRegistration(response.publicKey)
       await addPasskeyFinish(credential)
       await loadPasskeys()
     } catch (err) {

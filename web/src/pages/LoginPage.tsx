@@ -33,8 +33,8 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const options = await loginBegin(email)
-      const credential = await startAuthentication(options as PublicKeyCredentialRequestOptionsJSON)
+      const response = await loginBegin(email) as { publicKey: PublicKeyCredentialRequestOptionsJSON }
+      const credential = await startAuthentication(response.publicKey)
       const result = await loginFinish(email, credential)
 
       login(result.token, { id: 0, email, token: result.token })

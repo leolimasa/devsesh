@@ -184,6 +184,11 @@ func ListHandler(database *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		// Ensure we return an empty array, not null
+		if sessions == nil {
+			sessions = []db.Session{}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(sessions)
 	}
