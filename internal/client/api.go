@@ -116,14 +116,9 @@ func (c *APIClient) pollJWTOnce(url, code string) (string, error) {
 	}
 	defer resp.Body.Close()
 	
-	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("pending")
-	}
-	
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("server returned status %d", resp.StatusCode)
-		slog.Error("JWT poll failed", "error", err, "status", resp.StatusCode)
-		return "", err
+		// Don't log - 400 is expected while waiting for code approval
+		return "", fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
 	
 	var jwtResp JWTResponse
