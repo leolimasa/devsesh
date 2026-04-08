@@ -133,3 +133,13 @@ export async function stopServer(instance: ServerInstance): Promise<void> {
     }
   }
 }
+
+/**
+ * Remove test config file if it exists.
+ * @param configPath - Path to the config file to clean up
+ */
+export function cleanupTestConfig(configPath: string): void {
+  if (fs.existsSync(configPath)) {
+    fs.unlinkSync(configPath);
+  }
+}

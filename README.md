@@ -93,6 +93,9 @@ nix develop
 
 # Test
 ./test.sh
+
+# Integration tests
+integration_tests/integration_tests.sh
 ```
 
 ## Documentation

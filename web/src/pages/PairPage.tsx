@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { pairExchange } from "@/lib/api"
+import { pairExchange, pairComplete } from "@/lib/api"
 import { useAuth } from "@/contexts/AuthContext"
 
 export default function PairPage() {
@@ -21,7 +21,14 @@ export default function PairPage() {
     setLoading(true)
 
     try {
-      const result = await pairExchange(code)
+      // First, exchange/approve the pairing code (requires JWT auth)
+      await pairExchange(code)
+      
+      // Wait a moment for the code to be approved
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Then, get the JWT token from the CLI (no JWT auth needed)
+      const result = await pairComplete(code)
       setSuccess(true)
       login(result.token, { id: 0, email: "", token: result.token })
       setTimeout(() => navigate("/dashboard"), 1500)

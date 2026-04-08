@@ -86,7 +86,8 @@ func PairExchangeHandler(database *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 	}
 }
 

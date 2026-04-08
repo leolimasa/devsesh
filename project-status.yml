@@ -1,5 +1,5 @@
 status: to-be-started
-task: llm/0005_integration_test
+task: llm/0006_pair_test
 current-phase: 0
 
 # Uncomment to enable tests

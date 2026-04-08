@@ -30,14 +30,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\nPairing code: %s\n\n", code)
-	fmt.Println("Please visit the web client and enter this pairing code.")
-	fmt.Println("Once authenticated, paste the code returned by the web client below.")
-	fmt.Print("\nEnter web client code (or press Enter to wait for JWT): ")
-
-	var webCode string
-	fmt.Scanln(&webCode)
-
-	fmt.Println("\nPolling for JWT token...")
+	fmt.Printf("Please visit %s/pair and enter this pairing code.\n\n", serverURL)
+	fmt.Println("Waiting for server response...")
 	token, err := apiClient.PollForJWT(code, 10*60*1000*1000*1000)
 	if err != nil {
 		return fmt.Errorf("failed to get JWT: %w", err)
