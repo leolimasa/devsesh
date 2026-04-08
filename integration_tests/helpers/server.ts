@@ -1,7 +1,8 @@
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { spawnDevsesh } from './binary';
 
 export interface ServerInstance {
   url: string;
@@ -12,7 +13,6 @@ export interface ServerInstance {
 }
 
 export interface ServerOptions {
-  binaryPath?: string;
   timeout?: number;
 }
 
@@ -60,11 +60,9 @@ export async function startServer(options: ServerOptions = {}): Promise<ServerIn
   const sessionDir = path.join(tempDir, 'sessions');
   fs.mkdirSync(sessionDir, { recursive: true });
 
-  const binaryPath = options.binaryPath || path.join(process.cwd(), '..', 'devsesh');
   const url = `http://localhost:${port}`;
 
-  const env = {
-    ...process.env,
+  const devseshProcess = spawnDevsesh(['server'], {
     DEVSESH_DB_PATH: dbPath,
     DEVSESH_PORT: port.toString(),
     DEVSESH_HOST: 'localhost',
@@ -72,28 +70,23 @@ export async function startServer(options: ServerOptions = {}): Promise<ServerIn
     DEVSESH_RP_ORIGIN: url,
     DEVSESH_ALLOW_USER_CREATION: 'true',
     DEVSESH_SESSION_DIR: sessionDir,
-  };
-
-  const serverProcess = spawn(binaryPath, ['server'], {
-    env,
-    stdio: ['pipe', 'pipe', 'pipe'],
   });
 
-  serverProcess.on('error', (err) => {
+  devseshProcess.process.on('error', (err) => {
     console.error('Server process error:', err);
   });
 
   try {
     await waitForServer(url, options.timeout);
   } catch (err) {
-    serverProcess.kill('SIGTERM');
+    devseshProcess.process.kill('SIGTERM');
     throw err;
   }
 
   return {
     url,
     port,
-    process: serverProcess,
+    process: devseshProcess.process,
     dbPath,
     sessionDir,
   };

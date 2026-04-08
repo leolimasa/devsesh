@@ -43,12 +43,13 @@ echo ""
 
 # Check if devsesh binary exists
 echo "Checking devsesh binary..."
-if [ ! -f "$PROJECT_ROOT/devsesh" ]; then
-    echo "Error: devsesh binary not found at $PROJECT_ROOT/devsesh"
+export DEVSESH_BINARY_PATH="$PROJECT_ROOT/devsesh"
+if [ ! -f "$DEVSESH_BINARY_PATH" ]; then
+    echo "Error: devsesh binary not found at $DEVSESH_BINARY_PATH"
     echo "Please build it first with: cd \"$PROJECT_ROOT\" && go build ./main.go"
     exit 1
 fi
-echo "✓ Using existing devsesh binary: $PROJECT_ROOT/devsesh"
+echo "✓ Using existing devsesh binary: $DEVSESH_BINARY_PATH"
 echo ""
 
 # Run tests
