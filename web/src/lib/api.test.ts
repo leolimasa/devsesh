@@ -244,7 +244,7 @@ describe("api client", () => {
 
       const { getWsEndpoint } = await import("@/lib/api")
       const endpoint = getWsEndpoint()
-      expect(endpoint).toBe("ws://localhost:5173/api/v1/sessions/updates?token=test-token")
+      expect(endpoint).toBe("ws://localhost:5173/api/v1/sessions/updates")
     })
 
     it("returns wss URL for https", async () => {
@@ -259,7 +259,7 @@ describe("api client", () => {
 
       const { getWsEndpoint } = await import("@/lib/api")
       const endpoint = getWsEndpoint()
-      expect(endpoint).toBe("wss://example.com/api/v1/sessions/updates?token=test-token")
+      expect(endpoint).toBe("wss://example.com/api/v1/sessions/updates")
     })
   })
 })

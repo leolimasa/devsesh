@@ -44,3 +44,11 @@ func ValidateToken(secret, tokenStr string) (*Claims, error) {
 
 	return claims, nil
 }
+
+func MustValidateToken(secret, tokenStr string) *Claims {
+	claims, err := ValidateToken(secret, tokenStr)
+	if err != nil {
+		panic(err)
+	}
+	return claims
+}

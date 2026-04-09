@@ -38,14 +38,14 @@ type PairingCode struct {
 }
 
 type Session struct {
-	ID         string
-	UserID     int64
-	Name       string
-	Hostname   string
-	StartedAt  time.Time
-	LastPingAt *time.Time
-	EndedAt    *time.Time
-	Metadata   *string
+	ID         string     `json:"id"`
+	UserID     int64      `json:"user_id"`
+	Name       string     `json:"name"`
+	Hostname   string     `json:"hostname"`
+	StartedAt  time.Time  `json:"started_at"`
+	LastPingAt *time.Time `json:"last_ping_at"`
+	EndedAt    *time.Time `json:"ended_at"`
+	Metadata   *string    `json:"metadata"`
 }
 
 func GetConfigValue(db *sql.DB, key string) (string, error) {

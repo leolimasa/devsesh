@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react"
-import { getWsEndpoint } from "@/lib/api"
+import { getWsEndpoint, getToken } from "@/lib/api"
 import type { SessionUpdate } from "@/types/api"
 
 type UpdateHandler = (update: SessionUpdate) => void
@@ -14,15 +14,27 @@ export function useSessionUpdates(onUpdate: UpdateHandler) {
 
   const connect = useCallback(() => {
     const endpoint = getWsEndpoint()
+    const token = getToken()
     const ws = new WebSocket(endpoint)
 
     ws.onopen = () => {
       console.log("WebSocket connected")
+      // Send the JWT token as the first message for authentication
+      if (token) {
+        ws.send(token)
+      }
     }
 
     ws.onmessage = (event) => {
       try {
-        const update: SessionUpdate = JSON.parse(event.data)
+        // Check for error messages in the response
+        const data = JSON.parse(event.data)
+        if (data.error) {
+          console.error("WebSocket error:", data.error)
+          ws.close()
+          return
+        }
+        const update: SessionUpdate = data
         onUpdateRef.current(update)
       } catch (err) {
         console.error("Failed to parse WebSocket message:", err)

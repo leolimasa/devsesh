@@ -70,9 +70,10 @@ export default function DashboardPage() {
   const loadSessions = useCallback(async () => {
     try {
       const data = await listSessions()
-      setSessions(data)
+      setSessions(data ?? [])
     } catch (err) {
       console.error("Failed to load sessions:", err)
+      setSessions([])
     } finally {
       setLoading(false)
     }

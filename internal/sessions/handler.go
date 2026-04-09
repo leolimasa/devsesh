@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"github.com/leolimasa/devsesh/internal/db"
 )
@@ -18,6 +20,30 @@ const (
 	ContextKeyUserID  contextKey = "userID"
 	ContextKeySession contextKey = "session"
 )
+
+type jwtClaims struct {
+	UserID int64 `json:"sub"`
+	jwt.RegisteredClaims
+}
+
+func validateJWT(secret, tokenStr string) (*jwtClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &jwtClaims{}, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("parse token: %w", err)
+	}
+
+	claims, ok := token.Claims.(*jwtClaims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	return claims, nil
+}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -243,23 +269,34 @@ func DeleteStaleHandler(database *sql.DB) http.HandlerFunc {
 	}
 }
 
-func UpdatesHandler(hub *Hub) http.HandlerFunc {
+func UpdatesHandler(database *sql.DB, hub *Hub, jwtSecret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := UserIDFromContext(r.Context())
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
 			return
 		}
 
-		conn, err := upgrader.Upgrade(w, r, nil)
+		// Read the first message as the JWT token
+		_, msg, err := conn.ReadMessage()
 		if err != nil {
+			conn.WriteJSON(map[string]string{"error": "authentication required"})
+			conn.Close()
+			return
+		}
+
+		// Parse and validate the token
+		tokenStr := string(msg)
+		claims, err := validateJWT(jwtSecret, tokenStr)
+		if err != nil {
+			conn.WriteJSON(map[string]string{"error": "invalid token"})
+			conn.Close()
 			return
 		}
 
 		c := &client{
 			conn:   conn,
 			send:   make(chan []byte, 64),
-			userID: userID,
+			userID: claims.UserID,
 		}
 
 		hub.Register(c)
