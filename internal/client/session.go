@@ -96,6 +96,7 @@ func WatchSessionFile(ctx context.Context, wg *sync.WaitGroup, path string, debo
 	}
 
 	dir := filepath.Dir(path)
+	slog.Debug("watching directory for session file changes", "dir", dir, "path", path)
 	if err := watcher.Add(dir); err != nil {
 		slog.Error("failed to add watcher", "error", err, "dir", dir)
 		watcher.Close()
@@ -115,6 +116,7 @@ func WatchSessionFile(ctx context.Context, wg *sync.WaitGroup, path string, debo
 				slog.Error("failed to read session file", "error", err)
 				return
 			}
+			slog.Debug("session file changed, triggering callback", "file", path, "extra", sf.Extra)
 			onChange(*sf)
 		})
 
@@ -131,6 +133,7 @@ func WatchSessionFile(ctx context.Context, wg *sync.WaitGroup, path string, debo
 				slog.Debug("fsnotify event", "name", event.Name, "fileName", fileName, "op", event.Op)
 				eventName := filepath.Base(event.Name)
 				if eventName == fileName {
+					slog.Debug("detected session file change, triggering debouncer", "event", event.Op)
 					debouncer.Call()
 				}
 			case err, ok := <-watcher.Errors:

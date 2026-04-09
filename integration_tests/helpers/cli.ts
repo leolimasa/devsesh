@@ -6,11 +6,13 @@ export { DevseshProcess as CliProcess };
  * Spawn the devsesh login command and capture output.
  * @param serverUrl - The server URL to connect to
  * @param configPath - Path to the config file to use
+ * @param sessionDir - Optional path to the sessions directory
  * @returns DevseshProcess object with process, stdout buffer, and exit promise
  */
-export function spawnDevseshLogin(serverUrl: string, configPath: string): DevseshProcess {
+export function spawnDevseshLogin(serverUrl: string, configPath: string, sessionDir?: string): DevseshProcess {
   return spawnDevsesh(['login', serverUrl], {
     DEVSESH_CONFIG_FILE: configPath,
+    ...(sessionDir ? { DEVSESH_SESSIONS_DIR: sessionDir } : {}),
   });
 }
 

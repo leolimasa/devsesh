@@ -177,13 +177,13 @@ func (c *APIClient) NotifySessionStart(sessionID string, sessionData SessionFile
 	}
 	defer resp.Body.Close()
 	
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 		slog.Error("session start notification failed", "error", err, "session_id", sessionID, "status", resp.StatusCode)
 		return err
 	}
-	
+
 	return nil
 }
 

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/leolimasa/devsesh/internal/client"
 	"github.com/spf13/cobra"
@@ -38,8 +39,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg := client.ClientConfig{
-		ServerURL: serverURL,
-		JWTToken:  token,
+		ServerURL:   serverURL,
+		JWTToken:    token,
+		SessionsDir: os.Getenv("DEVSESH_SESSIONS_DIR"),
 	}
 
 	if err := client.SaveConfig(cfg); err != nil {

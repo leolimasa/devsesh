@@ -80,19 +80,40 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
 
-	os.Setenv("DEVSESH_SESSION_ID", sessionID)
-	os.Setenv("DEVSESH_SESSION_FILE", sessionFile)
-	os.Setenv("DEVSESH_SESSION_NAME", sessionName)
-
 	apiClient := client.NewAPIClient(cfg.ServerURL, cfg.JWTToken)
 
 	if err := apiClient.NotifySessionStart(sessionID, *sf); err != nil {
 		sessionLogger.Logger().Error("failed to notify session start", "error", err)
 	}
 
+	os.Setenv("DEVSESH_SESSION_ID", sessionID)
+	os.Setenv("DEVSESH_SESSION_FILE", sessionFile)
+	os.Setenv("DEVSESH_SESSION_NAME", sessionName)
+
 	signalCtx, cancelSignal := context.WithCancel(ctx)
 
 	var wg sync.WaitGroup
+
+	// Start file watcher BEFORE starting the tmux session
+	// This ensures we don't miss any file changes
+	if err := client.WatchSessionFile(signalCtx, &wg, sessionFile, 500*time.Millisecond, func(sf client.SessionFile) {
+		sessionLogger.Logger().Debug("file watcher callback triggered", "extra", sf.Extra)
+		meta := map[string]any{
+			"name":      sf.Name,
+			"start_time": sf.StartTime,
+			"hostname":  sf.Hostname,
+			"cwd":       sf.Cwd,
+		}
+		for k, v := range sf.Extra {
+			meta[k] = v
+		}
+		sessionLogger.Logger().Debug("updating session metadata", "meta", meta)
+		if err := apiClient.UpdateSessionMeta(sessionID, meta); err != nil {
+			sessionLogger.Logger().Error("failed to update session meta", "error", err)
+		}
+	}); err != nil {
+		sessionLogger.Logger().Error("failed to watch session file", "error", err)
+	}
 
 	onOutput := func() {
 		if err := apiClient.PingSession(sessionID); err != nil {
@@ -108,23 +129,6 @@ func runStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		sessionLogger.Logger().Error("failed to start tmux session", "error", err)
 		return fmt.Errorf("failed to start tmux session: %w", err)
-	}
-
-	if err := client.WatchSessionFile(signalCtx, &wg, sessionFile, 500*time.Millisecond, func(sf client.SessionFile) {
-		meta := map[string]any{
-			"name":      sf.Name,
-			"start_time": sf.StartTime,
-			"hostname":  sf.Hostname,
-			"cwd":       sf.Cwd,
-		}
-		for k, v := range sf.Extra {
-			meta[k] = v
-		}
-		if err := apiClient.UpdateSessionMeta(sessionID, meta); err != nil {
-			sessionLogger.Logger().Error("failed to update session meta", "error", err)
-		}
-	}); err != nil {
-		sessionLogger.Logger().Error("failed to watch session file", "error", err)
 	}
 
 	err = tmuxCmd.Wait()

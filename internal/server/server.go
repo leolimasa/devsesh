@@ -73,7 +73,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("GET /api/v1/sessions", jwtMiddleware(http.HandlerFunc(sessions.ListHandler(database))))
 	mux.Handle("GET /api/v1/sessions/{session_id}", jwtMiddleware(http.HandlerFunc(sessions.GetSessionHandler(database))))
 	mux.Handle("DELETE /api/v1/sessions/stale", jwtMiddleware(http.HandlerFunc(sessions.DeleteStaleHandler(database))))
-	mux.Handle("GET /api/v1/sessions/updates", jwtMiddleware(http.HandlerFunc(sessions.UpdatesHandler(hub))))
+	mux.Handle("GET /api/v1/sessions/updates", http.HandlerFunc(sessions.UpdatesHandler(database, hub, cfg.JWTSecret)))
 
 	ssh.RegisterRoutes(mux, database, jwtMiddleware)
 
