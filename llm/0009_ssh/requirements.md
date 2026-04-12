@@ -30,8 +30,8 @@ Extend the hosts table to store SSH connection target info. [req.ssh001]
 
 The server provides a simple TCP-over-WebSocket proxy. It does not interpret SSH protocol. [req.ssh010]
 
-* Upgrade `/api/v1/ssh/connect/{session_id}` to a WebSocket endpoint [req.ssh011]
-* Validate that the user owns the session before allowing connection [req.ssh012]
+* Create `/api/v1/hosts/{host_id}/ssh` WebSocket endpoint [req.ssh011]
+* Validate that the user owns the host before allowing connection [req.ssh012]
 * Look up the host's hostname/IP and SSH port from the hosts table [req.ssh013]
 * Establish a raw TCP connection to host:port [req.ssh014]
 * Bidirectionally proxy bytes between WebSocket and TCP socket [req.ssh015]
@@ -126,15 +126,15 @@ Application-specific SSH usage lives in TypeScript, not Go WASM. [req.ssh065]
 
 Display terminal using xterm.js, connected to the Go WASM SSH client via TypeScript wrapper. [req.ssh080]
 
-* Install xterm.js, xterm-addon-fit, and xterm-addon-webgl packages [req.ssh080a]
-* Create `SSHTerminal` React component [req.ssh080b]
-* Initialize xterm.js terminal instance [req.ssh080c]
-* Connect to `SSHClient` TypeScript wrapper [req.ssh080d]
-* Register output callback: Go WASM → SSHClient → xterm.js.write() [req.ssh080e]
-* Register input handler: xterm.js.onData() → SSHClient → Go WASM [req.ssh080f]
-* Handle resize: xterm-addon-fit → SSHClient.resize() → Go WASM [req.ssh080g]
-* Style terminal to match dashboard theme (dark mode compatible) [req.ssh080h]
-* Show loading state while WASM module initializes [req.ssh080i]
+* Install xterm.js, xterm-addon-fit, and xterm-addon-webgl packages [req.ssh080a] [req.yqy0e8]
+* Create `SSHTerminal` React component [req.ssh080b] [req.aproft]
+* Initialize xterm.js terminal instance [req.ssh080c] [req.udrcf4]
+* Connect to `SSHClient` TypeScript wrapper [req.ssh080d] [req.l7nrow]
+* Register output callback: Go WASM → SSHClient → xterm.js.write() [req.ssh080e] [req.fmbpee]
+* Register input handler: xterm.js.onData() → SSHClient → Go WASM [req.ssh080f] [req.fzzuax]
+* Handle resize: xterm-addon-fit → SSHClient.resize() → Go WASM [req.ssh080g] [req.gdrj3r]
+* Style terminal to match dashboard theme (dark mode compatible) [req.ssh080h] [req.wt0cme]
+* Show loading state while WASM module initializes [req.ssh080i] [req.y9ydcb]
 
 ## Session Detail View with Terminal
 
@@ -147,8 +147,8 @@ Create a session detail page that shows the terminal. [req.ssh052]
 * Show connection status indicator (connecting, authenticating, connected, disconnected) [req.ssh057]
 * Show password dialog when SSH client requests authentication [req.ssh058]
 * Add a disconnect button to close the SSH connection [req.ssh059]
-* Handle reconnection if the connection drops [req.ssh060a]
-* Display SSH host key fingerprint on first connection for user verification [req.ssh060b]
+* Handle reconnection if the connection drops [req.ssh060a] [req.zwhix2]
+* Display SSH host key fingerprint on first connection for user verification [req.ssh060b] [req.fm1rex]
 
 ## SSH Password Authentication
 
@@ -199,7 +199,7 @@ Note: Server-side SSH handlers (`SSHWebAuthnBeginHandler`, `SSHWebAuthnCompleteH
 
 ### Future Enhancement
 
-* Replace password auth with FIDO2/WebAuthn for hardware-backed security [req.ssh089a]
+* Replace password auth with FIDO2/WebAuthn for hardware-backed security [req.ssh089a] [req.189bgq]
 
 ## Configuration
 
@@ -226,22 +226,22 @@ Server-side unit tests for the WebSocket TCP proxy. [req.ssh090]
 Test the Go SSH client code (can run as native Go tests, not just in browser). [req.ssh098]
 
 * Test SSH connection logic with mock transport [req.ssh099]
-* Test PTY request and terminal mode handling [req.ssh100a]
-* Test window resize handling [req.ssh100b]
-* Test password auth callback flow [req.ssh100c]
-* Test graceful disconnect and cleanup [req.ssh100d]
-* Test error handling and recovery [req.ssh100e]
+* Test PTY request and terminal mode handling [req.ssh100a] [req.0xr2f6]
+* Test window resize handling [req.ssh100b] [req.pmgs7a]
+* Test password auth callback flow [req.ssh100c] [req.rhfxp5]
+* Test graceful disconnect and cleanup [req.ssh100d] [req.wrop99]
+* Test error handling and recovery [req.ssh100e] [req.7y35vq]
 
 ### Unit Tests (TypeScript Wrapper)
 
 Test the TypeScript wrapper and React components. [req.ssh100f]
 
-* Test SSHClient wrapper initialization [req.ssh100g]
-* Test callback registration and invocation [req.ssh100h]
-* Test password dialog component [req.ssh100i]
-* Test React component lifecycle (mount, unmount, reconnect) [req.ssh100j]
-* Test xterm.js integration [req.ssh100k]
-* Mock the WASM module for isolated testing [req.ssh100l]
+* Test SSHClient wrapper initialization [req.ssh100g] [req.j1pfc7]
+* Test callback registration and invocation [req.ssh100h] [req.tk9ees]
+* Test password dialog component [req.ssh100i] [req.pj2glt]
+* Test React component lifecycle (mount, unmount, reconnect) [req.ssh100j] [req.tjhoi8]
+* Test xterm.js integration [req.ssh100k] [req.muq1nd]
+* Mock the WASM module for isolated testing [req.ssh100l] [req.zjvnf8]
 
 ### Integration Tests with Docker
 
