@@ -29,6 +29,7 @@ func RequireJWT(secret string) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), sessions.ContextKeyUserID, claims.UserID)
+			ctx = context.WithValue(ctx, sessions.ContextKeyHostID, claims.HostID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -62,6 +63,31 @@ func RequireSessionOwner(database *sql.DB) func(http.Handler) http.Handler {
 
 			ctx := context.WithValue(r.Context(), sessions.ContextKeySession, s)
 			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+func RequireValidHost(database *sql.DB) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hostID, ok := sessions.HostIDFromContext(r.Context())
+			if !ok || hostID == 0 {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			host, err := db.GetHostByID(database, hostID)
+			if err != nil {
+				slog.Error("failed to get host", "error", err, "hostId", hostID)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if host == nil {
+				http.Error(w, "host no longer exists, please pair again", http.StatusUnauthorized)
+				return
+			}
+
+			next.ServeHTTP(w, r)
 		})
 	}
 }

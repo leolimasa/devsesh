@@ -8,9 +8,10 @@ import (
 func TestGenerateAndValidateToken(t *testing.T) {
 	secret := "test-secret-key"
 	userID := int64(42)
+	hostID := int64(1)
 	expiry := time.Hour
 
-	token, err := GenerateToken(secret, userID, expiry)
+	token, err := GenerateToken(secret, userID, hostID, expiry)
 	if err != nil {
 		t.Fatalf("generate token: %v", err)
 	}
@@ -25,10 +26,13 @@ func TestGenerateAndValidateToken(t *testing.T) {
 	if claims.UserID != userID {
 		t.Errorf("expected userID %d, got %d", userID, claims.UserID)
 	}
+	if claims.HostID != hostID {
+		t.Errorf("expected hostID %d, got %d", hostID, claims.HostID)
+	}
 }
 
 func TestValidateTokenWrongSecret(t *testing.T) {
-	token, _ := GenerateToken("secret1", 1, time.Hour)
+	token, _ := GenerateToken("secret1", 1, 1, time.Hour)
 	_, err := ValidateToken("secret2", token)
 	if err == nil {
 		t.Error("expected error for wrong secret")
@@ -36,7 +40,7 @@ func TestValidateTokenWrongSecret(t *testing.T) {
 }
 
 func TestValidateTokenExpired(t *testing.T) {
-	token, _ := GenerateToken("secret", 1, -time.Hour)
+	token, _ := GenerateToken("secret", 1, 1, -time.Hour)
 	_, err := ValidateToken("secret", token)
 	if err == nil {
 		t.Error("expected error for expired token")

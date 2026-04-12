@@ -31,8 +31,8 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first migration run: %v", err)
 	}
-	if len(applied) != 6 {
-		t.Errorf("expected 6 migrations applied, got %d", len(applied))
+	if len(applied) != 8 {
+		t.Errorf("expected 8 migrations applied, got %d", len(applied))
 	}
 
 	applied, err = RunMigrations(db)
@@ -147,7 +147,7 @@ func TestPairingCodeCRUD(t *testing.T) {
 		t.Error("expected used to be false")
 	}
 
-	err = ApprovePairingCode(db, "ABC123", userID)
+	err = ApprovePairingCode(db, "ABC123", userID, 1)
 	if err != nil {
 		t.Fatalf("approve pairing code: %v", err)
 	}
@@ -182,8 +182,8 @@ func TestSessionCRUD(t *testing.T) {
 	s := Session{
 		ID:        "test-session-uuid",
 		UserID:    userID,
+		HostID:    1,
 		Name:      "Test Session",
-		Hostname:  "localhost",
 		StartedAt: now,
 		Metadata:  &meta,
 	}

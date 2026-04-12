@@ -9,7 +9,7 @@ import { spawnDevseshLogin, extractPairingCode, waitForCliSuccess } from './cli'
  * @param serverUrl - Base server URL
  * @param code - Pairing code to enter
  */
-export async function enterPairingCode(page: Page, serverUrl: string, code: string): Promise<void> {
+export async function enterPairingCode(page: Page, serverUrl: string, code: string, createNewHost: boolean = true): Promise<void> {
   // Navigate to pairing page if not already there (use full URL to stay in same context)
   await page.goto(`${serverUrl}/pair`);
   await expect(page).toHaveURL(/\/pair$/);
@@ -23,6 +23,21 @@ export async function enterPairingCode(page: Page, serverUrl: string, code: stri
 
   // Fill in the code
   await codeInput.fill(code);
+
+  // If createNewHost is true, click "Create New Host" button
+  if (createNewHost) {
+    const createHostButton = page.locator('button:has-text("Create New Host")');
+    await expect(createHostButton).toBeVisible();
+    await createHostButton.click();
+
+    // Fill in new host details
+    const labelInput = page.locator('input[placeholder*="Label"]');
+    const hostnameInput = page.locator('input[placeholder*="Hostname"]');
+    await expect(labelInput).toBeVisible();
+    await expect(hostnameInput).toBeVisible();
+    await labelInput.fill("Test Host");
+    await hostnameInput.fill("test-host.local");
+  }
 
   // Click the submit/pair button
   const submitButton = page.locator('button:has-text("Pair Device")');
@@ -98,7 +113,7 @@ export async function setupPairedCli(
   }
 
   // Enter pairing code in web interface
-  await enterPairingCode(page, serverUrl, pairingCode);
+  await enterPairingCode(page, serverUrl, pairingCode, true);
 
   // Wait for CLI process to complete successfully
   await waitForCliSuccess(cliProcess);

@@ -107,8 +107,8 @@ export default function SessionDetailPage() {
                 <p>{session.name || "-"}</p>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-muted-foreground">Hostname</h3>
-                <p>{session.hostname || "-"}</p>
+                <h3 className="text-sm font-medium text-muted-foreground">Host</h3>
+                <p>{session.host?.label || session.host?.hostname || "-"}</p>
               </div>
               <div>
                 <h3 className="text-sm font-medium text-muted-foreground">Started</h3>

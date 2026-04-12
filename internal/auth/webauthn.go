@@ -254,7 +254,7 @@ func LoginFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Conf
 		}
 		cs.Delete(req.Email)
 
-		token, err := GenerateToken(cfg.JWTSecret, user.ID, cfg.JWTExpiry)
+		token, err := GenerateToken(cfg.JWTSecret, user.ID, 0, cfg.JWTExpiry)
 		if err != nil {
 			slog.Error("failed to generate token", "error", err, "userId", user.ID)
 			http.Error(w, "internal error", http.StatusInternalServerError)

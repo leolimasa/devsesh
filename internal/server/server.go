@@ -11,6 +11,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/leolimasa/devsesh/internal/auth"
 	"github.com/leolimasa/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/hosts"
 	"github.com/leolimasa/devsesh/internal/sessions"
 	"github.com/leolimasa/devsesh/internal/ssh"
 	"github.com/leolimasa/devsesh/web"
@@ -66,7 +67,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("POST /api/v1/auth/passkeys/finish", jwtMiddleware(http.HandlerFunc(auth.AddPasskeyFinishHandler(wa, database, cs))))
 	mux.Handle("DELETE /api/v1/auth/passkeys/{id}", jwtMiddleware(http.HandlerFunc(auth.DeletePasskeyHandler(database))))
 
-	mux.Handle("POST /api/v1/sessions/{session_id}/start", jwtMiddleware(http.HandlerFunc(sessions.StartHandler(database, hub))))
+	mux.Handle("POST /api/v1/sessions/{session_id}/start", jwtMiddleware(RequireValidHost(database)(http.HandlerFunc(sessions.StartHandler(database, hub)))))
 	mux.Handle("POST /api/v1/sessions/{session_id}/ping", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.PingHandler(database, hub)))))
 	mux.Handle("POST /api/v1/sessions/{session_id}/end", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.EndHandler(database, hub)))))
 	mux.Handle("POST /api/v1/sessions/{session_id}/meta", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.MetaHandler(database, hub)))))
@@ -74,6 +75,12 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("GET /api/v1/sessions/{session_id}", jwtMiddleware(http.HandlerFunc(sessions.GetSessionHandler(database))))
 	mux.Handle("DELETE /api/v1/sessions/stale", jwtMiddleware(http.HandlerFunc(sessions.DeleteStaleHandler(database))))
 	mux.Handle("GET /api/v1/sessions/updates", http.HandlerFunc(sessions.UpdatesHandler(database, hub, cfg.JWTSecret)))
+
+	mux.Handle("GET /api/v1/hosts", jwtMiddleware(http.HandlerFunc(hosts.ListHandler(database))))
+	mux.Handle("POST /api/v1/hosts", jwtMiddleware(http.HandlerFunc(hosts.CreateHandler(database))))
+	mux.Handle("GET /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.GetHandler(database))))
+	mux.Handle("PUT /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.UpdateHandler(database))))
+	mux.Handle("DELETE /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.DeleteHandler(database))))
 
 	ssh.RegisterRoutes(mux, database, jwtMiddleware)
 

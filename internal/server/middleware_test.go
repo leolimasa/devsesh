@@ -12,7 +12,7 @@ import (
 
 func TestRequireJWTValidToken(t *testing.T) {
 	secret := "test-secret"
-	token, _ := auth.GenerateToken(secret, 42, time.Hour)
+	token, _ := auth.GenerateToken(secret, 42, 1, time.Hour)
 
 	handler := RequireJWT(secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := sessions.UserIDFromContext(r.Context())
@@ -22,6 +22,11 @@ func TestRequireJWTValidToken(t *testing.T) {
 		}
 		if userID != 42 {
 			http.Error(w, "wrong user id", http.StatusInternalServerError)
+			return
+		}
+		hostID, ok := sessions.HostIDFromContext(r.Context())
+		if !ok || hostID != 1 {
+			http.Error(w, "no or wrong host id", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -71,7 +76,7 @@ func TestRequireJWTInvalidToken(t *testing.T) {
 
 func TestRequireJWTExpiredToken(t *testing.T) {
 	secret := "test-secret"
-	token, _ := auth.GenerateToken(secret, 1, -time.Hour)
+	token, _ := auth.GenerateToken(secret, 1, 1, -time.Hour)
 
 	handler := RequireJWT(secret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -89,7 +94,7 @@ func TestRequireJWTExpiredToken(t *testing.T) {
 }
 
 func TestRequireJWTWrongSecret(t *testing.T) {
-	token, _ := auth.GenerateToken("secret1", 1, time.Hour)
+	token, _ := auth.GenerateToken("secret1", 1, 1, time.Hour)
 
 	handler := RequireJWT("secret2")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

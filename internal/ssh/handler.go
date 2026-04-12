@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -37,7 +38,7 @@ func ConnectHandler(database *sql.DB) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"status":"ok","hostname":"` + session.Hostname + `"}`))
+		w.Write([]byte(`{"status":"ok","host_id":` + fmt.Sprintf("%d", session.HostID) + `}`))
 	}
 }
 

@@ -54,12 +54,20 @@ describe("SessionDetailPage", () => {
     const mockSession = {
       id: "session-1",
       user_id: 1,
+      host_id: 1,
       name: "Test Session",
-      hostname: "localhost",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: "2024-01-01T00:04:00Z",
       ended_at: null,
       metadata: JSON.stringify({ project: "my-project", branch: "main" }),
+      host: {
+        id: 1,
+        label: "My Host",
+        hostname: "localhost",
+        user_id: 1,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      },
     }
     vi.mocked(api.getSession).mockResolvedValue(mockSession)
 
@@ -68,7 +76,7 @@ describe("SessionDetailPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Session Details")).toBeInTheDocument()
       expect(screen.getByText("Test Session")).toBeInTheDocument()
-      expect(screen.getByText("localhost")).toBeInTheDocument()
+      expect(screen.getByText("My Host")).toBeInTheDocument()
       expect(screen.getByText("session-1")).toBeInTheDocument()
     })
   })
@@ -77,8 +85,8 @@ describe("SessionDetailPage", () => {
     const mockSession = {
       id: "session-1",
       user_id: 1,
+      host_id: 1,
       name: "Test",
-      hostname: "localhost",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: null,
       ended_at: null,
@@ -97,8 +105,8 @@ describe("SessionDetailPage", () => {
     const mockSession = {
       id: "session-1",
       user_id: 1,
+      host_id: 1,
       name: "Test",
-      hostname: "localhost",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: null,
       ended_at: null,
@@ -118,8 +126,8 @@ describe("SessionDetailPage", () => {
     const mockSession = {
       id: "session-1",
       user_id: 1,
+      host_id: 1,
       name: "Test",
-      hostname: "localhost",
       started_at: now.toISOString(),
       last_ping_at: now.toISOString(),
       ended_at: null,

@@ -28,7 +28,14 @@ func generatePairingCode() (string, error) {
 }
 
 type codeRequest struct {
-	Code string `json:"code"`
+	Code    string `json:"code"`
+	HostID  *int64 `json:"host_id"`
+	NewHost *newHostRequest `json:"new_host"`
+}
+
+type newHostRequest struct {
+	Label    string `json:"label"`
+	Hostname string `json:"hostname"`
 }
 
 func PairStartHandler(database *sql.DB, cfg config.Config) http.HandlerFunc {
@@ -80,7 +87,48 @@ func PairExchangeHandler(database *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		if err := db.ApprovePairingCode(database, req.Code, userID); err != nil {
+		var hostID int64
+		if req.HostID != nil {
+			host, err := db.GetHostByID(database, *req.HostID)
+			if err != nil {
+				slog.Error("failed to get host", "error", err, "hostId", *req.HostID)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if host == nil || host.UserID != userID {
+				http.Error(w, "host not found", http.StatusBadRequest)
+				return
+			}
+			hostID = *req.HostID
+		} else if req.NewHost != nil {
+			existing, err := db.GetHostByLabel(database, userID, req.NewHost.Label)
+			if err != nil {
+				slog.Error("failed to check existing host", "error", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if existing != nil {
+				http.Error(w, "host label already exists", http.StatusBadRequest)
+				return
+			}
+			newHost := db.Host{
+				Label:    req.NewHost.Label,
+				Hostname: req.NewHost.Hostname,
+				UserID:   userID,
+			}
+			id, err := db.CreateHost(database, newHost)
+			if err != nil {
+				slog.Error("failed to create host", "error", err)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			hostID = id
+		} else {
+			http.Error(w, "host_id or new_host required", http.StatusBadRequest)
+			return
+		}
+
+		if err := db.ApprovePairingCode(database, req.Code, userID, hostID); err != nil {
 			slog.Error("failed to approve pairing code", "error", err, "code", req.Code)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
@@ -126,7 +174,25 @@ func PairCompleteHandler(database *sql.DB, cfg config.Config) http.HandlerFunc {
 			return
 		}
 
-		token, err := GenerateToken(cfg.JWTSecret, *pc.UserID, cfg.JWTPairExpiry)
+		if pc.HostID == nil {
+			slog.Error("host_id not set for pairing code", "code", req.Code)
+			http.Error(w, "invalid pairing code", http.StatusBadRequest)
+			return
+		}
+
+		host, err := db.GetHostByID(database, *pc.HostID)
+		if err != nil {
+			slog.Error("failed to get host", "error", err, "hostId", *pc.HostID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if host == nil {
+			slog.Warn("host not found for pairing code", "hostId", *pc.HostID, "code", req.Code)
+			http.Error(w, "host no longer exists, please pair again", http.StatusBadRequest)
+			return
+		}
+
+		token, err := GenerateToken(cfg.JWTSecret, *pc.UserID, *pc.HostID, cfg.JWTPairExpiry)
 		if err != nil {
 			slog.Error("failed to generate token", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)

@@ -6,6 +6,7 @@ import PairPage from "@/pages/PairPage"
 import DashboardPage from "@/pages/DashboardPage"
 import SessionDetailPage from "@/pages/SessionDetailPage"
 import PasskeyManagementPage from "@/pages/PasskeyManagementPage"
+import HostsPage from "@/pages/HostsPage"
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem("token")
@@ -45,6 +46,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <PasskeyManagementPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hosts"
+            element={
+              <ProtectedRoute>
+                <HostsPage />
               </ProtectedRoute>
             }
           />

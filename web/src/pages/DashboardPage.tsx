@@ -54,7 +54,7 @@ function parseMetadata(metadata: string | null): string {
   if (!metadata) return "-"
   try {
     const parsed = JSON.parse(metadata)
-    return Object.keys(parsed).filter(k => k !== "session_id" && k !== "name" && k !== "hostname" && k !== "start_time")
+    return Object.keys(parsed).filter(k => k !== "session_id" && k !== "name" && k !== "start_time")
       .map(k => `${k}: ${parsed[k]}`)
       .join(", ") || "-"
   } catch {
@@ -126,6 +126,9 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <h1 className="text-2xl font-bold">Sessions</h1>
           <div className="flex gap-2">
+            <Button variant="outline" asChild>
+              <Link to="/hosts">Hosts</Link>
+            </Button>
             <Button variant="outline" onClick={handleDeleteStale}>
               Remove Stale Sessions
             </Button>
@@ -151,6 +154,7 @@ export default function DashboardPage() {
                 <TableRow>
                   <TableHead>ID</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Host</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Last Ping</TableHead>
                   <TableHead>Status</TableHead>
@@ -163,6 +167,7 @@ export default function DashboardPage() {
                     <Link to={`/sessions/${session.id}`} className="contents">
                       <TableCell className="font-mono">{truncateId(session.id)}</TableCell>
                       <TableCell>{session.name || "-"}</TableCell>
+                      <TableCell>{session.host?.label || session.host?.hostname || "-"}</TableCell>
                       <TableCell>{formatDate(session.started_at)}</TableCell>
                       <TableCell>{formatRelativeTime(session.last_ping_at)}</TableCell>
                       <TableCell>
@@ -195,6 +200,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent className="text-sm space-y-1">
                   <p><span className="text-muted-foreground">Name:</span> {session.name || "-"}</p>
+                  <p><span className="text-muted-foreground">Host:</span> {session.host?.label || session.host?.hostname || "-"}</p>
                   <p><span className="text-muted-foreground">Started:</span> {formatDate(session.started_at)}</p>
                   <p><span className="text-muted-foreground">Last Ping:</span> {formatRelativeTime(session.last_ping_at)}</p>
                   <p><span className="text-muted-foreground">Metadata:</span> {parseMetadata(session.metadata)}</p>

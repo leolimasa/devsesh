@@ -4,6 +4,9 @@ import { setupVirtualAuthenticator } from '../../helpers/webauthn';
 
 test.describe('Authentication - Login', () => {
   test('registered user can login with webauthn passkey', async ({ page }) => {
+    page.on('console', msg => console.log('BROWSER CONSOLE:', msg.type(), msg.text()));
+    page.on('pageerror', err => console.log('BROWSER PAGE ERROR:', err.message));
+    
     const server = await startServer();
     const testEmail = `test-${Date.now()}@example.com`;
 
@@ -40,9 +43,26 @@ test.describe('Authentication - Login', () => {
       // Submit the form
       const submitButton = page.locator('button[type="submit"]');
       await expect(submitButton).toBeVisible();
+      console.log('Clicking submit button...');
       await submitButton.click();
 
+      // Wait a bit for the WebAuthn flow
+      await page.waitForTimeout(2000);
+      console.log('Current URL after submit:', page.url());
+      
+      // Check for any error messages on the page
+      const pageContent = await page.content();
+      const hasError = pageContent.includes('error') || pageContent.includes('Error');
+      if (hasError) {
+        console.log('Page contains error - looking for error message...');
+        const errorMsg = await page.locator('.text-red-500, .text-destructive, p').allTextContents();
+        console.log('Error messages found:', errorMsg.filter(t => t.toLowerCase().includes('error') || t.toLowerCase().includes('fail')));
+      }
+      
+      console.log('LocalStorage token:', await page.evaluate(() => localStorage.getItem('token')));
+
       // Wait for login to complete (WebAuthn popup will be handled automatically by virtual authenticator)
+      console.log('Waiting for dashboard URL...');
       await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
 
       // Wait for the page to be fully loaded

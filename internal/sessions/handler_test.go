@@ -105,13 +105,14 @@ func TestStartHandler(t *testing.T) {
 	dbConn := setupTestDB(t)
 	hub := NewHub()
 	userID := int64(1)
+	hostID := int64(1)
 
 	handler := StartHandler(dbConn, hub)
 
-	body := `{"name":"Test Session","hostname":"localhost","start_time":"2026-01-01T00:00:00Z"}`
+	body := `{"name":"Test Session","start_time":"2026-01-01T00:00:00Z"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/session-1/start", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(context.WithValue(req.Context(), ContextKeyUserID, userID))
+	req = req.WithContext(context.WithValue(context.WithValue(req.Context(), ContextKeyUserID, userID), ContextKeyHostID, hostID))
 	req.SetPathValue("session_id", "session-1")
 	w := httptest.NewRecorder()
 
@@ -128,6 +129,9 @@ func TestStartHandler(t *testing.T) {
 	if s.Name != "Test Session" {
 		t.Errorf("expected name 'Test Session', got '%s'", s.Name)
 	}
+	if s.HostID != hostID {
+		t.Errorf("expected hostID %d, got %d", hostID, s.HostID)
+	}
 }
 
 func TestPingHandler(t *testing.T) {
@@ -139,8 +143,8 @@ func TestPingHandler(t *testing.T) {
 	s := db.Session{
 		ID:        "ping-session",
 		UserID:    userID,
+		HostID:    1,
 		Name:      "Ping Test",
-		Hostname:  "localhost",
 		StartedAt: now,
 	}
 	db.CreateSession(dbConn, s)
@@ -172,8 +176,8 @@ func TestEndHandler(t *testing.T) {
 	s := db.Session{
 		ID:        "end-session",
 		UserID:    userID,
+		HostID:    1,
 		Name:      "End Test",
-		Hostname:  "localhost",
 		StartedAt: now,
 	}
 	db.CreateSession(dbConn, s)
@@ -205,8 +209,8 @@ func TestMetaHandler(t *testing.T) {
 	s := db.Session{
 		ID:        "meta-session",
 		UserID:    userID,
+		HostID:    1,
 		Name:      "Meta Test",
-		Hostname:  "localhost",
 		StartedAt: now,
 	}
 	db.CreateSession(dbConn, s)
@@ -242,15 +246,15 @@ func TestListHandler(t *testing.T) {
 	db.CreateSession(dbConn, db.Session{
 		ID:        "list-1",
 		UserID:    userID,
+		HostID:    1,
 		Name:      "Session 1",
-		Hostname:  "localhost",
 		StartedAt: now,
 	})
 	db.CreateSession(dbConn, db.Session{
 		ID:        "list-2",
 		UserID:    userID,
+		HostID:    1,
 		Name:      "Session 2",
-		Hostname:  "localhost",
 		StartedAt: now.Add(time.Hour),
 	})
 

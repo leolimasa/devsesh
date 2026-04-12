@@ -1,8 +1,18 @@
+export interface Host {
+  id: number;
+  label: string;
+  hostname: string;
+  user_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Session {
   id: string;
   user_id: number;
+  host_id: number;
+  host?: Host;
   name: string;
-  hostname: string;
   started_at: string;
   last_ping_at: string | null;
   ended_at: string | null;

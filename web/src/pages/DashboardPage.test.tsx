@@ -54,8 +54,8 @@ describe("DashboardPage", () => {
       {
         id: "session-1",
         user_id: 1,
+        host_id: 1,
         name: "Test Session",
-        hostname: "localhost",
         started_at: "2024-01-01T00:00:00Z",
         last_ping_at: "2024-01-01T00:04:00Z",
         ended_at: null,
@@ -77,8 +77,8 @@ describe("DashboardPage", () => {
       {
         id: "session-1",
         user_id: 1,
+        host_id: 1,
         name: "Active Session",
-        hostname: "localhost",
         started_at: now.toISOString(),
         last_ping_at: now.toISOString(),
         ended_at: null,
@@ -87,8 +87,8 @@ describe("DashboardPage", () => {
       {
         id: "session-2",
         user_id: 1,
+        host_id: 1,
         name: "Inactive Session",
-        hostname: "localhost",
         started_at: now.toISOString(),
         last_ping_at: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
         ended_at: null,
@@ -110,8 +110,8 @@ describe("DashboardPage", () => {
       {
         id: "session-1",
         user_id: 1,
+        host_id: 1,
         name: "Test Session",
-        hostname: "localhost",
         started_at: "2024-01-01T00:00:00Z",
         last_ping_at: "2024-01-01T00:04:00Z",
         ended_at: null,

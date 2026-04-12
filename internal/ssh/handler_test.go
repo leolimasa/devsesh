@@ -56,8 +56,8 @@ func TestConnectHandler(t *testing.T) {
 	db.CreateSession(dbConn, db.Session{
 		ID:        "ssh-session",
 		UserID:    userID,
+		HostID:    1,
 		Name:      "SSH Session",
-		Hostname:  "myhost",
 		StartedAt: now,
 	})
 

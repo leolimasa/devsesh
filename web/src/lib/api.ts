@@ -1,4 +1,4 @@
-import type { Session, Passkey, AuthStatus } from "@/types/api"
+import type { Session, Passkey, AuthStatus, Host } from "@/types/api"
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null
@@ -99,13 +99,6 @@ export async function pairStart(email: string): Promise<{ code: string }> {
   })
 }
 
-export async function pairExchange(code: string): Promise<{ token: string }> {
-  return fetchApi<{ token: string }>("/auth/pair/exchange", {
-    method: "POST",
-    body: JSON.stringify({ code }),
-  })
-}
-
 export async function pairComplete(code: string): Promise<{ token: string; url: string }> {
   return fetchApi<{ token: string; url: string }>("/auth/pair/complete", {
     method: "POST",
@@ -162,4 +155,43 @@ export async function deletePasskey(id: string): Promise<void> {
 export function getWsEndpoint(): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
   return `${protocol}//${window.location.host}/api/v1/sessions/updates`
+}
+
+export async function listHosts(): Promise<Host[]> {
+  return fetchApi<Host[]>("/hosts")
+}
+
+export async function createHost(host: { label: string; hostname: string }): Promise<Host> {
+  return fetchApi<Host>("/hosts", {
+    method: "POST",
+    body: JSON.stringify(host),
+  })
+}
+
+export async function getHost(id: number): Promise<Host> {
+  return fetchApi<Host>(`/hosts/${id}`)
+}
+
+export async function updateHost(id: number, host: { label?: string; hostname?: string }): Promise<Host> {
+  return fetchApi<Host>(`/hosts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(host),
+  })
+}
+
+export async function deleteHost(id: number): Promise<void> {
+  return fetchApi<void>(`/hosts/${id}`, {
+    method: "DELETE",
+  })
+}
+
+export async function pairExchange(
+  code: string,
+  hostId?: number,
+  newHost?: { label: string; hostname: string }
+): Promise<{ token: string }> {
+  return fetchApi<{ token: string }>("/auth/pair/exchange", {
+    method: "POST",
+    body: JSON.stringify({ code, host_id: hostId, new_host: newHost }),
+  })
 }

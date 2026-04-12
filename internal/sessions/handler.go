@@ -18,6 +18,7 @@ type contextKey string
 
 const (
 	ContextKeyUserID  contextKey = "userID"
+	ContextKeyHostID  contextKey = "hostID"
 	ContextKeySession contextKey = "session"
 )
 
@@ -61,6 +62,12 @@ func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 			return
 		}
 
+		hostID, ok := HostIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
 		sessionID := r.PathValue("session_id")
 
 		var body map[string]any
@@ -70,7 +77,6 @@ func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		}
 
 		name, _ := body["name"].(string)
-		hostname, _ := body["hostname"].(string)
 		startTimeStr, _ := body["start_time"].(string)
 
 		var startTime time.Time
@@ -87,8 +93,8 @@ func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		s := db.Session{
 			ID:        sessionID,
 			UserID:    userID,
+			HostID:    hostID,
 			Name:      name,
-			Hostname:  hostname,
 			StartedAt: startTime,
 			Metadata:  &metaStr,
 		}
@@ -203,14 +209,13 @@ func ListHandler(database *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		sessions, err := db.GetSessionsByUserID(database, userID)
+		sessions, err := db.GetSessionsWithHostByUserID(database, userID)
 		if err != nil {
 			slog.Error("failed to get sessions by user id", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 
-		// Ensure we return an empty array, not null
 		if sessions == nil {
 			sessions = []db.Session{}
 		}
@@ -318,6 +323,11 @@ func UpdatesHandler(database *sql.DB, hub *Hub, jwtSecret string) http.HandlerFu
 func UserIDFromContext(ctx context.Context) (int64, bool) {
 	userID, ok := ctx.Value(ContextKeyUserID).(int64)
 	return userID, ok
+}
+
+func HostIDFromContext(ctx context.Context) (int64, bool) {
+	hostID, ok := ctx.Value(ContextKeyHostID).(int64)
+	return hostID, ok
 }
 
 func SessionFromContext(ctx context.Context) (*db.Session, bool) {

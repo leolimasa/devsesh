@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -75,12 +76,13 @@ func TestPairExchangeHandler(t *testing.T) {
 	dbConn := setupTestDB(t)
 
 	userID, _ := db.CreateUser(dbConn, "exchange@test.com")
+	hostID, _ := db.CreateHost(dbConn, db.Host{Label: "test-host", Hostname: "test.local", UserID: userID})
 	expiresAt := time.Now().Add(5 * time.Minute)
 	db.CreatePairingCode(dbConn, "EXCHNG", expiresAt)
 
 	handler := PairExchangeHandler(dbConn)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pair/exchange", bytes.NewReader([]byte(`{"code":"EXCHNG"}`)))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pair/exchange", bytes.NewReader([]byte(`{"code":"EXCHNG","host_id":`+fmt.Sprintf("%d",hostID)+`}`)))
 	req.Header.Set("Content-Type", "application/json")
 	req = req.WithContext(context.WithValue(req.Context(), sessions.ContextKeyUserID, userID))
 	w := httptest.NewRecorder()
@@ -97,6 +99,9 @@ func TestPairExchangeHandler(t *testing.T) {
 	}
 	if pc.UserID == nil || *pc.UserID != userID {
 		t.Errorf("expected user_id to be %d, got %v", userID, pc.UserID)
+	}
+	if pc.HostID == nil || *pc.HostID != hostID {
+		t.Errorf("expected host_id to be %d, got %v", hostID, pc.HostID)
 	}
 }
 
@@ -128,9 +133,10 @@ func TestPairCompleteHandler(t *testing.T) {
 	}
 
 	userID, _ := db.CreateUser(dbConn, "complete@test.com")
+	hostID, _ := db.CreateHost(dbConn, db.Host{Label: "test-host", Hostname: "test.local", UserID: userID})
 	expiresAt := time.Now().Add(cfg.PairingCodeExpiry)
 	db.CreatePairingCode(dbConn, "CMPLTE", expiresAt)
-	db.ApprovePairingCode(dbConn, "CMPLTE", userID)
+	db.ApprovePairingCode(dbConn, "CMPLTE", userID, hostID)
 
 	handler := PairCompleteHandler(dbConn, cfg)
 
@@ -191,9 +197,10 @@ func TestPairCompleteHandlerExpiredCode(t *testing.T) {
 	}
 
 	userID, _ := db.CreateUser(dbConn, "expired@test.com")
+	hostID, _ := db.CreateHost(dbConn, db.Host{Label: "expired-host", Hostname: "expired.local", UserID: userID})
 	expiresAt := time.Now().Add(-time.Hour)
 	db.CreatePairingCode(dbConn, "EXPRED", expiresAt)
-	db.ApprovePairingCode(dbConn, "EXPRED", userID)
+	db.ApprovePairingCode(dbConn, "EXPRED", userID, hostID)
 
 	handler := PairCompleteHandler(dbConn, cfg)
 
@@ -218,7 +225,7 @@ func TestPairCompleteHandlerNoUser(t *testing.T) {
 
 	expiresAt := time.Now().Add(5 * time.Minute)
 	db.CreatePairingCode(dbConn, "NOUSER", expiresAt)
-	db.ApprovePairingCode(dbConn, "NOUSER", 999)
+	db.ApprovePairingCode(dbConn, "NOUSER", 999, 1)
 
 	handler := PairCompleteHandler(dbConn, cfg)
 
