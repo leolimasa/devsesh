@@ -19,6 +19,9 @@ type Config struct {
 	MaintenanceInterval time.Duration
 	RPID                string
 	RPOrigin            string
+	SSHTimeout          time.Duration
+	SSHIdleTimeout      time.Duration
+	SSHMaxConnections   int
 }
 
 func LoadFromEnv() Config {
@@ -40,6 +43,9 @@ func LoadFromEnv() Config {
 		MaintenanceInterval: parseDuration("DEVSESH_MAINTENANCE_INTERVAL", 1*time.Hour),
 		RPID:                getEnv("DEVSESH_RP_ID", "localhost"),
 		RPOrigin:            getEnv("DEVSESH_RP_ORIGIN", fmt.Sprintf("http://localhost:%d", parseInt("DEVSESH_PORT", 8080))),
+		SSHTimeout:          parseDuration("DEVSESH_SSH_TIMEOUT", 30*time.Second),
+		SSHIdleTimeout:      parseDuration("DEVSESH_SSH_IDLE_TIMEOUT", 30*time.Minute),
+		SSHMaxConnections:   parseInt("DEVSESH_SSH_MAX_CONNECTIONS", 5),
 	}
 	return cfg
 }

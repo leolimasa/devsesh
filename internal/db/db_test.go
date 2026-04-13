@@ -31,8 +31,8 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first migration run: %v", err)
 	}
-	if len(applied) != 8 {
-		t.Errorf("expected 8 migrations applied, got %d", len(applied))
+	if len(applied) != 9 {
+		t.Errorf("expected 9 migrations applied, got %d", len(applied))
 	}
 
 	applied, err = RunMigrations(db)

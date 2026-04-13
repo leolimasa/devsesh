@@ -82,7 +82,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("PUT /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.UpdateHandler(database))))
 	mux.Handle("DELETE /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.DeleteHandler(database))))
 
-	ssh.RegisterRoutes(mux, database, jwtMiddleware)
+	ssh.RegisterRoutes(mux, database, jwtMiddleware, cfg)
 
 	return &Server{
 		cfg: cfg,

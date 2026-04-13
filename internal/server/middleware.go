@@ -14,13 +14,20 @@ import (
 func RequireJWT(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tokenStr := ""
+
 			authHeader := r.Header.Get("Authorization")
-			if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+			if len(authHeader) >= 7 && authHeader[:7] == "Bearer " {
+				tokenStr = authHeader[7:]
+			} else if queryToken := r.URL.Query().Get("token"); queryToken != "" {
+				tokenStr = queryToken
+			}
+
+			if tokenStr == "" {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			tokenStr := authHeader[7:]
 			claims, err := auth.ValidateToken(secret, tokenStr)
 			if err != nil {
 				slog.Error("failed to validate token", "error", err)

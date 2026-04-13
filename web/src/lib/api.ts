@@ -161,7 +161,7 @@ export async function listHosts(): Promise<Host[]> {
   return fetchApi<Host[]>("/hosts")
 }
 
-export async function createHost(host: { label: string; hostname: string }): Promise<Host> {
+export async function createHost(host: { label: string; hostname: string; ssh_user?: string; ssh_port?: number }): Promise<Host> {
   return fetchApi<Host>("/hosts", {
     method: "POST",
     body: JSON.stringify(host),
@@ -172,7 +172,7 @@ export async function getHost(id: number): Promise<Host> {
   return fetchApi<Host>(`/hosts/${id}`)
 }
 
-export async function updateHost(id: number, host: { label?: string; hostname?: string }): Promise<Host> {
+export async function updateHost(id: number, host: { label?: string; hostname?: string; ssh_user?: string; ssh_port?: number }): Promise<Host> {
   return fetchApi<Host>(`/hosts/${id}`, {
     method: "PUT",
     body: JSON.stringify(host),
@@ -194,4 +194,9 @@ export async function pairExchange(
     method: "POST",
     body: JSON.stringify({ code, host_id: hostId, new_host: newHost }),
   })
+}
+
+export function getSSHWebSocketURL(hostId: number): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+  return `${protocol}//${window.location.host}/api/v1/hosts/${hostId}/ssh`
 }

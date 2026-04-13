@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getSession } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
+import { SSHTerminal } from "@/components/SSHTerminal"
 import type { Session } from "@/types/api"
 
 function formatDate(dateStr: string): string {
@@ -26,6 +27,7 @@ export default function SessionDetailPage() {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [showTerminal, setShowTerminal] = useState(false)
 
   const loadSession = useCallback(async () => {
     if (!id) return
@@ -80,6 +82,10 @@ export default function SessionDetailPage() {
 
   const isActive = !session.ended_at && session.last_ping_at && 
     (new Date().getTime() - new Date(session.last_ping_at).getTime()) < 5 * 60 * 1000
+
+  const handleDisconnect = () => {
+    setShowTerminal(false)
+  }
 
   return (
     <div className="min-h-screen p-4">
@@ -136,10 +142,32 @@ export default function SessionDetailPage() {
             </div>
 
             <div className="border-t pt-4">
-              <h3 className="text-sm font-medium text-muted-foreground mb-2">Terminal</h3>
-              <div className="h-64 bg-black/50 rounded-md flex items-center justify-center text-muted-foreground">
-                Terminal will be available here in a future update
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-medium text-muted-foreground">Terminal</h3>
+                {isActive && session.host && !showTerminal && (
+                  <Button onClick={() => setShowTerminal(true)}>
+                    Connect
+                  </Button>
+                )}
+                {isActive && session.host && showTerminal && (
+                  <Button variant="outline" onClick={handleDisconnect}>
+                    Close Terminal
+                  </Button>
+                )}
               </div>
+              {showTerminal && session.host ? (
+                <div className="h-96 border rounded-md overflow-hidden">
+                  <SSHTerminal
+                    host={session.host}
+                    sessionName={session.name || "default"}
+                    onDisconnect={handleDisconnect}
+                  />
+                </div>
+              ) : (
+                <div className="h-64 bg-black/50 rounded-md flex items-center justify-center text-muted-foreground">
+                  {!isActive ? "Session is not active" : session.host ? "Click Connect to open terminal" : "No host configured for this session"}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

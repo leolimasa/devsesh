@@ -64,6 +64,8 @@ describe("SessionDetailPage", () => {
         id: 1,
         label: "My Host",
         hostname: "localhost",
+        ssh_user: "root",
+        ssh_port: 22,
         user_id: 1,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
@@ -97,7 +99,7 @@ describe("SessionDetailPage", () => {
     renderSessionDetailPage("session-1")
 
     await waitFor(() => {
-      expect(screen.getByText(/terminal will be available/i)).toBeInTheDocument()
+      expect(screen.getByText("Session is not active")).toBeInTheDocument()
     })
   })
 

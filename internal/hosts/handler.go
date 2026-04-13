@@ -51,6 +51,8 @@ func CreateHandler(database *sql.DB) http.HandlerFunc {
 		var req struct {
 			Label    string `json:"label"`
 			Hostname string `json:"hostname"`
+			SSHUser  string `json:"ssh_user"`
+			SSHPort  int    `json:"ssh_port"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -60,6 +62,11 @@ func CreateHandler(database *sql.DB) http.HandlerFunc {
 		if req.Label == "" || req.Hostname == "" {
 			http.Error(w, "label and hostname are required", http.StatusBadRequest)
 			return
+		}
+
+		sshPort := req.SSHPort
+		if sshPort == 0 {
+			sshPort = 22
 		}
 
 		existing, err := db.GetHostByLabel(database, userID, req.Label)
@@ -76,6 +83,8 @@ func CreateHandler(database *sql.DB) http.HandlerFunc {
 		host := db.Host{
 			Label:    req.Label,
 			Hostname: req.Hostname,
+			SSHUser:  req.SSHUser,
+			SSHPort:  sshPort,
 			UserID:   userID,
 		}
 		id, err := db.CreateHost(database, host)
@@ -150,6 +159,8 @@ func UpdateHandler(database *sql.DB) http.HandlerFunc {
 		var req struct {
 			Label    string `json:"label"`
 			Hostname string `json:"hostname"`
+			SSHUser  string `json:"ssh_user"`
+			SSHPort  int    `json:"ssh_port"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -171,6 +182,12 @@ func UpdateHandler(database *sql.DB) http.HandlerFunc {
 		}
 		if req.Hostname != "" {
 			host.Hostname = req.Hostname
+		}
+		if req.SSHUser != "" {
+			host.SSHUser = req.SSHUser
+		}
+		if req.SSHPort > 0 {
+			host.SSHPort = req.SSHPort
 		}
 
 		if err := db.UpdateHost(database, *host); err != nil {

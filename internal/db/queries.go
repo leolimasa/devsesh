@@ -25,6 +25,8 @@ type Host struct {
 	ID        int64     `json:"id"`
 	Label     string    `json:"label"`
 	Hostname  string    `json:"hostname"`
+	SSHUser   string    `json:"ssh_user"`
+	SSHPort   int       `json:"ssh_port"`
 	UserID    int64     `json:"user_id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -295,12 +297,22 @@ func GetSessionsByUserID(db *sql.DB, userID int64) ([]Session, error) {
 
 func GetSession(db *sql.DB, id string) (*Session, error) {
 	var s Session
+	var h Host
 	var startedAt string
 	var lastPingAt, endedAt, metadata sql.NullString
-	err := db.QueryRow(
-		"SELECT id, user_id, host_id, name, started_at, last_ping_at, ended_at, metadata FROM sessions WHERE id = ?",
+	var hostID, hostUserID sql.NullInt64
+	var hostLabel, hostHostname, hostSSHUser sql.NullString
+	var hostSSHPort sql.NullInt64
+	var hostCreatedAt, hostUpdatedAt sql.NullString
+	err := db.QueryRow(`
+		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.ended_at, s.metadata,
+		       h.id, h.label, h.hostname, h.ssh_user, h.ssh_port, h.user_id, h.created_at, h.updated_at
+		FROM sessions s
+		LEFT JOIN hosts h ON s.host_id = h.id
+		WHERE s.id = ?`,
 		id,
-	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &endedAt, &metadata)
+	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &endedAt, &metadata,
+		&hostID, &hostLabel, &hostHostname, &hostSSHUser, &hostSSHPort, &hostUserID, &hostCreatedAt, &hostUpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -318,6 +330,17 @@ func GetSession(db *sql.DB, id string) (*Session, error) {
 	}
 	if metadata.Valid {
 		s.Metadata = &metadata.String
+	}
+	if hostID.Valid {
+		h.ID = hostID.Int64
+		h.Label = hostLabel.String
+		h.Hostname = hostHostname.String
+		h.SSHUser = hostSSHUser.String
+		h.SSHPort = int(hostSSHPort.Int64)
+		h.UserID = hostUserID.Int64
+		h.CreatedAt, _ = parseTime(hostCreatedAt.String)
+		h.UpdatedAt, _ = parseTime(hostUpdatedAt.String)
+		s.Host = &h
 	}
 	return &s, nil
 }
@@ -345,8 +368,8 @@ func DeleteCredential(db *sql.DB, id string) error {
 func CreateHost(db *sql.DB, host Host) (int64, error) {
 	now := time.Now().UTC()
 	res, err := db.Exec(
-		"INSERT INTO hosts (label, hostname, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-		host.Label, host.Hostname, host.UserID, now.Format(timeFormat), now.Format(timeFormat),
+		"INSERT INTO hosts (label, hostname, ssh_user, ssh_port, user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		host.Label, host.Hostname, host.SSHUser, host.SSHPort, host.UserID, now.Format(timeFormat), now.Format(timeFormat),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("create host: %w", err)
@@ -358,9 +381,9 @@ func GetHostByID(db *sql.DB, id int64) (*Host, error) {
 	var h Host
 	var createdAt, updatedAt string
 	err := db.QueryRow(
-		"SELECT id, label, hostname, user_id, created_at, updated_at FROM hosts WHERE id = ?",
+		"SELECT id, label, hostname, ssh_user, ssh_port, user_id, created_at, updated_at FROM hosts WHERE id = ?",
 		id,
-	).Scan(&h.ID, &h.Label, &h.Hostname, &h.UserID, &createdAt, &updatedAt)
+	).Scan(&h.ID, &h.Label, &h.Hostname, &h.SSHUser, &h.SSHPort, &h.UserID, &createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -374,7 +397,7 @@ func GetHostByID(db *sql.DB, id int64) (*Host, error) {
 
 func GetHostsByUserID(db *sql.DB, userID int64) ([]Host, error) {
 	rows, err := db.Query(
-		"SELECT id, label, hostname, user_id, created_at, updated_at FROM hosts WHERE user_id = ? ORDER BY label",
+		"SELECT id, label, hostname, ssh_user, ssh_port, user_id, created_at, updated_at FROM hosts WHERE user_id = ? ORDER BY label",
 		userID,
 	)
 	if err != nil {
@@ -386,7 +409,7 @@ func GetHostsByUserID(db *sql.DB, userID int64) ([]Host, error) {
 	for rows.Next() {
 		var h Host
 		var createdAt, updatedAt string
-		if err := rows.Scan(&h.ID, &h.Label, &h.Hostname, &h.UserID, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&h.ID, &h.Label, &h.Hostname, &h.SSHUser, &h.SSHPort, &h.UserID, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan host: %w", err)
 		}
 		h.CreatedAt, _ = parseTime(createdAt)
@@ -399,8 +422,8 @@ func GetHostsByUserID(db *sql.DB, userID int64) ([]Host, error) {
 func UpdateHost(db *sql.DB, host Host) error {
 	now := time.Now().UTC()
 	_, err := db.Exec(
-		"UPDATE hosts SET label = ?, hostname = ?, updated_at = ? WHERE id = ?",
-		host.Label, host.Hostname, now.Format(timeFormat), host.ID,
+		"UPDATE hosts SET label = ?, hostname = ?, ssh_user = ?, ssh_port = ?, updated_at = ? WHERE id = ?",
+		host.Label, host.Hostname, host.SSHUser, host.SSHPort, now.Format(timeFormat), host.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("update host: %w", err)
@@ -420,9 +443,9 @@ func GetHostByLabel(db *sql.DB, userID int64, label string) (*Host, error) {
 	var h Host
 	var createdAt, updatedAt string
 	err := db.QueryRow(
-		"SELECT id, label, hostname, user_id, created_at, updated_at FROM hosts WHERE user_id = ? AND label = ?",
+		"SELECT id, label, hostname, ssh_user, ssh_port, user_id, created_at, updated_at FROM hosts WHERE user_id = ? AND label = ?",
 		userID, label,
-	).Scan(&h.ID, &h.Label, &h.Hostname, &h.UserID, &createdAt, &updatedAt)
+	).Scan(&h.ID, &h.Label, &h.Hostname, &h.SSHUser, &h.SSHPort, &h.UserID, &createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -437,7 +460,7 @@ func GetHostByLabel(db *sql.DB, userID int64, label string) (*Host, error) {
 func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 	rows, err := db.Query(`
 		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.ended_at, s.metadata,
-		       h.id, h.label, h.hostname, h.user_id, h.created_at, h.updated_at
+		       h.id, h.label, h.hostname, h.ssh_user, h.ssh_port, h.user_id, h.created_at, h.updated_at
 		FROM sessions s
 		LEFT JOIN hosts h ON s.host_id = h.id
 		WHERE s.user_id = ?
@@ -454,14 +477,15 @@ func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 		var s Session
 		var h Host
 		var hostID, hostUserID sql.NullInt64
-		var hostLabel, hostHostname sql.NullString
+		var hostLabel, hostHostname, hostSSHUser sql.NullString
+		var hostSSHPort sql.NullInt64
 		var hostCreatedAt, hostUpdatedAt sql.NullString
 		var startedAt string
 		var lastPingAt, endedAt, metadata sql.NullString
 
 		if err := rows.Scan(
 			&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &endedAt, &metadata,
-			&hostID, &hostLabel, &hostHostname, &hostUserID, &hostCreatedAt, &hostUpdatedAt,
+			&hostID, &hostLabel, &hostHostname, &hostSSHUser, &hostSSHPort, &hostUserID, &hostCreatedAt, &hostUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan session with host: %w", err)
 		}
@@ -481,6 +505,10 @@ func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 			h.ID = hostID.Int64
 			h.Label = hostLabel.String
 			h.Hostname = hostHostname.String
+			h.SSHUser = hostSSHUser.String
+			if hostSSHPort.Valid {
+				h.SSHPort = int(hostSSHPort.Int64)
+			}
 			h.UserID = hostUserID.Int64
 			if hostCreatedAt.Valid {
 				h.CreatedAt, _ = parseTime(hostCreatedAt.String)

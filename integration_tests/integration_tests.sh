@@ -45,11 +45,22 @@ echo ""
 echo "Checking devsesh binary..."
 export DEVSESH_BINARY_PATH="$PROJECT_ROOT/devsesh"
 if [ ! -f "$DEVSESH_BINARY_PATH" ]; then
-    echo "Error: devsesh binary not found at $DEVSESH_BINARY_PATH"
-    echo "Please build it first with: cd \"$PROJECT_ROOT\" && go build ./main.go"
-    exit 1
+    echo "devsesh binary not found, building..."
+    cd "$PROJECT_ROOT"
+    ./build.sh
+else
+    echo "✓ devsesh binary found"
 fi
-echo "✓ Using existing devsesh binary: $DEVSESH_BINARY_PATH"
+echo ""
+
+# Build Docker container for SSH integration tests
+echo "Building SSH test container..."
+cd "$SCRIPT_DIR/ssh"
+cp "$PROJECT_ROOT/devsesh" ./devsesh
+docker build -t devsesh-ssh-test .
+rm -f ./devsesh
+echo "✓ SSH test container built"
+cd "$SCRIPT_DIR"
 echo ""
 
 # Run tests

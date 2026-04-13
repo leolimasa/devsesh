@@ -5,7 +5,7 @@ import type { Host } from "@/types/api"
 
 interface HostFormProps {
   host?: Host
-  onSubmit: (host: { label: string; hostname: string }) => void
+  onSubmit: (host: { label: string; hostname: string; ssh_user?: string; ssh_port?: number }) => void
   onCancel?: () => void
   submitLabel?: string
 }
@@ -13,6 +13,8 @@ interface HostFormProps {
 export function HostForm({ host, onSubmit, onCancel, submitLabel = "Save" }: HostFormProps) {
   const [label, setLabel] = useState(host?.label || "")
   const [hostname, setHostname] = useState(host?.hostname || "")
+  const [sshUser, setSSHUser] = useState(host?.ssh_user || "")
+  const [sshPort, setSSHPort] = useState(host?.ssh_port || 22)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -33,7 +35,12 @@ export function HostForm({ host, onSubmit, onCancel, submitLabel = "Save" }: Hos
     }
 
     try {
-      await onSubmit({ label: label.trim(), hostname: hostname.trim() })
+      await onSubmit({ 
+        label: label.trim(), 
+        hostname: hostname.trim(),
+        ssh_user: sshUser.trim() || undefined,
+        ssh_port: sshPort || undefined
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred")
     } finally {
@@ -66,6 +73,32 @@ export function HostForm({ host, onSubmit, onCancel, submitLabel = "Save" }: Hos
           value={hostname}
           onChange={(e) => setHostname(e.target.value)}
           placeholder="e.g., laptop.local or 192.168.1.100"
+          disabled={isLoading}
+        />
+      </div>
+      <div>
+        <label htmlFor="host-ssh-user" className="block text-sm font-medium mb-1">
+          SSH User
+        </label>
+        <Input
+          id="host-ssh-user"
+          type="text"
+          value={sshUser}
+          onChange={(e) => setSSHUser(e.target.value)}
+          placeholder="e.g., ubuntu (optional)"
+          disabled={isLoading}
+        />
+      </div>
+      <div>
+        <label htmlFor="host-ssh-port" className="block text-sm font-medium mb-1">
+          SSH Port
+        </label>
+        <Input
+          id="host-ssh-port"
+          type="number"
+          value={sshPort}
+          onChange={(e) => setSSHPort(parseInt(e.target.value) || 22)}
+          placeholder="22"
           disabled={isLoading}
         />
       </div>
