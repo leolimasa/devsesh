@@ -2,6 +2,12 @@
 
 set -e
 
+if [ "$IS_DEVSESH_NIX" != "1" ]; then
+    echo "Error: This script requires the flake.nix development environment."
+    echo "Run: nix develop --command bash -c './integration_tests/integration_tests.sh'"
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
