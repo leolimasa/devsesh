@@ -43,7 +43,7 @@ echo ""
 
 # Check if devsesh binary exists
 echo "Checking devsesh binary..."
-export DEVSESH_BINARY_PATH="$PROJECT_ROOT/devsesh"
+export DEVSESH_BINARY_PATH="$PROJECT_ROOT/build/devsesh"
 if [ ! -f "$DEVSESH_BINARY_PATH" ]; then
     echo "devsesh binary not found, building..."
     cd "$PROJECT_ROOT"
@@ -56,7 +56,7 @@ echo ""
 # Build Docker container for SSH integration tests
 echo "Building SSH test container..."
 cd "$SCRIPT_DIR/ssh"
-cp "$PROJECT_ROOT/devsesh" ./devsesh
+cp "$PROJECT_ROOT/build/devsesh" ./devsesh
 docker build -t devsesh-ssh-test .
 rm -f ./devsesh
 echo "✓ SSH test container built"

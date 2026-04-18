@@ -32,12 +32,7 @@ go.work.sum
 # .vscode/
 
 # Build artifacts
-devsesh
-devsesh-new
-
-# Web build artifacts
-web/dist/
-web/node_modules/
+build/
 
 # Test artifacts
 .playwrightsdasd/
