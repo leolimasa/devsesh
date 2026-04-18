@@ -14,22 +14,20 @@ BUILD_DIR="$SCRIPT_DIR/build"
 mkdir -p "$BUILD_DIR"
 
 echo "Building WASM SSH client..."
-export GOOS=js GOARCH=wasm
-./build_wasm.sh "$BUILD_DIR"
+
+GOOS=js GOARCH=wasm ./build_wasm.sh "$BUILD_DIR"
 
 echo "Building web client..."
-rm -rf "$BUILD_DIR/web"
-mkdir -p "$BUILD_DIR/web"
 cd web
-npm install
 npm run build
+mkdir -p "$BUILD_DIR/web"
 cp -rf dist/* "$BUILD_DIR/web/"
 cd ..
 
+echo "After web, pwd: $(pwd)"
+echo "BUILD_DIR: $BUILD_DIR"
+
 echo "Building Go binary (static)..."
-export CGO_ENABLED=0
-go build -o "$BUILD_DIR/devsesh" .
+CGO_ENABLED=0 go build -o "$SCRIPT_DIR/build/devsesh" "$SCRIPT_DIR"
 
 echo "Build complete: ./build/devsesh"
-echo "Web artifacts: ./build/web/"
-echo "WASM artifact: ./build/sshclient.wasm"
