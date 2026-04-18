@@ -49,6 +49,8 @@ devShells.default = pkgs.mkShell {
       # Tell Playwright to use system chromium
       export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
       export CHROMIUM_PATH=${pkgs.chromium}/bin/chromium
+      export IS_DEVSESH_NIX=1
+      export ENV_NAME="$ENV_NAME devsesh"
     '';
   };
       });
