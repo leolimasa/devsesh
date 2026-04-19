@@ -103,9 +103,9 @@ devsesh stop <session-id>
 
 To test against a devsesh server:
 
-1. Start your devsesh server locally (if not already running):
+1. Start your devsesh server locally listening on all interfaces (if not already running):
    ```bash
-   devsesh server
+   DEVSESH_HOST="0.0.0.0" devsesh server
    ```
 
 2. From within the SSH container, pair with your local server:
