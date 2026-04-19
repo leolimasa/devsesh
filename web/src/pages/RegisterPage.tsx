@@ -1,6 +1,6 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { startRegistration } from "@simplewebauthn/browser"
+import { startRegistration, browserSupportsWebAuthn } from "@simplewebauthn/browser"
 import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,12 +12,23 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [webAuthnSupported, setWebAuthnSupported] = useState(true)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    setWebAuthnSupported(browserSupportsWebAuthn())
+  }, [])
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setLoading(true)
+
+    if (!browserSupportsWebAuthn()) {
+      setError("WebAuthn is not supported. Please use HTTPS or localhost.")
+      setLoading(false)
+      return
+    }
 
     try {
       const response = await registerBegin(email) as { publicKey: PublicKeyCredentialCreationOptionsJSON }
@@ -42,6 +53,14 @@ export default function RegisterPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleRegister} className="space-y-4">
+            {!webAuthnSupported && (
+              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                <p className="text-sm text-destructive font-medium">WebAuthn is not supported</p>
+                <p className="text-xs text-destructive/80 mt-1">
+                  Passkeys require a secure context (HTTPS or localhost). Please access this site via HTTPS or localhost.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -56,7 +75,7 @@ export default function RegisterPage() {
             {error && (
               <p className="text-sm text-red-500">{error}</p>
             )}
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !webAuthnSupported}>
               {loading ? "Creating account..." : "Create Account with Passkey"}
             </Button>
             <p className="text-sm text-center text-muted-foreground">

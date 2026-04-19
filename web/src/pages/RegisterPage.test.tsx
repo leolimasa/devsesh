@@ -5,6 +5,7 @@ import RegisterPage from "@/pages/RegisterPage"
 
 vi.mock("@simplewebauthn/browser", () => ({
   startRegistration: vi.fn().mockResolvedValue({ id: "cred-123" }),
+  browserSupportsWebAuthn: vi.fn().mockReturnValue(true),
 }))
 
 vi.mock("@/lib/api", () => ({
@@ -50,6 +51,19 @@ describe("RegisterPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Registration failed")).toBeInTheDocument()
+    })
+  })
+
+  it("shows warning and disables button when WebAuthn is not supported", async () => {
+    const { browserSupportsWebAuthn } = await import("@simplewebauthn/browser")
+    vi.mocked(browserSupportsWebAuthn).mockReturnValue(false)
+
+    renderRegisterPage()
+
+    await waitFor(() => {
+      expect(screen.getByText("WebAuthn is not supported")).toBeInTheDocument()
+      expect(screen.getByText(/Passkeys require a secure context/)).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /create account with passkey/i })).toBeDisabled()
     })
   })
 })

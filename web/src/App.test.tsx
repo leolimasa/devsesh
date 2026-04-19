@@ -12,6 +12,7 @@ import PasskeyManagementPage from "@/pages/PasskeyManagementPage"
 vi.mock("@simplewebauthn/browser", () => ({
   startAuthentication: vi.fn(),
   startRegistration: vi.fn(),
+  browserSupportsWebAuthn: vi.fn().mockReturnValue(true),
 }))
 
 vi.mock("@/hooks/useSessionUpdates", () => ({

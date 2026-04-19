@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { startAuthentication } from "@simplewebauthn/browser"
+import { startAuthentication, browserSupportsWebAuthn } from "@simplewebauthn/browser"
 import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,10 +14,12 @@ export default function LoginPage() {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [noUsers, setNoUsers] = useState(false)
+  const [webAuthnSupported, setWebAuthnSupported] = useState(true)
   const navigate = useNavigate()
   const { login } = useAuth()
 
   useEffect(() => {
+    setWebAuthnSupported(browserSupportsWebAuthn())
     checkUsersExist()
       .then((status) => {
         setNoUsers(!status.exists)
@@ -31,6 +33,12 @@ export default function LoginPage() {
     e.preventDefault()
     setError("")
     setLoading(true)
+
+    if (!browserSupportsWebAuthn()) {
+      setError("WebAuthn is not supported. Please use HTTPS or localhost.")
+      setLoading(false)
+      return
+    }
 
     try {
       const response = await loginBegin(email) as { publicKey: PublicKeyCredentialRequestOptionsJSON }
@@ -57,6 +65,14 @@ export default function LoginPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
+            {!webAuthnSupported && (
+              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                <p className="text-sm text-destructive font-medium">WebAuthn is not supported</p>
+                <p className="text-xs text-destructive/80 mt-1">
+                  Passkeys require a secure context (HTTPS or localhost). Please access this site via HTTPS or localhost.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -71,7 +87,7 @@ export default function LoginPage() {
             {error && (
               <p className="text-sm text-red-500">{error}</p>
             )}
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !webAuthnSupported}>
               {loading ? "Signing in..." : "Sign in with Passkey"}
             </Button>
             {noUsers && (

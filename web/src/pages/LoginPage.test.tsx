@@ -6,6 +6,7 @@ import LoginPage from "@/pages/LoginPage"
 
 vi.mock("@simplewebauthn/browser", () => ({
   startAuthentication: vi.fn().mockResolvedValue({ id: "cred-123" }),
+  browserSupportsWebAuthn: vi.fn().mockReturnValue(true),
 }))
 
 vi.mock("@/lib/api", () => ({
@@ -69,6 +70,19 @@ describe("LoginPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Invalid email")).toBeInTheDocument()
+    })
+  })
+
+  it("shows warning and disables button when WebAuthn is not supported", async () => {
+    const { browserSupportsWebAuthn } = await import("@simplewebauthn/browser")
+    vi.mocked(browserSupportsWebAuthn).mockReturnValue(false)
+
+    renderLoginPage()
+
+    await waitFor(() => {
+      expect(screen.getByText("WebAuthn is not supported")).toBeInTheDocument()
+      expect(screen.getByText(/Passkeys require a secure context/)).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /sign in with passkey/i })).toBeDisabled()
     })
   })
 })

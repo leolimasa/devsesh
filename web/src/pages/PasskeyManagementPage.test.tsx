@@ -7,6 +7,7 @@ import * as api from "@/lib/api"
 
 vi.mock("@simplewebauthn/browser", () => ({
   startRegistration: vi.fn().mockResolvedValue({ id: "new-cred" }),
+  browserSupportsWebAuthn: vi.fn().mockReturnValue(true),
 }))
 
 vi.mock("@/lib/api", () => ({

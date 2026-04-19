@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { startRegistration } from "@simplewebauthn/browser"
+import { startRegistration, browserSupportsWebAuthn } from "@simplewebauthn/browser"
 import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -28,6 +28,7 @@ export default function PasskeyManagementPage() {
   const [adding, setAdding] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState("")
+  const [webAuthnSupported, setWebAuthnSupported] = useState(true)
   const navigate = useNavigate()
 
   const loadPasskeys = async () => {
@@ -42,12 +43,20 @@ export default function PasskeyManagementPage() {
   }
 
   useEffect(() => {
+    setWebAuthnSupported(browserSupportsWebAuthn())
     loadPasskeys()
   }, [])
 
   const handleAddPasskey = async () => {
     setAdding(true)
     setError("")
+
+    if (!browserSupportsWebAuthn()) {
+      setError("WebAuthn is not supported. Please use HTTPS or localhost.")
+      setAdding(false)
+      return
+    }
+
     try {
       const response = await addPasskeyBegin() as { publicKey: PublicKeyCredentialCreationOptionsJSON }
       const credential = await startRegistration(response.publicKey)
@@ -102,6 +111,14 @@ export default function PasskeyManagementPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {!webAuthnSupported && (
+              <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+                <p className="text-sm text-destructive font-medium">WebAuthn is not supported</p>
+                <p className="text-xs text-destructive/80 mt-1">
+                  Passkeys require a secure context (HTTPS or localhost). Please access this site via HTTPS or localhost.
+                </p>
+              </div>
+            )}
             {error && (
               <p className="text-sm text-red-500">{error}</p>
             )}
@@ -134,7 +151,7 @@ export default function PasskeyManagementPage() {
               </div>
             )}
 
-            <Button onClick={handleAddPasskey} disabled={adding}>
+            <Button onClick={handleAddPasskey} disabled={adding || !webAuthnSupported}>
               {adding ? "Adding..." : "Add Passkey"}
             </Button>
           </CardContent>
