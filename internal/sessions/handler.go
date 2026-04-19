@@ -90,13 +90,15 @@ func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		metaJSON, _ := json.Marshal(body)
 		metaStr := string(metaJSON)
 
+		now := time.Now()
 		s := db.Session{
-			ID:        sessionID,
-			UserID:    userID,
-			HostID:    hostID,
-			Name:      name,
-			StartedAt: startTime,
-			Metadata:  &metaStr,
+			ID:         sessionID,
+			UserID:     userID,
+			HostID:     hostID,
+			Name:       name,
+			StartedAt:  startTime,
+			LastPingAt: &now,
+			Metadata:   &metaStr,
 		}
 
 		if err := db.CreateSession(database, s); err != nil {

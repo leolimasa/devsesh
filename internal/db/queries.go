@@ -217,9 +217,14 @@ func MarkPairingCodeUsed(db *sql.DB, code string) error {
 }
 
 func CreateSession(db *sql.DB, s Session) error {
+	var lastPingAt *string
+	if s.LastPingAt != nil {
+		formatted := s.LastPingAt.UTC().Format(timeFormat)
+		lastPingAt = &formatted
+	}
 	_, err := db.Exec(
-		"INSERT INTO sessions (id, user_id, host_id, name, started_at, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-		s.ID, s.UserID, s.HostID, s.Name, s.StartedAt.UTC().Format(timeFormat), s.Metadata,
+		"INSERT INTO sessions (id, user_id, host_id, name, started_at, last_ping_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		s.ID, s.UserID, s.HostID, s.Name, s.StartedAt.UTC().Format(timeFormat), lastPingAt, s.Metadata,
 	)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)

@@ -80,8 +80,11 @@ export default function SessionDetailPage() {
     )
   }
 
-  const isActive = !session.ended_at && session.last_ping_at && 
+  // Session is active if not ended, and either has no ping yet (just started) or was pinged within 5 minutes
+  const isActive = !session.ended_at && (
+    !session.last_ping_at ||
     (new Date().getTime() - new Date(session.last_ping_at).getTime()) < 5 * 60 * 1000
+  )
 
   const handleDisconnect = () => {
     setShowTerminal(false)
