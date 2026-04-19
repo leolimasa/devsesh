@@ -99,7 +99,7 @@ describe("SessionDetailPage", () => {
     renderSessionDetailPage("session-1")
 
     await waitFor(() => {
-      expect(screen.getByText("Session is not active")).toBeInTheDocument()
+      expect(screen.getByText("No host configured for this session")).toBeInTheDocument()
     })
   })
 
@@ -141,6 +141,100 @@ describe("SessionDetailPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Active")).toBeInTheDocument()
+    })
+  })
+
+  it("shows connect button when host is configured", async () => {
+    const mockSession = {
+      id: "session-1",
+      user_id: 1,
+      host_id: 1,
+      name: "Test",
+      started_at: "2024-01-01T00:00:00Z",
+      last_ping_at: null,
+      ended_at: null,
+      metadata: null,
+      host: {
+        id: 1,
+        label: "My Host",
+        hostname: "localhost",
+        ssh_user: "root",
+        ssh_port: 22,
+        user_id: 1,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      },
+    }
+    vi.mocked(api.getSession).mockResolvedValue(mockSession)
+
+    renderSessionDetailPage("session-1")
+
+    await waitFor(() => {
+      expect(screen.getByText("Connect")).toBeInTheDocument()
+    })
+  })
+
+  it("shows connect button for inactive session with host (ended session)", async () => {
+    const mockSession = {
+      id: "session-2",
+      user_id: 1,
+      host_id: 1,
+      name: "Ended Session",
+      started_at: "2024-01-01T00:00:00Z",
+      last_ping_at: "2024-01-01T00:30:00Z",
+      ended_at: "2024-01-01T01:00:00Z",
+      metadata: null,
+      host: {
+        id: 1,
+        label: "My Host",
+        hostname: "localhost",
+        ssh_user: "root",
+        ssh_port: 22,
+        user_id: 1,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      },
+    }
+    vi.mocked(api.getSession).mockResolvedValue(mockSession)
+
+    renderSessionDetailPage("session-2")
+
+    await waitFor(() => {
+      expect(screen.getByText("Connect")).toBeInTheDocument()
+      expect(screen.getByText("Inactive")).toBeInTheDocument()
+    })
+  })
+
+  it("shows connect button for inactive session with host (stale ping)", async () => {
+    // Session with last_ping_at more than 5 minutes ago
+    const oldPingTime = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+    const mockSession = {
+      id: "session-3",
+      user_id: 1,
+      host_id: 1,
+      name: "Stale Session",
+      started_at: "2024-01-01T00:00:00Z",
+      last_ping_at: oldPingTime,
+      ended_at: null,
+      metadata: null,
+      host: {
+        id: 1,
+        label: "My Host",
+        hostname: "localhost",
+        ssh_user: "root",
+        ssh_port: 22,
+        user_id: 1,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      },
+    }
+    vi.mocked(api.getSession).mockResolvedValue(mockSession)
+
+    renderSessionDetailPage("session-3")
+
+    await waitFor(() => {
+      expect(screen.getByText("Connect")).toBeInTheDocument()
+      expect(screen.getByText("Inactive")).toBeInTheDocument()
     })
   })
 })

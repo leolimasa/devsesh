@@ -147,12 +147,12 @@ export default function SessionDetailPage() {
             <div className="border-t pt-4">
               <div className="flex justify-between items-center mb-2">
                 <h3 className="text-sm font-medium text-muted-foreground">Terminal</h3>
-                {isActive && session.host && !showTerminal && (
+                {session.host && !showTerminal && (
                   <Button onClick={() => setShowTerminal(true)}>
                     Connect
                   </Button>
                 )}
-                {isActive && session.host && showTerminal && (
+                {session.host && showTerminal && (
                   <Button variant="outline" onClick={handleDisconnect}>
                     Close Terminal
                   </Button>
@@ -162,15 +162,15 @@ export default function SessionDetailPage() {
                 <div className="h-96 border rounded-md overflow-hidden">
                   <SSHTerminal
                     host={session.host}
-                    sessionName={session.name || "default"}
+                    sessionId={session.id}
                     onDisconnect={handleDisconnect}
                   />
                 </div>
-              ) : (
-                <div className="h-64 bg-black/50 rounded-md flex items-center justify-center text-muted-foreground">
-                  {!isActive ? "Session is not active" : session.host ? "Click Connect to open terminal" : "No host configured for this session"}
-                </div>
-              )}
+                ) : (
+                  <div className="h-64 bg-black/50 rounded-md flex items-center justify-center text-muted-foreground">
+                    {session.host ? "Click Connect to open terminal" : "No host configured for this session"}
+                  </div>
+                )}
             </div>
           </CardContent>
         </Card>

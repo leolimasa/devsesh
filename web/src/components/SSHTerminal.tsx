@@ -8,13 +8,13 @@ import type { Host } from "@/types/api"
 
 interface SSHTerminalProps {
   host: Host
-  sessionName: string
+  sessionId: string
   onDisconnect?: () => void
 }
 
 type Status = "disconnected" | "connecting" | "authenticating" | "connected" | "error"
 
-export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProps) {
+export function SSHTerminal({ host, sessionId, onDisconnect }: SSHTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -136,9 +136,9 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
 
   useEffect(() => {
     if (status === "connected" && sshClientRef.current) {
-      sshClientRef.current.exec(`tmux attach -t ${sessionName}`)
+      sshClientRef.current.exec(`tmux attach -t ${sessionId}`)
     }
-  }, [status, sessionName])
+  }, [status, sessionId])
 
   const handleDisconnect = () => {
     if (sshClientRef.current) {
