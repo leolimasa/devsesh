@@ -34,7 +34,17 @@ This will:
 
 ### Method 2: Manual Docker commands
 
-If you prefer to manage the container manually:
+If you prefer to manage the container manually, you can use the standardized build script:
+
+```bash
+# Build the image using the standardized script (from project root)
+./integration_tests/ssh/build_container.sh
+
+# Run the container (detached, publishing port 2222)
+docker run -d -p 2222:22 --name devsesh-ssh-test devsesh-ssh-test
+```
+
+Alternatively, you can use the direct Docker build command:
 
 ```bash
 # Build the image (from project root)
