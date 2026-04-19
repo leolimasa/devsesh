@@ -61,10 +61,7 @@ echo ""
 
 # Build Docker container for SSH integration tests
 echo "Building SSH test container..."
-cd "$SCRIPT_DIR/ssh"
-cp "$PROJECT_ROOT/build/devsesh" ./devsesh
-docker build -t devsesh-ssh-test .
-rm -f ./devsesh
+"$SCRIPT_DIR/ssh/build_container.sh"
 echo "✓ SSH test container built"
 cd "$SCRIPT_DIR"
 echo ""

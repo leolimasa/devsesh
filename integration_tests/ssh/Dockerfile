@@ -11,9 +11,9 @@ RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
     echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config && \
     echo "UsePAM yes" >> /etc/ssh/sshd_config
 
-COPY --chmod=755 devsesh /usr/local/bin/devsesh
+COPY --chmod=755 build/devsesh /usr/local/bin/devsesh
 
-COPY entrypoint.sh /entrypoint.sh
+COPY integration_tests/ssh/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 CMD ["/entrypoint.sh"]

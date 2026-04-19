@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # This is just a sanity check for the Docker container itself.
 # It verifies the container can start and has SSH/tmux working.
 # The actual devsesh integration tests are in integration_tests/tests/ssh.spec.ts
@@ -9,7 +9,7 @@ CONTAINER_NAME="devsesh-ssh-test"
 IMAGE_NAME="devsesh-ssh-test"
 
 echo "Building Docker image..."
-docker build -t "$IMAGE_NAME" .
+"$(dirname "$0")/build_container.sh"
 
 echo "Starting container..."
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
