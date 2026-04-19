@@ -100,11 +100,15 @@ To test against a devsesh server:
 
 2. From within the SSH container, pair with your local server:
    ```bash
-   # First, find your host machine's IP from inside the container
-   # Typically, you can use the host's internal IP or use host.docker.io on Mac/Windows
+    # First, find your host machine's IP from inside the container
+    # Typically, you can use the host's internal IP or use host.docker.internal on Mac/Windows
    
-   # Example (adjust IP as needed):
-   devsesh login http://host.docker.io:8080
+    # Example (for Docker Desktop on Mac/Windows):
+    devsesh login http://host.docker.internal:8080
+    #
+    # On Linux, you may need to add the host-gateway alias when running the container:
+    #   docker run --add-host=host.docker.internal:host-gateway ...
+    # Then use the same URL.
    ```
 
 3. Start a session that will be tracked by the server:
