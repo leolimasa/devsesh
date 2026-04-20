@@ -361,4 +361,268 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       if (ctx) await cleanupTestEnvironment(ctx);
     }
   });
+
+  // Phase 1: Tests for SSH terminal I/O bugs [req.sry715]
+
+  // Test: SSH terminal connects to existing tmux session with matching session ID [req.gy4af9]
+  test('SSH terminal connects to existing tmux session with matching session ID', async ({ page }) => {
+    let ctx: TestContext | null = null;
+
+    try {
+      // Use a specific session name that matches the tmux session in the container
+      const testSessionName = 'testsession';
+      
+      ctx = await setupTestEnvironmentWithSession(page, testSessionName);
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+
+      const connected = await connectAndAuthenticate(page, 'testpass');
+      expect(connected).toBe(true);
+
+      // Wait for tmux to attach - the exec command runs after connection
+      await page.waitForTimeout(3000);
+
+      // Verify terminal is visible and connected
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 });
+      
+      // The connection should succeed and terminal should be in tmux session
+      const stillConnected = await page.locator('text=🟢 Connected').isVisible().catch(() => false);
+      expect(stillConnected).toBe(true);
+
+      console.log('✅ SSH terminal connects to tmux session test passed!');
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
+
+  // Test: Terminal receives output from remote host [req.ow4f94]
+  test('Terminal receives output from remote host', async ({ page }) => {
+    let ctx: TestContext | null = null;
+
+    try {
+      const testSessionName = 'testsession';
+      ctx = await setupTestEnvironmentWithSession(page, testSessionName);
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+
+      const connected = await connectAndAuthenticate(page, 'testpass');
+      expect(connected).toBe(true);
+
+      // Wait for terminal to be ready
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 });
+      await page.waitForTimeout(3000);
+
+      // Capture initial terminal state
+      const initialState = await page.evaluate(() => {
+        const termScreen = document.querySelector('.xterm-screen');
+        if (!termScreen) return { hasCanvas: false, pixels: null };
+        const canvas = termScreen.querySelector('canvas');
+        if (!canvas) return { hasCanvas: false, pixels: null };
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return { hasCanvas: false, pixels: null };
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        return { 
+          hasCanvas: true, 
+          pixels: imageData.data.slice(0, 100),
+          width: canvas.width,
+          height: canvas.height
+        };
+      });
+
+      console.log('Initial terminal state:', JSON.stringify(initialState));
+
+      // Focus the terminal input area
+      const terminalInput = page.locator('.xterm-helper-textarea');
+      await terminalInput.focus();
+      await page.waitForTimeout(1000);
+
+      // Send a command that produces deterministic output
+      await page.keyboard.type('echo DEVSESH_TEST_OUTPUT', { delay: 50 });
+      await page.keyboard.press('Enter');
+      
+      // Wait for output to appear - this will FAIL due to the bug (output not displayed)
+      await page.waitForTimeout(3000);
+
+      // Capture final terminal state
+      const finalState = await page.evaluate(() => {
+        const termScreen = document.querySelector('.xterm-screen');
+        if (!termScreen) return { hasCanvas: false, pixels: null };
+        const canvas = termScreen.querySelector('canvas');
+        if (!canvas) return { hasCanvas: false, pixels: null };
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return { hasCanvas: false, pixels: null };
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        return { 
+          hasCanvas: true, 
+          pixels: imageData.data.slice(0, 100),
+          width: canvas.width,
+          height: canvas.height
+        };
+      });
+
+      console.log('Final terminal state:', JSON.stringify(finalState));
+
+      // Take screenshots for debugging
+      await page.screenshot({ path: '/tmp/terminal_output_before.png' });
+      await page.screenshot({ path: '/tmp/terminal_output_after.png' });
+      console.log('Screenshots saved');
+
+      // Compare initial and final states - if output is working, they should differ
+      // due to the echo of typed command and the command output
+      const statesDiffer = JSON.stringify(initialState.pixels) !== JSON.stringify(finalState.pixels);
+      
+      // This assertion will FAIL because the bug prevents output from being displayed
+      // The terminal state should change when we type and execute a command
+      expect(statesDiffer).toBe(true);
+
+      console.log('✅ Terminal receives output test passed!');
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
+
+  // Test: Terminal sends keystrokes to remote tmux [req.vqjj4e]
+  test('Terminal sends keystrokes to remote tmux and receives response', async ({ page }) => {
+    let ctx: TestContext | null = null;
+
+    try {
+      const testSessionName = 'testsession';
+      ctx = await setupTestEnvironmentWithSession(page, testSessionName);
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+
+      const connected = await connectAndAuthenticate(page, 'testpass');
+      expect(connected).toBe(true);
+
+      // Wait for terminal to be ready
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 });
+      await page.waitForTimeout(3000);
+
+      // Capture initial terminal canvas state
+      const initialCanvas = await page.evaluate(() => {
+        const termScreen = document.querySelector('.xterm-screen');
+        if (!termScreen) return null;
+        const canvas = termScreen.querySelector('canvas');
+        if (!canvas) return null;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        return ctx.getImageData(0, 0, canvas.width, canvas.height).data.slice(0, 100);
+      });
+
+      // Focus the terminal input area
+      const terminalInput = page.locator('.xterm-helper-textarea');
+      await terminalInput.focus();
+      await page.waitForTimeout(1000);
+
+      // Type a command that produces visible output
+      await page.keyboard.type('echo HELLO_FROM_TMUX', { delay: 50 });
+      await page.keyboard.press('Enter');
+      
+      // Wait for command execution and output
+      await page.waitForTimeout(5000);
+
+      // Capture final terminal canvas state
+      const finalCanvas = await page.evaluate(() => {
+        const termScreen = document.querySelector('.xterm-screen');
+        if (!termScreen) return null;
+        const canvas = termScreen.querySelector('canvas');
+        if (!canvas) return null;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        return ctx.getImageData(0, 0, canvas.width, canvas.height).data.slice(0, 100);
+      });
+
+      // Take screenshot for debugging
+      await page.screenshot({ path: '/tmp/terminal_input_test.png' });
+      console.log('Screenshot saved to /tmp/terminal_input_test.png');
+
+      // Verify terminal content changed - if input is working, the echo should appear
+      // and after Enter, the command output should appear
+      const contentChanged = JSON.stringify(initialCanvas) !== JSON.stringify(finalCanvas);
+
+      // This assertion will FAIL because the bug prevents input from reaching tmux
+      // and output from being displayed
+      expect(contentChanged).toBe(true);
+
+      console.log('✅ Terminal sends keystrokes test passed!');
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
 });
+
+// Helper function to setup test environment with specific session name
+async function setupTestEnvironmentWithSession(page: Page, sessionName: string): Promise<TestContext> {
+  const server = await startServer();
+  const testEmail = `ssh-e2e-${Date.now()}@example.com`;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-ssh-e2e-'));
+  const configPath = path.join(tempDir, 'config.yml');
+  const sessionDir = path.join(tempDir, 'sessions');
+  fs.mkdirSync(sessionDir, { recursive: true });
+
+  const sshPort = await startSSHContainer();
+  console.log('SSH container started on port:', sshPort);
+
+  const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
+  console.log('User paired successfully');
+
+  const hostsRes = await fetch(`${server.url}/api/v1/hosts`, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+
+  expect(hostsRes.ok).toBe(true);
+  const hosts = await hostsRes.json();
+  expect(hosts.length).toBeGreaterThan(0);
+  const pairedHost = hosts[0];
+  const hostId = pairedHost.id;
+  console.log('Using paired host with ID:', hostId);
+
+  const updateHostRes = await fetch(`${server.url}/api/v1/hosts/${hostId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      label: `test-host-e2e-${Date.now()}`,
+      hostname: 'localhost',
+      ssh_user: 'testuser',
+      ssh_port: sshPort,
+    }),
+  });
+
+  expect(updateHostRes.ok).toBe(true);
+  console.log('Host updated to use SSH container port:', sshPort);
+
+  // Use the provided session name (should match tmux session in container)
+  const sessionId = sessionName;
+
+  console.log('Starting devsesh session via CLI with name:', sessionId);
+  const devseshProcess = spawnDevseshStart(sessionId, configPath, sessionDir, server.url);
+
+  console.log('Waiting for session to appear in API...');
+  const foundSession = await waitForSessionInApi(server.url, token, sessionId, 15000);
+  
+  // Use the found session ID (may have been modified)
+  const finalSessionId = foundSession.id;
+  console.log('Session found in API with ID:', finalSessionId);
+
+  const pingInterval = setInterval(async () => {
+    try {
+      await fetch(`${server.url}/api/v1/sessions/${finalSessionId}/ping`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch {}
+  }, 2000);
+
+  return {
+    server,
+    token,
+    hostId,
+    sessionId: finalSessionId,
+    tempDir,
+    configPath,
+    sessionDir,
+    pingInterval,
+    devseshProcess,
+  };
+}
