@@ -18,12 +18,12 @@ func NewStopCmd() *cobra.Command {
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
-	sessionID := os.Getenv("DEVSESH_SESSION_ID")
-	if sessionID == "" {
+	sessionName := os.Getenv("DEVSESH_SESSION_NAME")
+	if sessionName == "" {
 		return fmt.Errorf("not in an active devsesh session")
 	}
 
-	if err := client.KillSession(sessionID); err != nil {
+	if err := client.KillSession(sessionName); err != nil {
 		return fmt.Errorf("failed to stop session: %w", err)
 	}
 

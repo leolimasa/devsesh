@@ -52,7 +52,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 
 		status := "inactive"
-		if client.SessionExists(sf.SessionID) {
+		if client.SessionExists(sf.Name) {
 			status = "active"
 		}
 

@@ -8,13 +8,13 @@ import type { Host } from "@/types/api"
 
 interface SSHTerminalProps {
   host: Host
-  sessionId: string
+  sessionName: string
   onDisconnect?: () => void
 }
 
 type Status = "disconnected" | "connecting" | "authenticating" | "connected" | "error"
 
-export function SSHTerminal({ host, sessionId, onDisconnect }: SSHTerminalProps) {
+export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -55,7 +55,11 @@ export function SSHTerminal({ host, sessionId, onDisconnect }: SSHTerminalProps)
     sshClientRef.current = client
 
     client.on("output", (data: string) => {
-      term.write(data)
+      try {
+        term.write(data)
+      } catch (e) {
+        console.error("[SSHTerminal] Error writing to terminal:", e)
+      }
     })
 
     client.on("status", (newStatus: string, err?: string) => {
@@ -134,11 +138,14 @@ export function SSHTerminal({ host, sessionId, onDisconnect }: SSHTerminalProps)
     }
   }
 
+  const hasExecutedRef = useRef(false)
+
   useEffect(() => {
-    if (status === "connected" && sshClientRef.current) {
-      sshClientRef.current.exec(`tmux attach -t ${sessionId}`)
+    if (status === "connected" && sshClientRef.current && !hasExecutedRef.current) {
+      hasExecutedRef.current = true
+      sshClientRef.current.exec(`tmux attach -t ${sessionName}`)
     }
-  }, [status, sessionId])
+  }, [status, sessionName])
 
   const handleDisconnect = () => {
     if (sshClientRef.current) {

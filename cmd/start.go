@@ -121,7 +121,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	tmuxCmd, err := client.StartSession(signalCtx, &wg, sessionID, map[string]string{
+	tmuxCmd, err := client.StartSession(signalCtx, &wg, sessionName, map[string]string{
 		"DEVSESH_SESSION_ID":   sessionID,
 		"DEVSESH_SESSION_FILE": sessionFile,
 		"DEVSESH_SESSION_NAME": sessionName,

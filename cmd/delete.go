@@ -66,7 +66,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no sessions found")
 	}
 
-	if client.SessionExists(targetSession.SessionID) {
+	if client.SessionExists(targetSession.Name) {
 		return fmt.Errorf("cannot delete active session, use 'devsesh stop' first")
 	}
 

@@ -4,41 +4,70 @@ import { SSHTerminal } from "./SSHTerminal"
 import type { Host } from "@/types/api"
 
 // Mock xterm
-vi.mock("xterm", () => ({
-  Terminal: vi.fn().mockImplementation(() => ({
-    loadAddon: vi.fn(),
-    open: vi.fn(),
-    write: vi.fn(),
-    onData: vi.fn(),
-    dispose: vi.fn(),
-    rows: 24,
-    cols: 80,
-  })),
-}))
+vi.mock("xterm", () => {
+  return {
+    Terminal: class MockTerminal {
+      loadAddon = vi.fn()
+      open = vi.fn()
+      write = vi.fn()
+      onData = vi.fn()
+      dispose = vi.fn()
+      rows = 24
+      cols = 80
+    },
+  }
+})
 
-vi.mock("xterm-addon-fit", () => ({
-  FitAddon: vi.fn().mockImplementation(() => ({
-    fit: vi.fn(),
-  })),
-}))
+vi.mock("xterm-addon-fit", () => {
+  return {
+    FitAddon: class MockFitAddon {
+      fit = vi.fn()
+    },
+  }
+})
 
-// Mock SSHClient
+// Mock SSHClient instance methods that we want to track
+const mockInit = vi.fn().mockResolvedValue(undefined)
+const mockConnect = vi.fn()
+const mockDisconnect = vi.fn()
+const mockExec = vi.fn()
+const mockSendInput = vi.fn()
+const mockResize = vi.fn()
+const mockResolvePassword = vi.fn()
+const mockRejectPassword = vi.fn()
+const mockOn = vi.fn()
+const mockOff = vi.fn()
+
+vi.mock("@/lib/ssh-client", () => {
+  return {
+    SSHClient: class MockSSHClient {
+      init = mockInit
+      connect = mockConnect
+      disconnect = mockDisconnect
+      exec = mockExec
+      sendInput = mockSendInput
+      resize = mockResize
+      resolvePassword = mockResolvePassword
+      rejectPassword = mockRejectPassword
+      on = mockOn
+      off = mockOff
+    },
+  }
+})
+
+// Helper to get mock references
 const mockSSHClient = {
-  init: vi.fn(),
-  connect: vi.fn(),
-  disconnect: vi.fn(),
-  exec: vi.fn(),
-  sendInput: vi.fn(),
-  resize: vi.fn(),
-  resolvePassword: vi.fn(),
-  rejectPassword: vi.fn(),
-  on: vi.fn(),
-  off: vi.fn(),
+  init: mockInit,
+  connect: mockConnect,
+  disconnect: mockDisconnect,
+  exec: mockExec,
+  sendInput: mockSendInput,
+  resize: mockResize,
+  resolvePassword: mockResolvePassword,
+  rejectPassword: mockRejectPassword,
+  on: mockOn,
+  off: mockOff,
 }
-
-vi.mock("@/lib/ssh-client", () => ({
-  SSHClient: vi.fn().mockImplementation(() => mockSSHClient),
-}))
 
 describe("SSHTerminal", () => {
   const mockHost: Host = {
@@ -62,12 +91,12 @@ describe("SSHTerminal", () => {
   })
 
   it("renders loading state initially", () => {
-    render(<SSHTerminal host={mockHost} sessionId="test-session-id" />)
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
     expect(screen.getByText("Loading SSH client...")).toBeInTheDocument()
   })
 
   it("shows connecting status after initialization", async () => {
-    render(<SSHTerminal host={mockHost} sessionId="test-session-id" />)
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
 
     await waitFor(() => {
       expect(mockSSHClient.init).toHaveBeenCalled()
@@ -81,105 +110,97 @@ describe("SSHTerminal", () => {
       ssh_user: "",
     }
 
-    render(<SSHTerminal host={hostWithoutUser} sessionId="test-session-id" />)
+    render(<SSHTerminal host={hostWithoutUser} sessionName="test-session-id" />)
 
     await waitFor(() => {
       expect(mockSSHClient.connect).toHaveBeenCalledWith(1, "root")
     })
   })
 
-  it("executes tmux new-session command when connected", async () => {
+  it("executes tmux attach command when connected", async () => {
     // Capture the status callback
-    let statusCallback: ((status: string, error?: string) => void) | null = null
+    let statusCallback: (status: string, error?: string) => void = () => {}
     mockSSHClient.on.mockImplementation((event: string, cb: any) => {
       if (event === "status") {
         statusCallback = cb
       }
     })
 
-    render(<SSHTerminal host={mockHost} sessionId="my-session-uuid" />)
+    render(<SSHTerminal host={mockHost} sessionName="my-session-uuid" />)
 
     await waitFor(() => {
       expect(mockSSHClient.init).toHaveBeenCalled()
     })
 
     // Simulate connected status
-    if (statusCallback) {
-      statusCallback("connected")
-    }
+    statusCallback("connected")
 
     await waitFor(() => {
-      expect(mockSSHClient.exec).toHaveBeenCalledWith("tmux new-session -A -s my-session-uuid")
+      expect(mockSSHClient.exec).toHaveBeenCalledWith("tmux attach -t my-session-uuid")
     })
   })
 
-  it("uses session id (UUID) for tmux session name, not session name", async () => {
-    let statusCallback: ((status: string, error?: string) => void) | null = null
+  it("uses session name for tmux attach command", async () => {
+    let statusCallback: (status: string, error?: string) => void = () => {}
     mockSSHClient.on.mockImplementation((event: string, cb: any) => {
       if (event === "status") {
         statusCallback = cb
       }
     })
 
-    // Session ID is a UUID like "abc-123-def"
-    const sessionUUID = "abc-123-def-456"
+    // Session name is the friendly name like "my-project"
+    const sessionName = "my-project"
 
-    render(<SSHTerminal host={mockHost} sessionId={sessionUUID} />)
+    render(<SSHTerminal host={mockHost} sessionName={sessionName} />)
 
     await waitFor(() => {
       expect(mockSSHClient.init).toHaveBeenCalled()
     })
 
-    if (statusCallback) {
-      statusCallback("connected")
-    }
+    statusCallback("connected")
 
     await waitFor(() => {
-      // Should use the UUID, not a friendly name
-      expect(mockSSHClient.exec).toHaveBeenCalledWith(`tmux new-session -A -s ${sessionUUID}`)
+      // Should use the session name, not the UUID
+      expect(mockSSHClient.exec).toHaveBeenCalledWith(`tmux attach -t ${sessionName}`)
     })
   })
 
   it("shows password dialog when authentication is required", async () => {
-    let passwordCallback: (() => void) | null = null
+    let passwordCallback: () => void = () => {}
     mockSSHClient.on.mockImplementation((event: string, cb: any) => {
       if (event === "password-request") {
         passwordCallback = cb
       }
     })
 
-    render(<SSHTerminal host={mockHost} sessionId="test-session-id" />)
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
 
     await waitFor(() => {
       expect(mockSSHClient.init).toHaveBeenCalled()
     })
 
-    if (passwordCallback) {
-      passwordCallback()
-    }
+    passwordCallback()
 
     await waitFor(() => {
-      expect(screen.getByText("Authenticating...")).toBeInTheDocument()
+      expect(screen.getByText(/Authenticating/)).toBeInTheDocument()
     })
   })
 
   it("displays error when connection fails", async () => {
-    let statusCallback: ((status: string, error?: string) => void) | null = null
+    let statusCallback: (status: string, error?: string) => void = () => {}
     mockSSHClient.on.mockImplementation((event: string, cb: any) => {
       if (event === "status") {
         statusCallback = cb
       }
     })
 
-    render(<SSHTerminal host={mockHost} sessionId="test-session-id" />)
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
 
     await waitFor(() => {
       expect(mockSSHClient.init).toHaveBeenCalled()
     })
 
-    if (statusCallback) {
-      statusCallback("error", "Connection refused")
-    }
+    statusCallback("error", "Connection refused")
 
     await waitFor(() => {
       expect(screen.getByText("Connection refused")).toBeInTheDocument()
@@ -187,7 +208,7 @@ describe("SSHTerminal", () => {
   })
 
   it("calls disconnect when disconnect button is clicked", async () => {
-    let statusCallback: ((status: string, error?: string) => void) | null = null
+    let statusCallback: (status: string, error?: string) => void = () => {}
     mockSSHClient.on.mockImplementation((event: string, cb: any) => {
       if (event === "status") {
         statusCallback = cb
@@ -195,15 +216,13 @@ describe("SSHTerminal", () => {
     })
 
     const onDisconnect = vi.fn()
-    render(<SSHTerminal host={mockHost} sessionId="test-session-id" onDisconnect={onDisconnect} />)
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" onDisconnect={onDisconnect} />)
 
     await waitFor(() => {
       expect(mockSSHClient.init).toHaveBeenCalled()
     })
 
-    if (statusCallback) {
-      statusCallback("connected")
-    }
+    statusCallback("connected")
 
     await waitFor(() => {
       expect(screen.getByText("Connected", { exact: false })).toBeInTheDocument()
@@ -224,7 +243,7 @@ describe("SSHTerminal", () => {
       }
     })
 
-    render(<SSHTerminal host={mockHost} sessionId="test-session-id" />)
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
 
     await waitFor(() => {
       expect(mockSSHClient.init).toHaveBeenCalled()
@@ -235,7 +254,7 @@ describe("SSHTerminal", () => {
   })
 
   it("cleans up on unmount", async () => {
-    const { unmount } = render(<SSHTerminal host={mockHost} sessionId="test-session-id" />)
+    const { unmount } = render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
 
     await waitFor(() => {
       expect(mockSSHClient.init).toHaveBeenCalled()

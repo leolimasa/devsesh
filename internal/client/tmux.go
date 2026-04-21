@@ -54,34 +54,34 @@ func (m *OutputMonitor) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionID string, env map[string]string, onOutput func()) (*exec.Cmd, error) {
-	cmd := exec.CommandContext(ctx, "tmux", "-2", "new-session", "-s", sessionID)
-	
+func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, env map[string]string, onOutput func()) (*exec.Cmd, error) {
+	cmd := exec.CommandContext(ctx, "tmux", "-2", "new-session", "-s", sessionName)
+
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 	cmd.Env = append(cmd.Env, os.Environ()...)
-	
+
 	cmd.Stdin = os.Stdin
-	
+
 	debounceDelay := 500 * time.Millisecond
 	monitor := NewOutputMonitor(ctx, wg, onOutput, debounceDelay)
-	
+
 	cmd.Stdout = io.MultiWriter(os.Stdout, monitor)
 	cmd.Stderr = io.MultiWriter(os.Stderr, monitor)
-	
+
 	if err := cmd.Start(); err != nil {
-		slog.Error("failed to start tmux session", "error", err, "session_id", sessionID)
+		slog.Error("failed to start tmux session", "error", err, "session_name", sessionName)
 		return nil, err
 	}
-	
+
 	return cmd, nil
 }
 
-func KillSession(sessionID string) error {
-	cmd := exec.Command("tmux", "kill-session", "-t", sessionID)
+func KillSession(sessionName string) error {
+	cmd := exec.Command("tmux", "kill-session", "-t", sessionName)
 	if err := cmd.Run(); err != nil {
-		slog.Error("failed to kill tmux session", "error", err, "session_id", sessionID)
+		slog.Error("failed to kill tmux session", "error", err, "session_name", sessionName)
 		return err
 	}
 	return nil
@@ -107,21 +107,21 @@ func ListSessions() ([]string, error) {
 	return sessions, nil
 }
 
-func AttachSession(sessionID string) error {
+func AttachSession(sessionName string) error {
 	tmuxPath, err := exec.LookPath("tmux")
 	if err != nil {
 		slog.Error("tmux not found", "error", err)
 		return err
 	}
-	
-	args := []string{"tmux", "-2", "attach-session", "-t", sessionID}
-	
+
+	args := []string{"tmux", "-2", "attach-session", "-t", sessionName}
+
 	syscall.Exec(tmuxPath, args, os.Environ())
-	
+
 	return nil
 }
 
-func SessionExists(sessionID string) bool {
-	cmd := exec.Command("tmux", "has-session", "-t", sessionID)
+func SessionExists(sessionName string) bool {
+	cmd := exec.Command("tmux", "has-session", "-t", sessionName)
 	return cmd.Run() == nil
 }

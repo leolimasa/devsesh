@@ -162,7 +162,7 @@ export default function SessionDetailPage() {
                 <div className="h-96 border rounded-md overflow-hidden">
                   <SSHTerminal
                     host={session.host}
-                    sessionId={session.id}
+                    sessionName={session.name}
                     onDisconnect={handleDisconnect}
                   />
                 </div>

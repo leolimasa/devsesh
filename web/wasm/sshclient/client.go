@@ -22,6 +22,7 @@ var (
 	passwordRejecter chan struct{}
 	mu               sync.Mutex
 	connected        bool
+	executing        bool
 	sshHost          string
 	sshPort          int
 )
@@ -42,6 +43,11 @@ func Connect(this js.Value, args []js.Value) interface{} {
 	token := args[2].String()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				js.Global().Get("console").Call("error", "[SSH WASM] PANIC in Connect goroutine:", fmt.Sprint(r))
+			}
+		}()
 		updateStatus("connecting")
 
 		transport, err := NewWSTransportWithAuth(wsURL, token)
@@ -140,7 +146,27 @@ func Disconnect(this js.Value, args []js.Value) interface{} {
 func Exec(this js.Value, args []js.Value) interface{} {
 	command := args[0].String()
 
+	mu.Lock()
+	if executing {
+		mu.Unlock()
+		return nil
+	}
+	executing = true
+	mu.Unlock()
+
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				js.Global().Get("console").Call("error", "[SSH WASM] PANIC in Exec goroutine:", fmt.Sprint(r))
+			}
+			mu.Lock()
+			executing = false
+			mu.Unlock()
+		}()
+
+		// Start the output handler goroutine before setting up the session
+		startOutputHandler()
+
 		mu.Lock()
 		if currentClient == nil {
 			mu.Unlock()
@@ -181,7 +207,13 @@ func Exec(this js.Value, args []js.Value) interface{} {
 		currentSession = session
 		mu.Unlock()
 
+		// Stdin writer goroutine
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					js.Global().Get("console").Call("error", "[SSH WASM] PANIC in stdin writer:", fmt.Sprint(r))
+				}
+			}()
 			for data := range currentStdin {
 				stdin.Write(data)
 			}
@@ -216,18 +248,70 @@ func Exec(this js.Value, args []js.Value) interface{} {
 	return nil
 }
 
+// outputChannel is used to decouple SSH output from JavaScript callback invocation.
+// This prevents issues with Go WASM when invoking JS from within SSH I/O goroutines.
+var outputChannel chan string
+
+// startOutputHandler starts a goroutine that reads from outputChannel and invokes the JS callback.
+// This must be called before any output is expected.
+func startOutputHandler() {
+	if outputChannel != nil {
+		return // Already started
+	}
+	outputChannel = make(chan string, 100)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				js.Global().Get("console").Call("error", "[SSH WASM] PANIC in output handler:", fmt.Sprint(r))
+			}
+		}()
+		for data := range outputChannel {
+			if outputCallback.IsNull() || outputCallback.IsUndefined() {
+				continue
+			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						js.Global().Get("console").Call("error", "[SSH WASM] PANIC invoking output callback:", fmt.Sprint(r))
+					}
+				}()
+				outputCallback.Invoke(data)
+			}()
+		}
+	}()
+}
+
 type outputWriter struct {
 	callback js.Value
 }
 
 func (w *outputWriter) Write(p []byte) (int, error) {
-	if !w.callback.IsNull() && !w.callback.IsUndefined() {
-		w.callback.Invoke(string(p))
+	// Send data to the output channel instead of invoking JS directly.
+	// This avoids calling JS from within SSH I/O goroutines which can crash WASM.
+	if outputChannel != nil {
+		select {
+		case outputChannel <- string(p):
+		default:
+			js.Global().Get("console").Call("warn", "[SSH WASM] Output channel full, dropping data")
+		}
 	}
 	return len(p), nil
 }
 
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func SendInput(this js.Value, args []js.Value) interface{} {
+	defer func() {
+		if r := recover(); r != nil {
+			js.Global().Get("console").Call("error", "[SSH WASM] SendInput PANIC:", fmt.Sprint(r))
+		}
+	}()
+
 	data := args[0]
 
 	var buf []byte
@@ -235,11 +319,14 @@ func SendInput(this js.Value, args []js.Value) interface{} {
 		return nil
 	}
 
-	if data.Get("constructor").Get("name").String() == "Uint8Array" {
+	// Check if it's a typed array (Uint8Array) or a string
+	// We need to check the type before calling .Get() since strings don't have properties
+	if data.Type() == js.TypeObject && data.Get("constructor").Get("name").String() == "Uint8Array" {
 		length := data.Get("length").Int()
 		buf = make([]byte, length)
 		js.CopyBytesToGo(buf, data)
 	} else {
+		// It's a string or other primitive - convert to string then to bytes
 		str := data.String()
 		buf = []byte(str)
 	}

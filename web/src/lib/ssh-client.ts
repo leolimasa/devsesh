@@ -77,24 +77,59 @@ export class SSHClient extends EventEmitter {
     const response = await fetch("/sshclient.wasm")
     const buffer = await response.arrayBuffer()
     const result = await WebAssembly.instantiate(buffer, goInstance.importObject)
-    goInstance.run(result.instance)
+
+    // Start the Go program - this is a promise that resolves when Go exits
+    const runPromise = goInstance.run(result.instance)
+    runPromise.then(() => {
+      console.error("[SSHClient] WASM Go program exited!")
+      this.wasmReady = false
+    }).catch((err: Error) => {
+      console.error("[SSHClient] WASM Go program crashed:", err)
+      this.wasmReady = false
+    })
+
+    // Give WASM a moment to initialize before proceeding
+    await new Promise(resolve => setTimeout(resolve, 100))
 
     this.wasmReady = true
     this.setupCallbacks()
   }
 
   private setupCallbacks(): void {
+    // IMPORTANT: All callbacks MUST be wrapped in try-catch.
+    // Uncaught exceptions in callbacks invoked from Go WASM will crash the WASM runtime.
+
     window.sshSetPasswordCallback(() => {
-      this.emit("password-request")
+      try {
+        this.emit("password-request")
+      } catch (e) {
+        console.error("[SSHClient] Error in password callback:", e)
+      }
     })
 
     window.sshSetOutputCallback((data: string) => {
-      this.emit("output", data)
+      try {
+        // Use setTimeout to defer the actual work, allowing Go WASM to regain control immediately.
+        // This prevents issues with Go WASM's scheduler when JS does complex work in callbacks.
+        setTimeout(() => {
+          try {
+            this.emit("output", data)
+          } catch (e) {
+            console.error("[SSHClient] Error emitting output:", e)
+          }
+        }, 0)
+      } catch (e) {
+        console.error("[SSHClient] Error in output callback:", e)
+      }
     })
 
     window.sshSetStatusCallback((status: string, error?: string) => {
-      this.status = status as ConnectionStatus
-      this.emit("status", status, error)
+      try {
+        this.status = status as ConnectionStatus
+        this.emit("status", status, error)
+      } catch (e) {
+        console.error("[SSHClient] Error in status callback:", e)
+      }
     })
   }
 
@@ -123,7 +158,14 @@ export class SSHClient extends EventEmitter {
   }
 
   sendInput(data: Uint8Array | string): void {
-    window.sshSendInput(data)
+    if (typeof window.sshSendInput !== 'function') {
+      return
+    }
+    try {
+      window.sshSendInput(data)
+    } catch (e) {
+      console.error("[SSHClient] Error calling sshSendInput:", e)
+    }
   }
 
   resize(rows: number, cols: number): void {

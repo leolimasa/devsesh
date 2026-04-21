@@ -25,6 +25,7 @@ test.describe('Session Integration Tests', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
 
     let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
 
     try {
       // Set up user and pair CLI (this logs in to the browser and pairs the CLI)
@@ -65,8 +66,8 @@ test.describe('Session Integration Tests', () => {
       console.log('Successfully on dashboard');
 
       // Spawn devsesh start command
-      const sessionName = `test-session-${Date.now()}`;
-      const sessionProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url);
+      tmuxSessionName = `test-session-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
 
       sessionProcess.process.on('error', (err) => {
         console.log('Session process error:', err);
@@ -77,11 +78,11 @@ test.describe('Session Integration Tests', () => {
       console.log('Session file created:', sessionId);
 
       // Wait for session to appear in API - extend timeout to account for server processing
-      const session = await waitForSessionInApi(server.url, token, sessionName, 60000);
+      const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
       console.log('Session found in API:', session.ID);
 
       // Verify session properties
-      expect(session.name).toBe(sessionName);
+      expect(session.name).toBe(tmuxSessionName);
       expect(session.id).toBe(sessionId);
       expect(session.ended_at).toBeNull();
 
@@ -100,16 +101,16 @@ test.describe('Session Integration Tests', () => {
       await expect(verificationPage.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 10000 });
       
       // Wait for the session to appear on the dashboard
-      await expect(verificationPage.getByText(sessionName, { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(verificationPage.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
       
       // Also verify the session ID (truncated) appears - use first() to handle multiple matches
       const truncatedId = sessionId.substring(0, 8);
       await expect(verificationPage.getByText(truncatedId).first()).toBeVisible({ timeout: 5000 });
 
     } finally {
-      // Clean up tmux session
-      if (sessionId) {
-        await killTmuxSession(sessionId);
+      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
       }
 
       // Stop server
@@ -131,14 +132,15 @@ test.describe('Session Integration Tests', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
 
     let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
 
     try {
       // Set up user and pair CLI
       const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
 
       // Spawn devsesh start command
-      const sessionName = `yaml-test-${Date.now()}`;
-      const sessionProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url);
+      tmuxSessionName = `yaml-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
 
       sessionProcess.process.on('error', (err) => {
         console.log('Session process error:', err);
@@ -149,11 +151,11 @@ test.describe('Session Integration Tests', () => {
       console.log('Session file created:', sessionId);
 
       // Wait for session to appear in API
-      const session = await waitForSessionInApi(server.url, token, sessionName, 30000);
+      const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 30000);
       console.log('Session found in API:', session.ID);
 
       // Verify initial metadata
-      expect(session.Name).toBe(sessionName);
+      expect(session.Name).toBe(tmuxSessionName);
 
       // Update the session YAML file directly
       updateSessionYamlFile(sessionDir, sessionId, 'custom_key', 'custom_value');
@@ -177,9 +179,9 @@ test.describe('Session Integration Tests', () => {
       expect(updatedSession.Metadata).toContain('custom_value');
 
     } finally {
-      // Clean up tmux session
-      if (sessionId) {
-        await killTmuxSession(sessionId);
+      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
       }
 
       // Stop server
@@ -201,14 +203,15 @@ test.describe('Session Integration Tests', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
 
     let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
 
     try {
       // Set up user and pair CLI
       const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
 
       // Spawn devsesh start command
-      const sessionName = `set-test-${Date.now()}`;
-      const sessionProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url);
+      tmuxSessionName = `set-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
 
       sessionProcess.process.on('error', (err) => {
         console.log('Session process error:', err);
@@ -219,11 +222,11 @@ test.describe('Session Integration Tests', () => {
       console.log('Session file created:', sessionId);
 
       // Wait for session to appear in API
-      const session = await waitForSessionInApi(server.url, token, sessionName, 30000);
+      const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 30000);
       console.log('Session found in API:', session.id);
 
       // Verify initial metadata
-      expect(session.name).toBe(sessionName);
+      expect(session.name).toBe(tmuxSessionName);
 
       // Note: devsesh set command requires the CLI to be fully running in tmux
       // Since we're using a PTY wrapper, the tmux session might not be fully functional
@@ -231,14 +234,14 @@ test.describe('Session Integration Tests', () => {
       console.log('Skipping devsesh set test - relies on tmux session which has PTY limitations');
 
       // The test would be:
-      // await sendTmuxCommand(sessionId, `devsesh set mykey myvalue`);
+      // await sendTmuxCommand(tmuxSessionName, `devsesh set mykey myvalue`);
       // const updatedSession = await waitForSessionMetadata(server.url, token, sessionId, 'mykey', 'myvalue', 10000);
       // expect(updatedSession.Metadata).toContain('mykey');
 
     } finally {
-      // Clean up tmux session
-      if (sessionId) {
-        await killTmuxSession(sessionId);
+      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
       }
 
       // Stop server
@@ -260,14 +263,15 @@ test.describe('Session Integration Tests', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
 
     let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
 
     try {
       // Set up user and pair CLI
       const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
 
       // Spawn devsesh start command
-      const sessionName = `ping-test-${Date.now()}`;
-      const sessionProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url);
+      tmuxSessionName = `ping-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
 
       sessionProcess.process.on('error', (err) => {
         console.log('Session process error:', err);
@@ -278,7 +282,7 @@ test.describe('Session Integration Tests', () => {
       console.log('Session file created:', sessionId);
 
       // Wait for session to appear in API
-      const session = await waitForSessionInApi(server.url, token, sessionName, 60000);
+      const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
       console.log('Session found in API:', session.id);
 
       // Verify session has last_ping_at set (not null)
@@ -292,9 +296,9 @@ test.describe('Session Integration Tests', () => {
       expect(diffMs).toBeLessThan(60000); // Ping should be within the last minute
 
     } finally {
-      // Clean up tmux session
-      if (sessionId) {
-        await killTmuxSession(sessionId);
+      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
       }
 
       // Stop server
@@ -316,6 +320,7 @@ test.describe('Session Integration Tests', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
 
     let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
 
     try {
       // Set up user and pair CLI
@@ -327,8 +332,8 @@ test.describe('Session Integration Tests', () => {
       await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 5000 });
 
       // Spawn devsesh start command
-      const sessionName = `status-test-${Date.now()}`;
-      const sessionProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url);
+      tmuxSessionName = `status-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
 
       sessionProcess.process.on('error', (err) => {
         console.log('Session process error:', err);
@@ -339,7 +344,7 @@ test.describe('Session Integration Tests', () => {
       console.log('Session file created:', sessionId);
 
       // Wait for session to appear in API
-      const session = await waitForSessionInApi(server.url, token, sessionName, 60000);
+      const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
       console.log('Session found in API:', session.id);
 
       // Refresh dashboard to see the session
@@ -347,23 +352,23 @@ test.describe('Session Integration Tests', () => {
       await page.waitForLoadState('networkidle');
 
       // Wait for session to appear on dashboard
-      await expect(page.getByText(sessionName, { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
 
       // Verify session shows as "Active" on dashboard (check for Active badge)
-      const dashboardActiveStatus = page.locator('tr', { has: page.getByText(sessionName) })
+      const dashboardActiveStatus = page.locator('tr', { has: page.getByText(tmuxSessionName!) })
         .locator('text=Active');
       await expect(dashboardActiveStatus).toBeVisible({ timeout: 5000 });
       console.log('Session shows as Active on dashboard');
 
       // Verify the ping is not "Never" on dashboard
-      const dashboardRow = page.locator('tr', { has: page.getByText(sessionName) });
+      const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!) });
       const pingCell = dashboardRow.locator('td').nth(4); // Last Ping column (0-indexed: ID, Name, Host, Started, Last Ping)
       const pingText = await pingCell.textContent();
       console.log('Dashboard ping text:', pingText);
       expect(pingText).not.toBe('Never');
 
       // Navigate to session detail page
-      await page.getByText(sessionName, { exact: true }).click();
+      await page.getByText(tmuxSessionName!, { exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
 
       // Verify session shows as "Active" on detail page
@@ -380,9 +385,9 @@ test.describe('Session Integration Tests', () => {
       expect(detailPingText).not.toBe('-');
 
     } finally {
-      // Clean up tmux session
-      if (sessionId) {
-        await killTmuxSession(sessionId);
+      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
       }
 
       // Stop server
@@ -404,14 +409,15 @@ test.describe('Session Integration Tests', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
 
     let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
 
     try {
       // Set up user and pair CLI
       const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
 
       // Spawn devsesh start command
-      const sessionName = `ping-update-test-${Date.now()}`;
-      const sessionProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url);
+      tmuxSessionName = `ping-update-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
 
       sessionProcess.process.on('error', (err) => {
         console.log('Session process error:', err);
@@ -422,7 +428,7 @@ test.describe('Session Integration Tests', () => {
       console.log('Session file created:', sessionId);
 
       // Wait for session to appear in API
-      const session = await waitForSessionInApi(server.url, token, sessionName, 60000);
+      const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
       console.log('Session found in API:', session.id);
 
       // Get the initial ping time
@@ -435,7 +441,8 @@ test.describe('Session Integration Tests', () => {
 
       // Send a command to the tmux session to generate output
       // This should trigger a ping update (pings happen when there's output)
-      await sendTmuxCommand(sessionId, 'echo "trigger ping update"');
+      // Note: tmux sessions are named by tmuxSessionName, not sessionId UUID
+      await sendTmuxCommand(tmuxSessionName!, 'echo "trigger ping update"');
       console.log('Sent command to tmux session');
 
       // Wait for the ping to update (polling with timeout)
@@ -465,9 +472,9 @@ test.describe('Session Integration Tests', () => {
       }
 
     } finally {
-      // Clean up tmux session
-      if (sessionId) {
-        await killTmuxSession(sessionId);
+      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
       }
 
       // Stop server

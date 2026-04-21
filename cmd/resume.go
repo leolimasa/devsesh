@@ -51,7 +51,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		if client.SessionExists(sf.SessionID) {
+		if client.SessionExists(sf.Name) {
 			continue
 		}
 

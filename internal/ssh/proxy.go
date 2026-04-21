@@ -56,17 +56,20 @@ func (p *TCPProxy) proxyWebSocketToTCP() {
 		p.ws.SetReadDeadline(time.Now().Add(30 * time.Second))
 		msgType, reader, err := p.ws.NextReader()
 		if err != nil {
+			slog.Debug("WebSocketToTCP read error", "error", err)
 			p.cleanup()
 			return
 		}
 
 		if msgType == websocket.TextMessage {
+			slog.Debug("WebSocketToTCP skipping text message")
 			continue
 		}
 
 		for {
 			n, err := reader.Read(buf)
 			if n > 0 {
+				slog.Debug("WebSocketToTCP forwarding", "bytes", n)
 				_, writeErr := p.tcp.Write(buf[:n])
 				if writeErr != nil {
 					slog.Error("failed to write to TCP", "error", writeErr)
@@ -100,12 +103,16 @@ func (p *TCPProxy) proxyTCPToWebSocket() {
 		p.tcp.SetReadDeadline(time.Now().Add(30 * time.Second))
 		n, err := p.tcp.Read(buf)
 		if err != nil {
+			slog.Debug("TCPToWebSocket read error", "error", err)
 			p.cleanup()
 			return
 		}
 
+		slog.Debug("TCPToWebSocket forwarding", "bytes", n)
+
 		err = p.ws.WriteMessage(websocket.BinaryMessage, buf[:n])
 		if err != nil {
+			slog.Debug("TCPToWebSocket write error", "error", err)
 			p.cleanup()
 			return
 		}

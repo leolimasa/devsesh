@@ -64,6 +64,7 @@ func NewWSTransportWithAuth(wsURL string, token string) (*WSTransport, error) {
 		if data.Type() == js.TypeString {
 			// Text message - control message, put in channel as JSON
 			str := data.String()
+			js.Global().Get("console").Call("log", "[SSH Transport] Received text message:", str[:min(len(str), 100)])
 			t.readCh <- []byte(str)
 		} else if data.Get("constructor").Get("name").String() == "ArrayBuffer" {
 			// Binary data
@@ -72,10 +73,14 @@ func NewWSTransportWithAuth(wsURL string, token string) (*WSTransport, error) {
 			buf := make([]byte, length)
 			js.CopyBytesToGo(buf, jsData)
 
+			js.Global().Get("console").Call("log", "[SSH Transport] Received binary data:", length, "bytes")
+
 			t.mu.Lock()
 			t.readBuf.Write(buf)
 			t.readCond.Signal()
 			t.mu.Unlock()
+		} else {
+			js.Global().Get("console").Call("log", "[SSH Transport] Received unknown message type")
 		}
 		return nil
 	}))
