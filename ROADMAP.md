@@ -2,9 +2,9 @@
 
 * [x] Simple SSH authentication
 * [x] Fix no ping
+* [ ] Add multi passkey (create single use code to add another passkey)
+* [ ] SSH auth with CA using threshold signatures
 * [ ] Looks like there are several endpoints that require session owner and do not have the middleware
-* [ ] SSH auth with CA / prevent storing creds on server
-* [ ] Add passkey (create single use code to add another passkey)
 
 # Mvp
 

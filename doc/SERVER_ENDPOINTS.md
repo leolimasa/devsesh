@@ -2,8 +2,39 @@
 
 This document describes all API endpoints available in the devsesh server.
 
-## Base URL
-`/api/v1`
+## Summary
+
+| Method | Endpoint                            | Description                                                      |
+|--------|-------------------------------------|------------------------------------------------------------------|
+| GET    | /api/v1/auth/status                 | Check if any users exist in the database                         |
+| POST   | /api/v1/auth/login/begin            | Initiate WebAuthn login flow                                     |
+| POST   | /api/v1/auth/login/finish           | Complete WebAuthn login flow                                     |
+| POST   | /api/v1/auth/register/begin         | Initiate WebAuthn registration flow                              |
+| POST   | /api/v1/auth/register/finish        | Complete WebAuthn registration flow                              |
+| POST   | /api/v1/auth/pair/start             | Generate a pairing code for CLI authentication                   |
+| POST   | /api/v1/auth/pair/exchange          | Approve a pairing code from the web client                       |
+| POST   | /api/v1/auth/pair/complete          | Complete the pairing process (called from CLI)                   |
+| GET    | /api/v1/auth/passkeys               | Get all passkeys for the current user                            |
+| POST   | /api/v1/auth/passkeys/begin         | Initiate adding a new passkey                                    |
+| POST   | /api/v1/auth/passkeys/finish        | Complete adding a new passkey                                    |
+| DELETE | /api/v1/auth/passkeys/{id}          | Remove a passkey from the user's account                         |
+| GET    | /api/v1/sessions                    | Get all sessions for the current user                            |
+| GET    | /api/v1/sessions/{session_id}       | Get a single session by ID                                       |
+| POST   | /api/v1/sessions/{session_id}/start | Create a new session                                             |
+| POST   | /api/v1/sessions/{session_id}/ping  | Update the last ping time for a session                          |
+| POST   | /api/v1/sessions/{session_id}/end   | Mark a session as ended                                          |
+| POST   | /api/v1/sessions/{session_id}/meta  | Update session metadata                                          |
+| DELETE | /api/v1/sessions/stale              | Delete all sessions that haven't been pinged for at least 1 hour |
+| GET    | /api/v1/sessions/updates            | WebSocket endpoint for real-time session updates                 |
+| GET    | /api/v1/hosts                       | Get all hosts for the current user                               |
+| POST   | /api/v1/hosts                       | Create a new host entry                                          |
+| GET    | /api/v1/hosts/{host_id}             | Get a single host by ID                                          |
+| PUT    | /api/v1/hosts/{host_id}             | Update an existing host                                          |
+| DELETE | /api/v1/hosts/{host_id}             | Delete a host                                                    |
+| GET    | /api/v1/ssh/connect/{session_id}    | WebSocket endpoint to connect to a session via SSH               |
+| POST   | /api/v1/ssh/webauthn/begin          | Begin WebAuthn authentication for SSH key authorization          |
+| POST   | /api/v1/ssh/webauthn/complete       | Complete WebAuthn authentication for SSH key authorization       |
+| GET    | /                                   | Serves the web client (React SPA)                                |
 
 ## Authentication Endpoints
 
@@ -234,6 +265,68 @@ This document describes all API endpoints available in the devsesh server.
   "session": { ... }
 }
 ```
+
+## Host Endpoints
+
+### List Hosts
+- **Endpoint:** `GET /api/v1/hosts`
+- **Authentication:** Requires JWT token
+- **Description:** Get all hosts for the current user.
+- **Response:**
+```json
+[
+  {
+    "id": 1,
+    "label": "my-server",
+    "hostname": "server.example.com",
+    "ssh_user": "ubuntu",
+    "ssh_port": 22,
+    "user_id": 1
+  }
+]
+```
+
+### Create Host
+- **Endpoint:** `POST /api/v1/hosts`
+- **Authentication:** Requires JWT token
+- **Description:** Create a new host entry.
+- **Request Body:**
+```json
+{
+  "label": "my-server",
+  "hostname": "server.example.com",
+  "ssh_user": "ubuntu",
+  "ssh_port": 22
+}
+```
+- **Response:** HTTP 201 Created on success
+
+### Get Host by ID
+- **Endpoint:** `GET /api/v1/hosts/{host_id}`
+- **Authentication:** Requires JWT token
+- **Description:** Get a single host by ID.
+- **Response:** Same as List Hosts but returns a single object
+
+### Update Host
+- **Endpoint:** `PUT /api/v1/hosts/{host_id}`
+- **Authentication:** Requires JWT token
+- **Description:** Update an existing host.
+- **Request Body:**
+```json
+{
+  "label": "updated-server",
+  "hostname": "new.example.com",
+  "ssh_user": "admin",
+  "ssh_port": 2222
+}
+```
+- **Response:** HTTP 200 OK
+
+### Delete Host
+- **Endpoint:** `DELETE /api/v1/hosts/{host_id}`
+- **Authentication:** Requires JWT token
+- **Description:** Delete a host.
+- **Response:** HTTP 204 No Content
 
 ## SSH Endpoints
 
