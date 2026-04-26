@@ -42,3 +42,5 @@ devsesh.db
 project-status.yml
 .claude-cur-command
 node_modules
+integration_tests/test-results
+web/dist

@@ -23,6 +23,7 @@ type Server struct {
 	wa     *webauthn.WebAuthn
 	cs     *auth.ChallengeStore
 	hub    *sessions.Hub
+	enrollmentHub *auth.EnrollmentHub
 	mux    *http.ServeMux
 	srv    *http.Server
 }
@@ -34,6 +35,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	}
 
 	hub := sessions.NewHub()
+	enrollmentHub := auth.NewEnrollmentHub()
 	mux := http.NewServeMux()
 
 	webContent, _ := fs.Sub(web.FS, "dist")
@@ -67,6 +69,14 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("POST /api/v1/auth/passkeys/finish", jwtMiddleware(http.HandlerFunc(auth.AddPasskeyFinishHandler(wa, database, cs))))
 	mux.Handle("DELETE /api/v1/auth/passkeys/{id}", jwtMiddleware(http.HandlerFunc(auth.DeletePasskeyHandler(database))))
 
+	mux.Handle("POST /api/v1/auth/passkeys/enrollment", auth.CreateEnrollmentHandler(database))
+	mux.Handle("GET /api/v1/auth/passkeys/enrollment/{code}", auth.EnrollmentWebSocketHandler(database, enrollmentHub, cfg))
+	mux.Handle("POST /api/v1/auth/passkeys/enrollment/{code}/begin", auth.EnrollmentBeginHandler(wa, database, cs))
+	mux.Handle("POST /api/v1/auth/passkeys/enrollment/{code}/complete", auth.EnrollmentCompleteHandler(wa, database, cs))
+	mux.Handle("GET /api/v1/auth/master-key", jwtMiddleware(http.HandlerFunc(auth.GetMasterKeyHandler(database))))
+	mux.Handle("POST /api/v1/auth/passkeys/auth-begin", jwtMiddleware(http.HandlerFunc(auth.AuthBeginWithJWTHandler(wa, database, cs))))
+	mux.Handle("POST /api/v1/auth/passkeys/auth-finish", jwtMiddleware(http.HandlerFunc(auth.AuthFinishWithJWTHandler(wa, database, cs, cfg))))
+
 	mux.Handle("POST /api/v1/sessions/{session_id}/start", jwtMiddleware(RequireValidHost(database)(http.HandlerFunc(sessions.StartHandler(database, hub)))))
 	mux.Handle("POST /api/v1/sessions/{session_id}/ping", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.PingHandler(database, hub)))))
 	mux.Handle("POST /api/v1/sessions/{session_id}/end", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.EndHandler(database, hub)))))
@@ -74,7 +84,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("GET /api/v1/sessions", jwtMiddleware(http.HandlerFunc(sessions.ListHandler(database))))
 	mux.Handle("GET /api/v1/sessions/{session_id}", jwtMiddleware(http.HandlerFunc(sessions.GetSessionHandler(database))))
 	mux.Handle("DELETE /api/v1/sessions/stale", jwtMiddleware(http.HandlerFunc(sessions.DeleteStaleHandler(database))))
-	mux.Handle("GET /api/v1/sessions/updates", http.HandlerFunc(sessions.UpdatesHandler(database, hub, cfg.JWTSecret)))
+	mux.Handle("GET /api/v1/sessions/updates", http.HandlerFunc(sessions.UpdatesHandler(database, hub, cfg.JWTSecret, cfg.RPOrigin)))
 
 	mux.Handle("GET /api/v1/hosts", jwtMiddleware(http.HandlerFunc(hosts.ListHandler(database))))
 	mux.Handle("POST /api/v1/hosts", jwtMiddleware(http.HandlerFunc(hosts.CreateHandler(database))))
@@ -85,12 +95,13 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	ssh.RegisterRoutes(mux, database, jwtMiddleware, cfg)
 
 	return &Server{
-		cfg: cfg,
-		db:  database,
-		wa:  wa,
-		cs:  cs,
-		hub: hub,
-		mux: mux,
+		cfg:            cfg,
+		db:             database,
+		wa:             wa,
+		cs:             cs,
+		hub:            hub,
+		enrollmentHub:  enrollmentHub,
+		mux:            mux,
 	}, nil
 }
 

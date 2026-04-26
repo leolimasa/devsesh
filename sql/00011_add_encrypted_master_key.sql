@@ -1,0 +1,1 @@
+ALTER TABLE webauthn_credentials ADD COLUMN encrypted_master_key BLOB;

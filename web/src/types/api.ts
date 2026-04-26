@@ -41,3 +41,18 @@ export interface Passkey {
 export interface AuthStatus {
   exists: boolean;
 }
+
+export interface PasskeyEnrollment {
+  code: string;
+}
+
+export interface EnrollmentMessage {
+  type: 'spake2_a' | 'spake2_b' | 'encrypted_payload';
+  message?: string;
+  nonce?: string;
+  ciphertext?: string;
+}
+
+export interface MasterKeyResponse {
+  encrypted_master_key: string;
+}

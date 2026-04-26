@@ -21,6 +21,9 @@ func StartMaintenance(ctx context.Context, db *sql.DB, interval time.Duration, l
 				if err := DeleteExpiredPairingCodes(db); err != nil {
 					logger.Error("maintenance: delete expired pairing codes", "error", err)
 				}
+				if err := DeleteExpiredEnrollments(db); err != nil {
+					logger.Error("maintenance: delete expired enrollments", "error", err)
+				}
 			}
 		}
 	}()
@@ -30,6 +33,14 @@ func DeleteExpiredPairingCodes(db *sql.DB) error {
 	_, err := db.Exec("DELETE FROM pairing_codes WHERE datetime(expires_at) < datetime('now')")
 	if err != nil {
 		return fmt.Errorf("delete expired pairing codes: %w", err)
+	}
+	return nil
+}
+
+func DeleteExpiredEnrollments(db *sql.DB) error {
+	_, err := db.Exec("DELETE FROM passkey_enrollments WHERE datetime(expires_at) < datetime('now')")
+	if err != nil {
+		return fmt.Errorf("delete expired enrollments: %w", err)
 	}
 	return nil
 }

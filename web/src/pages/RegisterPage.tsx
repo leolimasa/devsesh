@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { registerBegin, registerFinish } from "@/lib/api"
+import { generateMasterKey, deriveMasterKeyFromPrf, encodeBase64 } from "@/lib/crypto/prf"
+import { encrypt } from "@/lib/crypto/aes"
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("")
@@ -32,8 +34,47 @@ export default function RegisterPage() {
 
     try {
       const response = await registerBegin(email) as { publicKey: PublicKeyCredentialCreationOptionsJSON }
-      const credential = await startRegistration(response.publicKey)
-      await registerFinish(email, credential)
+
+      const pubKey = response.publicKey
+
+      const credential = await startRegistration(pubKey)
+
+      const masterKey = generateMasterKey()
+
+      // Try to get PRF extension results to encrypt the master key
+      const extResults = credential.clientExtensionResults as Record<string, unknown> | undefined
+      let encryptedMasterKey: string
+
+      if (extResults?.prf) {
+        const prfExt = extResults.prf as { results?: { first?: ArrayBuffer | Uint8Array } }
+        if (prfExt.results?.first) {
+          const prfFirst = prfExt.results.first
+          const prfOutput = prfFirst instanceof ArrayBuffer
+            ? new Uint8Array(prfFirst)
+            : new Uint8Array(prfFirst)
+
+          // Derive encryption key from PRF output
+          const prfKey = await deriveMasterKeyFromPrf(prfOutput)
+
+          // Encrypt the master key
+          const { nonce, ciphertext } = await encrypt(prfKey, masterKey)
+
+          // Combine nonce + ciphertext
+          const combined = new Uint8Array(12 + ciphertext.length)
+          combined.set(nonce, 0)
+          combined.set(ciphertext, 12)
+          encryptedMasterKey = encodeBase64(combined)
+        } else {
+          // PRF not available, send master key as-is (will work but less secure)
+          // This fallback is for devices that don't support PRF
+          encryptedMasterKey = encodeBase64(masterKey)
+        }
+      } else {
+        // PRF not available, send master key as-is
+        encryptedMasterKey = encodeBase64(masterKey)
+      }
+
+      await registerFinish(email, credential, encryptedMasterKey)
       navigate("/login")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed")

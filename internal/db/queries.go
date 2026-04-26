@@ -33,10 +33,19 @@ type Host struct {
 }
 
 type WebAuthnCredential struct {
-	ID        string
-	UserID    int64
-	PublicKey []byte
-	SignCount uint32
+	ID                 string
+	UserID             int64
+	PublicKey          []byte
+	SignCount          uint32
+	CreatedAt          time.Time
+	EncryptedMasterKey []byte
+}
+
+type PasskeyEnrollment struct {
+	Code      string
+	UserID    *int64
+	ExpiresAt time.Time
+	Completed bool
 	CreatedAt time.Time
 }
 
@@ -132,7 +141,7 @@ func SaveCredential(db *sql.DB, cred WebAuthnCredential) error {
 
 func GetCredentialsByUserID(db *sql.DB, userID int64) ([]WebAuthnCredential, error) {
 	rows, err := db.Query(
-		"SELECT id, user_id, public_key, sign_count FROM webauthn_credentials WHERE user_id = ?",
+		"SELECT id, user_id, public_key, sign_count, created_at, encrypted_master_key FROM webauthn_credentials WHERE user_id = ?",
 		userID,
 	)
 	if err != nil {
@@ -143,9 +152,11 @@ func GetCredentialsByUserID(db *sql.DB, userID int64) ([]WebAuthnCredential, err
 	var creds []WebAuthnCredential
 	for rows.Next() {
 		var c WebAuthnCredential
-		if err := rows.Scan(&c.ID, &c.UserID, &c.PublicKey, &c.SignCount); err != nil {
+		var createdAt string
+		if err := rows.Scan(&c.ID, &c.UserID, &c.PublicKey, &c.SignCount, &createdAt, &c.EncryptedMasterKey); err != nil {
 			return nil, fmt.Errorf("scan credential: %w", err)
 		}
+		c.CreatedAt, _ = parseTime(createdAt)
 		creds = append(creds, c)
 	}
 	return creds, rows.Err()
@@ -460,6 +471,119 @@ func GetHostByLabel(db *sql.DB, userID int64, label string) (*Host, error) {
 	h.CreatedAt, _ = parseTime(createdAt)
 	h.UpdatedAt, _ = parseTime(updatedAt)
 	return &h, nil
+}
+
+func CreatePasskeyEnrollment(db *sql.DB, code string, expiresAt time.Time) error {
+	_, err := db.Exec(
+		"INSERT INTO passkey_enrollments (code, expires_at) VALUES (?, ?)",
+		code, expiresAt.UTC().Format(timeFormat),
+	)
+	if err != nil {
+		return fmt.Errorf("create passkey enrollment: %w", err)
+	}
+	return nil
+}
+
+func GetPasskeyEnrollment(db *sql.DB, code string) (*PasskeyEnrollment, error) {
+	var pe PasskeyEnrollment
+	var expiresAt string
+	var createdAt string
+	var userID sql.NullInt64
+	var completed int
+
+	err := db.QueryRow(
+		"SELECT code, user_id, expires_at, completed, created_at FROM passkey_enrollments WHERE code = ?",
+		code,
+	).Scan(&pe.Code, &userID, &expiresAt, &completed, &createdAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get passkey enrollment: %w", err)
+	}
+
+	if userID.Valid {
+		pe.UserID = &userID.Int64
+	}
+	pe.ExpiresAt, _ = parseTime(expiresAt)
+	pe.Completed = completed != 0
+	pe.CreatedAt, _ = parseTime(createdAt)
+
+	return &pe, nil
+}
+
+func LinkEnrollmentToUser(db *sql.DB, code string, userID int64) error {
+	_, err := db.Exec(
+		"UPDATE passkey_enrollments SET user_id = ? WHERE code = ?",
+		userID, code,
+	)
+	if err != nil {
+		return fmt.Errorf("link enrollment to user: %w", err)
+	}
+	return nil
+}
+
+func CompleteEnrollment(db *sql.DB, code string) error {
+	_, err := db.Exec(
+		"UPDATE passkey_enrollments SET completed = 1 WHERE code = ?",
+		code,
+	)
+	if err != nil {
+		return fmt.Errorf("complete enrollment: %w", err)
+	}
+	return nil
+}
+
+func SaveCredentialWithMasterKey(db *sql.DB, cred WebAuthnCredential, encryptedMasterKey []byte) error {
+	_, err := db.Exec(
+		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count, encrypted_master_key) VALUES (?, ?, ?, ?, ?)",
+		cred.ID, cred.UserID, cred.PublicKey, cred.SignCount, encryptedMasterKey,
+	)
+	if err != nil {
+		return fmt.Errorf("save credential with master key: %w", err)
+	}
+	return nil
+}
+
+func GetCredentialWithMasterKey(db *sql.DB, credID string) (*WebAuthnCredential, error) {
+	var c WebAuthnCredential
+	var createdAt string
+
+	err := db.QueryRow(
+		"SELECT id, user_id, public_key, sign_count, created_at, encrypted_master_key FROM webauthn_credentials WHERE id = ?",
+		credID,
+	).Scan(&c.ID, &c.UserID, &c.PublicKey, &c.SignCount, &createdAt, &c.EncryptedMasterKey)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get credential with master key: %w", err)
+	}
+
+	c.CreatedAt, _ = parseTime(createdAt)
+	return &c, nil
+}
+
+func GetFirstCredentialWithMasterKey(db *sql.DB, userID int64) (*WebAuthnCredential, error) {
+	var c WebAuthnCredential
+	var createdAt string
+
+	err := db.QueryRow(
+		"SELECT id, user_id, public_key, sign_count, created_at, encrypted_master_key FROM webauthn_credentials WHERE user_id = ? AND encrypted_master_key IS NOT NULL LIMIT 1",
+		userID,
+	).Scan(&c.ID, &c.UserID, &c.PublicKey, &c.SignCount, &createdAt, &c.EncryptedMasterKey)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get first credential with master key: %w", err)
+	}
+
+	c.CreatedAt, _ = parseTime(createdAt)
+	return &c, nil
 }
 
 func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {

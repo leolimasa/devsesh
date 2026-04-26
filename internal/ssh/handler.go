@@ -16,12 +16,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+func makeUpgrader(rpOrigin string) websocket.Upgrader {
+	return websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			// Allow empty origin (same-origin requests) or matching configured origin
+			return origin == "" || origin == rpOrigin
+		},
+	}
 }
 
 type AuthMessage struct {
@@ -30,9 +34,10 @@ type AuthMessage struct {
 }
 
 func ProxyHandler(database *sql.DB, cfg config.Config, connMgr *ConnectionManager) http.HandlerFunc {
+	upgrader := makeUpgrader(cfg.RPOrigin)
 	return func(w http.ResponseWriter, r *http.Request) {
 		slog.Info("SSH WebSocket connection attempt", "path", r.URL.Path)
-		
+
 		hostID, err := strconv.ParseInt(r.PathValue("host_id"), 10, 64)
 		if err != nil {
 			slog.Error("invalid host id", "error", err)

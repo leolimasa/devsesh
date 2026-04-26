@@ -46,12 +46,16 @@ func validateJWT(secret, tokenStr string) (*jwtClaims, error) {
 	return claims, nil
 }
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+func makeUpgrader(rpOrigin string) websocket.Upgrader {
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			// Allow empty origin (same-origin requests) or matching configured origin
+			return origin == "" || origin == rpOrigin
+		},
+	}
 }
 
 func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
@@ -276,7 +280,8 @@ func DeleteStaleHandler(database *sql.DB) http.HandlerFunc {
 	}
 }
 
-func UpdatesHandler(database *sql.DB, hub *Hub, jwtSecret string) http.HandlerFunc {
+func UpdatesHandler(database *sql.DB, hub *Hub, jwtSecret string, rpOrigin string) http.HandlerFunc {
+	upgrader := makeUpgrader(rpOrigin)
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {

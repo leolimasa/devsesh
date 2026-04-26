@@ -1,4 +1,4 @@
-import type { Session, Passkey, AuthStatus, Host } from "@/types/api"
+import type { Session, Passkey, AuthStatus, Host, PasskeyEnrollment } from "@/types/api"
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null
@@ -77,13 +77,13 @@ export async function registerBegin(email: string): Promise<unknown> {
   })
 }
 
-export async function registerFinish(email: string, credential: unknown): Promise<void> {
+export async function registerFinish(email: string, credential: unknown, encryptedMasterKey?: string): Promise<void> {
   const response = await fetch(`/api/v1/auth/register/finish`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ email, credential }),
+    body: JSON.stringify({ email, credential, encrypted_master_key: encryptedMasterKey || "" }),
   })
 
   if (!response.ok) {
@@ -150,6 +150,42 @@ export async function deletePasskey(id: string): Promise<void> {
   return fetchApi<void>(`/auth/passkeys/${id}`, {
     method: "DELETE",
   })
+}
+
+export async function createPasskeyEnrollment(): Promise<PasskeyEnrollment> {
+  return fetchApi<PasskeyEnrollment>("/auth/passkeys/enrollment", {
+    method: "POST",
+  })
+}
+
+export async function enrollmentBegin(code: string): Promise<unknown> {
+  return fetchApi<unknown>(`/auth/passkeys/enrollment/${code}/begin`, {
+    method: "POST",
+  })
+}
+
+export async function enrollmentComplete(
+  code: string,
+  credential: unknown,
+  encryptedMasterKey: string
+): Promise<void> {
+  return fetchApi<void>(`/auth/passkeys/enrollment/${code}/complete`, {
+    method: "POST",
+    body: JSON.stringify({ credential, encrypted_master_key: encryptedMasterKey }),
+  })
+}
+
+export async function getMasterKey(): Promise<{ encrypted_master_key: string }> {
+  return fetchApi<{ encrypted_master_key: string }>("/auth/master-key")
+}
+
+export function getEnrollmentWebSocketURL(code: string, token?: string): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+  const base = `${protocol}//${window.location.host}/api/v1/auth/passkeys/enrollment/${code}`
+  if (token) {
+    return `${base}?token=${encodeURIComponent(token)}`
+  }
+  return base
 }
 
 export function getWsEndpoint(): string {

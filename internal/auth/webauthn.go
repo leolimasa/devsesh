@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -292,6 +293,15 @@ func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Co
 			return
 		}
 
+		// Add PRF extension for master key encryption
+		options.Response.Extensions = protocol.AuthenticationExtensions{
+			"prf": map[string]interface{}{
+				"eval": map[string]interface{}{
+					"first": base64.StdEncoding.EncodeToString([]byte(prfSaltString)),
+				},
+			},
+		}
+
 		cs.Set(req.Email, sessionData)
 
 		w.Header().Set("Content-Type", "application/json")
@@ -302,8 +312,9 @@ func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Co
 func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Email      string          `json:"email"`
-			Credential json.RawMessage `json:"credential"`
+			Email               string          `json:"email"`
+			Credential         json.RawMessage `json:"credential"`
+			EncryptedMasterKey string          `json:"encrypted_master_key"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			slog.Error("failed to decode register finish request", "error", err)
@@ -357,14 +368,24 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 			user = &db.User{ID: id, Email: req.Email}
 		}
 
+		var encryptedMasterKey []byte
+		if req.EncryptedMasterKey != "" {
+			encryptedMasterKey, err = base64.StdEncoding.DecodeString(req.EncryptedMasterKey)
+			if err != nil {
+				slog.Error("failed to decode encrypted master key", "error", err)
+				http.Error(w, "invalid encrypted master key", http.StatusBadRequest)
+				return
+			}
+		}
+
 		dbCred := db.WebAuthnCredential{
 			ID:        string(credential.ID),
 			UserID:    user.ID,
 			PublicKey: credential.PublicKey,
 			SignCount: credential.Authenticator.SignCount,
 		}
-		if err := db.SaveCredential(database, dbCred); err != nil {
-			slog.Error("failed to save credential", "error", err)
+		if err := db.SaveCredentialWithMasterKey(database, dbCred, encryptedMasterKey); err != nil {
+			slog.Error("failed to save credential with master key", "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -372,6 +393,124 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 		cs.Delete(req.Email)
 
 		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+func AuthBeginWithJWTHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := db.GetUserByID(database, userID)
+		if err != nil || user == nil {
+			slog.Error("failed to get user", "error", err, "userId", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		creds, err := db.GetCredentialsByUserID(database, userID)
+		if err != nil {
+			slog.Error("failed to get credentials", "error", err, "userId", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		waUser := &webauthnUser{id: user.ID, email: user.Email, credentials: creds}
+		options, sessionData, err := wa.BeginLogin(waUser)
+		if err != nil {
+			slog.Error("failed to begin webauthn login", "error", err, "email", user.Email)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		sessionKey := fmt.Sprintf("prf_%d_%d", userID, time.Now().UnixNano())
+		cs.Set(sessionKey, sessionData)
+
+		options.Response.Extensions = protocol.AuthenticationExtensions{
+			"prf": map[string]interface{}{
+				"eval": map[string]interface{}{
+					"first": "ZGV2c2VzaC1tYXN0ZXIta2V5LXYx",
+				},
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"options":    options,
+			"sessionKey": sessionKey,
+		})
+	}
+}
+
+type authFinishRequest struct {
+	SessionKey  string          `json:"session_key"`
+	Credential  json.RawMessage `json:"credential"`
+}
+
+func AuthFinishWithJWTHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore, cfg config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req authFinishRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			slog.Error("failed to decode auth finish request", "error", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		sessionData, ok := cs.Get(req.SessionKey)
+		if !ok {
+			http.Error(w, "challenge not found or expired", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := db.GetUserByID(database, userID)
+		if err != nil || user == nil {
+			slog.Error("failed to get user", "error", err, "userId", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		creds, err := db.GetCredentialsByUserID(database, userID)
+		if err != nil {
+			slog.Error("failed to get credentials", "error", err, "userId", userID)
+			http.Error(w, "invalid credential", http.StatusUnauthorized)
+			return
+		}
+
+		waUser := &webauthnUser{id: user.ID, email: user.Email, credentials: creds}
+
+		parsedResponse, err := protocol.ParseCredentialRequestResponseBody(bytes.NewReader(req.Credential))
+		if err != nil {
+			slog.Error("failed to parse credential request response", "error", err)
+			http.Error(w, "invalid credential", http.StatusBadRequest)
+			return
+		}
+
+		credential, err := wa.ValidateLogin(waUser, *sessionData, parsedResponse)
+		if err != nil {
+			slog.Error("failed to finish webauthn login", "error", err)
+			http.Error(w, "invalid credential", http.StatusUnauthorized)
+			return
+		}
+
+		if err := db.UpdateCredentialSignCount(database, string(credential.ID), credential.Authenticator.SignCount); err != nil {
+			slog.Error("failed to update credential sign count", "error", err, "credentialId", string(credential.ID))
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		cs.Delete(req.SessionKey)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"verified": true})
 	}
 }
 

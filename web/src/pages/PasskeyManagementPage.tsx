@@ -154,6 +154,9 @@ export default function PasskeyManagementPage() {
             <Button onClick={handleAddPasskey} disabled={adding || !webAuthnSupported}>
               {adding ? "Adding..." : "Add Passkey"}
             </Button>
+            <Button variant="outline" onClick={() => navigate("/passkeys/add")}>
+              Add from Another Device
+            </Button>
           </CardContent>
         </Card>
 
