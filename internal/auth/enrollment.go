@@ -121,13 +121,8 @@ func EnrollmentBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challen
 			return
 		}
 
-		options.Response.Extensions = protocol.AuthenticationExtensions{
-			"prf": map[string]interface{}{
-				"eval": map[string]interface{}{
-					"first": base64.StdEncoding.EncodeToString([]byte(prfSaltString)),
-				},
-			},
-		}
+		// PRF extension is added client-side with proper ArrayBuffer salt
+		// The client uses the fixed salt "devsesh-master-key-v1" for PRF derivation
 
 		cs.Set(code, sessionData)
 

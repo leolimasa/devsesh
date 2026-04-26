@@ -293,14 +293,8 @@ func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Co
 			return
 		}
 
-		// Add PRF extension for master key encryption
-		options.Response.Extensions = protocol.AuthenticationExtensions{
-			"prf": map[string]interface{}{
-				"eval": map[string]interface{}{
-					"first": base64.StdEncoding.EncodeToString([]byte(prfSaltString)),
-				},
-			},
-		}
+		// PRF extension is added client-side with proper ArrayBuffer salt
+		// The client uses the fixed salt "devsesh-master-key-v1" for PRF derivation
 
 		cs.Set(req.Email, sessionData)
 
@@ -429,13 +423,8 @@ func AuthBeginWithJWTHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challe
 		sessionKey := fmt.Sprintf("prf_%d_%d", userID, time.Now().UnixNano())
 		cs.Set(sessionKey, sessionData)
 
-		options.Response.Extensions = protocol.AuthenticationExtensions{
-			"prf": map[string]interface{}{
-				"eval": map[string]interface{}{
-					"first": "ZGV2c2VzaC1tYXN0ZXIta2V5LXYx",
-				},
-			},
-		}
+		// PRF extension is added client-side with proper ArrayBuffer salt
+		// The client uses the fixed salt "devsesh-master-key-v1" for PRF derivation
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
