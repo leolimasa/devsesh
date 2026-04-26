@@ -19,6 +19,8 @@
 
 * [ ] Fix SSH trust on first use (if the target machine ssh key changes, the app won't say anythjing)
 * [ ] Add support for CORS for all calls
+* [ ] Add SXG to sign JS bundle
 * [ ] New session button
 * [ ] SSH/command payload
 * [ ] Keyboard shortcuts
+* [ ] Sign the javascript bundle so that clients can verify it was not tampered with

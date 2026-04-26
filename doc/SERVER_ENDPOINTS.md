@@ -65,10 +65,20 @@ This document describes all API endpoints available in the devsesh server.
 - **Request Body:**
 ```json
 {
-  "email": "user@example.com"
+  "email": "user@example.com",
+  "credential": {
+    "id": "credential-id",
+    "rawId": "base64-encoded-raw-id",
+    "response": {
+      "authenticatorData": "base64-encoded-authenticator-data",
+      "clientDataJSON": "base64-encoded-client-data",
+      "signature": "base64-encoded-signature",
+      "userHandle": null
+    },
+    "type": "public-key"
+  }
 }
 ```
-- **Request Body (Form):** The WebAuthn response is sent as form data with the key `credential`
 - **Response:**
 ```json
 {
@@ -93,10 +103,18 @@ This document describes all API endpoints available in the devsesh server.
 - **Request Body:**
 ```json
 {
-  "email": "user@example.com"
+  "email": "user@example.com",
+  "credential": {
+    "id": "credential-id",
+    "rawId": "base64-encoded-raw-id",
+    "response": {
+      "attestationObject": "base64-encoded-attestation-object",
+      "clientDataJSON": "base64-encoded-client-data"
+    },
+    "type": "public-key"
+  }
 }
 ```
-- **Request Body (Form):** The WebAuthn response is sent as form data with the key `credential`
 - **Response:** HTTP 201 Created on success
 
 ### Pairing - Start
@@ -172,7 +190,20 @@ This document describes all API endpoints available in the devsesh server.
 - **Endpoint:** `POST /api/v1/auth/passkeys/finish`
 - **Authentication:** Requires JWT token
 - **Description:** Complete adding a new passkey.
-- **Request Body (Form):** The WebAuthn response is sent as form data with the key `credential`
+- **Request Body:**
+```json
+{
+  "credential": {
+    "id": "credential-id",
+    "rawId": "base64-encoded-raw-id",
+    "response": {
+      "attestationObject": "base64-encoded-attestation-object",
+      "clientDataJSON": "base64-encoded-client-data"
+    },
+    "type": "public-key"
+  }
+}
+```
 - **Response:** HTTP 201 Created on success
 
 ### Delete Passkey
@@ -360,3 +391,13 @@ All endpoints may return the following error responses:
 - `403 Forbidden` - Access denied
 - `404 Not Found` - Resource not found
 - `500 Internal Server Error` - Server error
+
+### WebAuthn-Specific Error Messages
+
+| Endpoint | Error Message | HTTP Status | Description |
+|----------|---------------|-------------|--------------|
+| `POST /auth/login/finish` | "challenge not found or expired" | 401 | The login challenge has expired or was not found |
+| `POST /auth/register/finish` | "challenge not found or expired" | 401 | The registration challenge has expired or was not found |
+| `POST /auth/passkeys/finish` | "challenge not found or expired" | 401 | The passkey addition challenge has expired or was not found |
+| `DELETE /auth/passkeys/{id}` | "cannot delete last passkey" | 400 | Cannot delete the last remaining passkey for the user |
+| `POST /auth/register/begin` | "user creation disabled" | 403 | User registration is disabled by server configuration |
