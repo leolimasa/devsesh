@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { getToken, getMasterKey, getEnrollmentWebSocketURL } from "@/lib/api"
 import { spake2Init, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
-import { deriveMasterKeyFromPrf, decodeBase64, encodeBase64 } from "@/lib/crypto/prf"
+import { deriveMasterKeyFromPrf, decodeBase64, encodeBase64, parseEncryptedMasterKey, getPrfSalt } from "@/lib/crypto/prf"
 
 type Status = "idle" | "authenticating" | "connecting" | "handshaking" | "transferring" | "success" | "error"
 
@@ -102,15 +102,25 @@ export default function AddPasskeyPage() {
 
       const { options: authOptions, sessionKey: sessKey }: AuthBeginResponse = await beginResp.json()
 
-      const opts = authOptions as { challenge: string; allowCredentials?: { id: string }[]; rpId?: string }
+      const opts = authOptions as { challenge: string; allowCredentials?: { id: string }[]; rpId?: string; extensions?: Record<string, unknown> }
 
+      // Add PRF extension with proper ArrayBuffer salt
+      const prfSalt = getPrfSalt()
       const adjustedOptions = {
         ...opts,
         challenge: base64ToUint8Array(opts.challenge),
         allowCredentials: opts.allowCredentials?.map(cred => ({
           ...cred,
           id: base64ToUint8Array(cred.id)
-        }))
+        })),
+        extensions: {
+          ...opts.extensions,
+          prf: {
+            eval: {
+              first: prfSalt.buffer
+            }
+          }
+        }
       }
 
       const assertion = await navigator.credentials.get({ publicKey: adjustedOptions as unknown as PublicKeyCredentialRequestOptions })
@@ -209,13 +219,19 @@ export default function AddPasskeyPage() {
             try {
               const masterKeyResp = await getMasterKey()
               const encryptedMasterKeyBytes = decodeBase64(masterKeyResp.encrypted_master_key)
-
-              let decryptedMasterKey: Uint8Array
-              if (prfKeyDerived) {
-                decryptedMasterKey = await decrypt(prfKeyDerived, encryptedMasterKeyBytes.slice(0, 12), encryptedMasterKeyBytes.slice(12))
-              } else {
-                throw new Error("No PRF key available")
+              
+              // Master key MUST be encrypted with PRF
+              const { data: masterKeyData, isEncrypted } = parseEncryptedMasterKey(encryptedMasterKeyBytes)
+              
+              if (!isEncrypted) {
+                throw new Error('Master key is not encrypted with PRF. PRF is required.')
               }
+              
+              if (!prfKeyDerived) {
+                throw new Error("No PRF key available for decrypting master key")
+              }
+              
+              const decryptedMasterKey = await decrypt(prfKeyDerived, masterKeyData.slice(0, 12), masterKeyData.slice(12))
 
               const { ciphertext, nonce } = await encrypt(key, decryptedMasterKey)
 

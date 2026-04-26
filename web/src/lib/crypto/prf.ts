@@ -41,3 +41,40 @@ export async function deriveMasterKeyFromPrf(prfOutput: Uint8Array): Promise<Uin
 export function generateMasterKey(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(32))
 }
+
+// Master key format version:
+// Version 1: AES-GCM encrypted (1 byte version + 12 byte nonce + ciphertext)
+// Version 0 (plain) is NOT ALLOWED - PRF is required
+const MASTER_KEY_VERSION_ENCRYPTED = 0x01
+
+export function formatEncryptedMasterKey(encryptedData: Uint8Array): Uint8Array {
+  // Master key MUST be encrypted (version 1 only)
+  const result = new Uint8Array(1 + encryptedData.length)
+  result[0] = MASTER_KEY_VERSION_ENCRYPTED
+  result.set(encryptedData, 1)
+  return result
+}
+
+export function parseEncryptedMasterKey(data: Uint8Array): { version: number; data: Uint8Array; isEncrypted: boolean } {
+  if (!data || data.length === 0) {
+    throw new Error('Empty master key data')
+  }
+  
+  // Master key MUST be encrypted (version 1)
+  // No plain master keys allowed
+  
+  // Check for version byte
+  if (data.length < 1) {
+    throw new Error('Master key data too short')
+  }
+  
+  const version = data[0]
+  const content = data.slice(1)
+  
+  if (version === MASTER_KEY_VERSION_ENCRYPTED) {
+    return { version, data: content, isEncrypted: true }
+  } else {
+    // Version 0 (plain) or unknown version not allowed
+    throw new Error(`Master key must be encrypted with PRF. Found version: ${version}`)
+  }
+}

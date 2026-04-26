@@ -3,13 +3,13 @@ import { startServer, stopServer } from '../../helpers/server';
 import { setupVirtualAuthenticator } from '../../helpers/webauthn';
 
 test.describe('Authentication - Registration', () => {
-  test('user can register with webauthn passkey', async ({ page }) => {
+  test('user can register with webauthn passkey', async ({ page, context }) => {
     const server = await startServer();
     const testEmail = `test-${Date.now()}@example.com`;
 
     try {
-      // Set up virtual WebAuthn authenticator
-      await setupVirtualAuthenticator(page);
+      // Set up virtual WebAuthn authenticator with PRF support
+      await setupVirtualAuthenticator(context, page);
 
       // Navigate to registration page
       await page.goto(`${server.url}/register`);

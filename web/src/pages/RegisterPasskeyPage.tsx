@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { startRegistration, browserSupportsWebAuthn } from "@simplewebauthn/browser"
-import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/types"
+import { browserSupportsWebAuthn, bufferToBase64URLString } from "@simplewebauthn/browser"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { createPasskeyEnrollment, enrollmentBegin, enrollmentComplete, getEnrollmentWebSocketURL } from "@/lib/api"
 import { spake2InitB, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
-import { encodeBase64, decodeBase64, deriveMasterKeyFromPrf } from "@/lib/crypto/prf"
+import { encodeBase64, decodeBase64, decodeBase64URL, deriveMasterKeyFromPrf, formatEncryptedMasterKey, getPrfSalt } from "@/lib/crypto/prf"
+
+// Convert base64url to ArrayBuffer
+function base64urlToBuffer(base64url: string): ArrayBuffer {
+  return decodeBase64URL(base64url).buffer
+}
 
 type Status = "idle" | "waiting" | "handshaking" | "registering" | "success" | "error"
 
@@ -22,6 +26,7 @@ export default function RegisterPasskeyPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sessionKeyRef = useRef<Uint8Array | null>(null)
   const masterKeyRef = useRef<Uint8Array | null>(null)
+  const isCancellingRef = useRef(false)
 
   useEffect(() => {
     return () => {
@@ -60,6 +65,7 @@ export default function RegisterPasskeyPage() {
     }
 
     try {
+      isCancellingRef.current = false
       const { code: enrollmentCode } = await createPasskeyEnrollment()
       setCode(enrollmentCode)
       setExpiresAt(new Date(Date.now() + 5 * 60 * 1000))
@@ -110,67 +116,111 @@ export default function RegisterPasskeyPage() {
                   const decrypted = await decrypt(sessionKeyRef.current, nonce, ciphertext)
                   masterKeyRef.current = decrypted
 
-                  const beginResp = await enrollmentBegin(enrollmentCode)
-                  const options = (beginResp as { publicKey: PublicKeyCredentialCreationOptionsJSON }).publicKey
-
-                  const credential = await startRegistration(options as PublicKeyCredentialCreationOptionsJSON)
-
-                  const extResults = (credential as unknown as { getClientExtensionResults?: () => unknown }).getClientExtensionResults?.() as Record<string, unknown> | undefined
-                  let prfResults: Uint8Array | null = null
-
-                  if (extResults?.prf) {
-                    const prfExt = extResults.prf as { enabled?: boolean; results?: { first?: ArrayBuffer | Uint8Array } }
-                    if (prfExt.enabled) {
-                      const getOptions = {
-                        publicKey: {
-                          challenge: options.challenge,
-                          rpId: options.rp.id,
-                          extensions: {
-                            prf: {
-                              eval: {
-                                first: btoa(String.fromCharCode(...new TextEncoder().encode('devsesh-master-key-v1')))
-                              }
-                            }
-                          }
-                        }
+                  const beginResp = await enrollmentBegin(enrollmentCode) as {
+                    publicKey: {
+                      challenge: string
+                      rp: { name: string; id?: string }
+                      user: { id: string; name: string; displayName: string }
+                      pubKeyCredParams: Array<{ type: string; alg: number }>
+                      timeout?: number
+                      excludeCredentials?: Array<{ id: string; type: string; transports?: string[] }>
+                      authenticatorSelection?: {
+                        authenticatorAttachment?: string
+                        residentKey?: string
+                        requireResidentKey?: boolean
+                        userVerification?: string
                       }
-
-                      try {
-                        const assertion = await navigator.credentials.get(getOptions as unknown as CredentialRequestOptions)
-                        const assertExtResults = (assertion as unknown as { getClientExtensionResults?: () => unknown }).getClientExtensionResults?.() as Record<string, unknown> | undefined
-                        if (assertExtResults?.prf) {
-                          const prfOut = assertExtResults.prf as { results?: { first?: ArrayBuffer | Uint8Array } }
-                          if (prfOut.results?.first) {
-                            const prfFirst = prfOut.results.first
-                            if (prfFirst instanceof ArrayBuffer) {
-                              prfResults = new Uint8Array(prfFirst)
-                            } else if (prfFirst) {
-                              prfResults = new Uint8Array(prfFirst)
-                            }
-                          }
-                        }
-                      } catch (e) {
-                        console.warn('Could not get PRF results:', e)
-                      }
+                      attestation?: string
                     }
+                  }
+                  const options = beginResp.publicKey
+                  const prfSalt = getPrfSalt()
+
+                  // Convert JSON options to native WebAuthn format
+                  const publicKeyOptions: PublicKeyCredentialCreationOptions = {
+                    challenge: base64urlToBuffer(options.challenge),
+                    rp: options.rp,
+                    user: {
+                      id: base64urlToBuffer(options.user.id),
+                      name: options.user.name,
+                      displayName: options.user.displayName
+                    },
+                    pubKeyCredParams: options.pubKeyCredParams.map(p => ({
+                      type: p.type as PublicKeyCredentialType,
+                      alg: p.alg
+                    })),
+                    timeout: options.timeout,
+                    excludeCredentials: options.excludeCredentials?.map(c => ({
+                      id: base64urlToBuffer(c.id),
+                      type: c.type as PublicKeyCredentialType,
+                      transports: c.transports as AuthenticatorTransport[] | undefined
+                    })),
+                    authenticatorSelection: options.authenticatorSelection as AuthenticatorSelectionCriteria,
+                    attestation: options.attestation as AttestationConveyancePreference,
+                    // Add PRF extension with proper ArrayBuffer salt
+                    extensions: {
+                      prf: {
+                        eval: {
+                          first: prfSalt.buffer
+                        }
+                      }
+                    } as AuthenticationExtensionsClientInputs
+                  }
+
+                  // Call native WebAuthn API
+                  const credentialResponse = await navigator.credentials.create({ publicKey: publicKeyOptions })
+                  if (!credentialResponse) {
+                    throw new Error('Registration was cancelled')
+                  }
+
+                  const credential = credentialResponse as PublicKeyCredential
+                  const attestationResponse = credential.response as AuthenticatorAttestationResponse
+
+                  // Extract PRF extension results
+                  const extResults = credential.getClientExtensionResults() as {
+                    prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } }
                   }
 
                   if (!masterKeyRef.current) {
                     throw new Error("Master key not available")
                   }
 
-                  let newMasterKey: Uint8Array
-                  if (prfResults && prfResults.length > 0) {
-                    const prfKey = await deriveMasterKeyFromPrf(prfResults)
-                    const encrypted = await encrypt(prfKey, masterKeyRef.current)
-                    newMasterKey = new Uint8Array(12 + encrypted.ciphertext.length)
-                    newMasterKey.set(encrypted.nonce, 0)
-                    newMasterKey.set(encrypted.ciphertext, 12)
-                  } else {
-                    newMasterKey = masterKeyRef.current
+                  if (!extResults?.prf?.results?.first) {
+                    throw new Error('WebAuthn PRF extension is required for passkey registration')
                   }
 
-                  await enrollmentComplete(enrollmentCode, credential, encodeBase64(newMasterKey))
+                  const prfOutput = new Uint8Array(extResults.prf.results.first)
+                  const prfKey = await deriveMasterKeyFromPrf(prfOutput)
+                  const encrypted = await encrypt(prfKey, masterKeyRef.current)
+                  // Combine nonce + ciphertext
+                  const combined = new Uint8Array(12 + encrypted.ciphertext.length)
+                  combined.set(encrypted.nonce, 0)
+                  combined.set(encrypted.ciphertext, 12)
+                  // Add version byte
+                  const newMasterKey = formatEncryptedMasterKey(combined)
+
+                  // Convert credential to JSON format for server
+                  const credentialJSON = {
+                    id: credential.id,
+                    rawId: bufferToBase64URLString(credential.rawId),
+                    response: {
+                      attestationObject: bufferToBase64URLString(attestationResponse.attestationObject),
+                      clientDataJSON: bufferToBase64URLString(attestationResponse.clientDataJSON),
+                      transports: attestationResponse.getTransports?.() || [],
+                      publicKey: attestationResponse.getPublicKey?.()
+                        ? bufferToBase64URLString(attestationResponse.getPublicKey()!)
+                        : undefined,
+                      publicKeyAlgorithm: attestationResponse.getPublicKeyAlgorithm?.(),
+                      authenticatorData: attestationResponse.getAuthenticatorData?.()
+                        ? bufferToBase64URLString(attestationResponse.getAuthenticatorData!())
+                        : undefined,
+                    },
+                    type: credential.type,
+                    clientExtensionResults: credential.getClientExtensionResults(),
+                    authenticatorAttachment: (credential as PublicKeyCredential & { authenticatorAttachment?: string }).authenticatorAttachment,
+                  }
+
+                  await enrollmentComplete(enrollmentCode, credentialJSON, encodeBase64(newMasterKey))
 
                   // Actually encrypt the confirmation message with the session key
                   if (!sessionKeyRef.current) {
@@ -211,7 +261,7 @@ export default function RegisterPasskeyPage() {
       }
 
       ws.onclose = () => {
-        if (status !== "success" && status !== "error") {
+        if (!isCancellingRef.current && status !== "success" && status !== "error") {
           setStatus("error")
         }
       }
@@ -222,7 +272,7 @@ export default function RegisterPasskeyPage() {
   }
 
   const handleCancel = () => {
-    if (wsRef.current) wsRef.current.close()
+    isCancellingRef.current = true
     if (timerRef.current) clearInterval(timerRef.current)
     setStatus("idle")
     setCode("")
@@ -230,6 +280,7 @@ export default function RegisterPasskeyPage() {
     setTimeLeft(300)
     sessionKeyRef.current = null
     masterKeyRef.current = null
+    if (wsRef.current) wsRef.current.close()
   }
 
   const isInProgress = status === "waiting" || status === "handshaking" || status === "registering" || status === "error" || status === "success"

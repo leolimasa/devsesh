@@ -8,3 +8,4 @@
 - Add any needed dependendencies to `flake.nix`
 - All build outputs should be placed in `build/`
 - Add logging as necessary
+- Everytime you change the frontend, you must build it and then rebuild the binary. Use `build.sh` to build everything.
