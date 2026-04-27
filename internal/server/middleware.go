@@ -3,40 +3,73 @@ package server
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/leolimasa/devsesh/internal/auth"
 	"github.com/leolimasa/devsesh/internal/db"
-	"github.com/leolimasa/devsesh/internal/sessions"
 )
 
 func RequireJWT(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			slog.Warn("RequireJWT middleware called", "path", r.URL.Path, "secret_length", len(secret))
 			tokenStr := ""
+			tokenSource := ""
 
 			authHeader := r.Header.Get("Authorization")
 			if len(authHeader) >= 7 && authHeader[:7] == "Bearer " {
 				tokenStr = authHeader[7:]
+				tokenSource = "Authorization header"
 			} else if queryToken := r.URL.Query().Get("token"); queryToken != "" {
 				tokenStr = queryToken
+				tokenSource = "query parameter"
 			}
 
 			if tokenStr == "" {
+				slog.Error("JWT validation failed: no token provided", "path", r.URL.Path, "authHeader", authHeader)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+
+			slog.Warn("JWT validation starting - this should always appear", "path", r.URL.Path)
+			slog.Info("JWT validation attempt",
+				"path", r.URL.Path,
+				"token_prefix", func() string {
+					if len(tokenStr) > 20 {
+						return tokenStr[:20] + "..."
+					}
+					return tokenStr
+				}(),
+				"token_length", len(tokenStr),
+				"source", tokenSource)
 
 			claims, err := auth.ValidateToken(secret, tokenStr)
 			if err != nil {
-				slog.Error("failed to validate token", "error", err)
+				slog.Error("failed to validate token",
+					"error", err,
+					"path", r.URL.Path,
+					"secret_length", len(secret),
+					"token_userId_from_header", func() string {
+						parts := strings.Split(tokenStr, ".")
+						if len(parts) != 3 {
+							return "invalid_token_format"
+						}
+						payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+						if err != nil {
+							return "decode_error"
+						}
+						return string(payload)
+					}())
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), sessions.ContextKeyUserID, claims.UserID)
-			ctx = context.WithValue(ctx, sessions.ContextKeyHostID, claims.HostID)
+			slog.Info("JWT validation success", "userId", claims.UserID, "path", r.URL.Path)
+			ctx := context.WithValue(r.Context(), auth.ContextKeyUserID, claims.UserID)
+			ctx = context.WithValue(ctx, auth.ContextKeyHostID, claims.HostID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -45,7 +78,7 @@ func RequireJWT(secret string) func(http.Handler) http.Handler {
 func RequireSessionOwner(database *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			userID, ok := sessions.UserIDFromContext(r.Context())
+			userID, ok := auth.UserIDFromContext(r.Context())
 			if !ok {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
@@ -68,7 +101,7 @@ func RequireSessionOwner(database *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), sessions.ContextKeySession, s)
+			ctx := context.WithValue(r.Context(), auth.ContextKeySession, s)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -77,7 +110,7 @@ func RequireSessionOwner(database *sql.DB) func(http.Handler) http.Handler {
 func RequireValidHost(database *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hostID, ok := sessions.HostIDFromContext(r.Context())
+			hostID, ok := auth.HostIDFromContext(r.Context())
 			if !ok || hostID == 0 {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return

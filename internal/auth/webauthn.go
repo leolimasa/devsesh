@@ -22,6 +22,8 @@ import (
 type contextKey string
 
 const ContextKeyUserID contextKey = "userID"
+const ContextKeyHostID contextKey = "hostID"
+const ContextKeySession contextKey = "session"
 
 func NewWebAuthn(rpID, rpOrigin string) (*webauthn.WebAuthn, error) {
 	wa, err := webauthn.New(&webauthn.Config{
@@ -306,7 +308,7 @@ func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Co
 func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Email               string          `json:"email"`
+			Email              string          `json:"email"`
 			Credential         json.RawMessage `json:"credential"`
 			EncryptedMasterKey string          `json:"encrypted_master_key"`
 		}
@@ -435,8 +437,8 @@ func AuthBeginWithJWTHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challe
 }
 
 type authFinishRequest struct {
-	SessionKey  string          `json:"session_key"`
-	Credential  json.RawMessage `json:"credential"`
+	SessionKey string          `json:"session_key"`
+	Credential json.RawMessage `json:"credential"`
 }
 
 func AuthFinishWithJWTHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore, cfg config.Config) http.HandlerFunc {
@@ -659,6 +661,11 @@ func AddPasskeyFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challe
 func UserIDFromContext(ctx context.Context) (int64, bool) {
 	userID, ok := ctx.Value(ContextKeyUserID).(int64)
 	return userID, ok
+}
+
+func HostIDFromContext(ctx context.Context) (int64, bool) {
+	hostID, ok := ctx.Value(ContextKeyHostID).(int64)
+	return hostID, ok
 }
 
 func DeletePasskeyHandler(database *sql.DB) http.HandlerFunc {

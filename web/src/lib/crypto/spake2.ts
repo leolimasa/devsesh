@@ -11,6 +11,7 @@ export interface Spake2State {
   password: string
   isPartyA: boolean
   publicKeyBytes: Uint8Array
+  blindedPublicKey: Uint8Array
 }
 
 export interface Spake2Result {
@@ -71,8 +72,9 @@ export async function spake2Init(password: string, isPartyA: boolean): Promise<{
   const state: Spake2State = {
     privateKey: keyPair,
     password: password.toUpperCase(),
-    isPartyA: true,
+    isPartyA: isPartyA,
     publicKeyBytes,
+    blindedPublicKey,
   }
 
   return { state, message: blindedPublicKey }
@@ -94,6 +96,7 @@ export async function spake2InitB(password: string): Promise<{ state: Spake2Stat
     password: password.toUpperCase(),
     isPartyA: false,
     publicKeyBytes,
+    blindedPublicKey,
   }
 
   return { state, message: blindedPublicKey }
@@ -118,15 +121,19 @@ export async function spake2Finish(state: Spake2State, otherBlindedPublicKey: Ui
   )
 
   // Create transcript for key derivation
-  const transcript = new Uint8Array(state.publicKeyBytes.length + otherBlindedPublicKey.length + 32)
+  // Use blinded public keys for transcript to ensure both parties have the same view
+  // Transcript order: A_blinded || B_blinded || shared_secret
+  const transcript = new Uint8Array(state.blindedPublicKey.length + otherBlindedPublicKey.length + 32)
   if (state.isPartyA) {
-    transcript.set(state.publicKeyBytes, 0)
-    transcript.set(otherBlindedPublicKey, state.publicKeyBytes.length)
+    // A: my blinded key || other's blinded key (B's blinded)
+    transcript.set(state.blindedPublicKey, 0)
+    transcript.set(otherBlindedPublicKey, state.blindedPublicKey.length)
   } else {
+    // B: other's blinded key (A's blinded) || my blinded key
     transcript.set(otherBlindedPublicKey, 0)
-    transcript.set(state.publicKeyBytes, otherBlindedPublicKey.length)
+    transcript.set(state.blindedPublicKey, otherBlindedPublicKey.length)
   }
-  transcript.set(new Uint8Array(sharedBits), state.publicKeyBytes.length + otherBlindedPublicKey.length)
+  transcript.set(new Uint8Array(sharedBits), state.blindedPublicKey.length + otherBlindedPublicKey.length)
 
   // Derive final shared secret using HKDF
   const passwordHash = sha256(new TextEncoder().encode(state.password))

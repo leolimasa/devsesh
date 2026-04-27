@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"path"
 	"strconv"
@@ -18,14 +19,14 @@ import (
 )
 
 type Server struct {
-	cfg    config.Config
-	db     *sql.DB
-	wa     *webauthn.WebAuthn
-	cs     *auth.ChallengeStore
-	hub    *sessions.Hub
+	cfg           config.Config
+	db            *sql.DB
+	wa            *webauthn.WebAuthn
+	cs            *auth.ChallengeStore
+	hub           *sessions.Hub
 	enrollmentHub *auth.EnrollmentHub
-	mux    *http.ServeMux
-	srv    *http.Server
+	mux           *http.ServeMux
+	srv           *http.Server
 }
 
 func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server, error) {
@@ -52,6 +53,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	})
 
 	jwtMiddleware := RequireJWT(cfg.JWTSecret)
+	slog.Error("RequireJWT middleware created - THIS IS A TEST - secret len: " + strconv.Itoa(len(cfg.JWTSecret)) + " - FIRST 8 CHARS: " + cfg.JWTSecret[:min(8, len(cfg.JWTSecret))])
 
 	mux.Handle("GET /api/v1/auth/status", auth.AuthStatusHandler(database))
 
@@ -95,13 +97,13 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	ssh.RegisterRoutes(mux, database, jwtMiddleware, cfg)
 
 	return &Server{
-		cfg:            cfg,
-		db:             database,
-		wa:             wa,
-		cs:             cs,
-		hub:            hub,
-		enrollmentHub:  enrollmentHub,
-		mux:            mux,
+		cfg:           cfg,
+		db:            database,
+		wa:            wa,
+		cs:            cs,
+		hub:           hub,
+		enrollmentHub: enrollmentHub,
+		mux:           mux,
 	}, nil
 }
 

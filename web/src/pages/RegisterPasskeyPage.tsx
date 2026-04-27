@@ -80,16 +80,23 @@ export default function RegisterPasskeyPage() {
       const { state, message: spake2Msg } = await spake2InitB(enrollmentCode)
 
       ws.onopen = () => {
-        setStatus("handshaking")
-        ws.send(JSON.stringify({
-          type: "spake2_b",
-          message: encodeMessage(spake2Msg)
-        }))
+        // Just wait for peer_connected notification, don't send spake2_b yet
+        setStatus("waiting")
       }
 
       ws.onmessage = async (event) => {
         try {
           const msg = JSON.parse(event.data)
+
+          if (msg.type === "peer_connected") {
+            // Machine A has connected, now send spake2_b to start the handshake
+            setStatus("handshaking")
+            ws.send(JSON.stringify({
+              type: "spake2_b",
+              message: encodeMessage(spake2Msg)
+            }))
+            return
+          }
 
           if (msg.type === "spake2_a") {
             const otherMsg = decodeMessage(msg.message)

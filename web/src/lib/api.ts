@@ -35,8 +35,14 @@ async function fetchApi<T>(
     throw new Error(error || `HTTP error ${response.status}`)
   }
 
-  if (response.status === 204) {
-    return {} as T
+  // Handle responses with no body (204 No Content, 201 Created with no body)
+  const contentLength = response.headers.get('content-length')
+  if (response.status === 204 || contentLength === '0' || contentLength === null) {
+    const text = await response.text()
+    if (!text) {
+      return {} as T
+    }
+    return JSON.parse(text)
   }
 
   return response.json()

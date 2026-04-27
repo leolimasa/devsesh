@@ -136,7 +136,7 @@ export default function DashboardPage() {
               Logout
             </Button>
             <Button variant="outline" asChild>
-              <Link to="/settings/passkeys">Passkeys</Link>
+              <Link to="/passkeys/add">Add Passkey</Link>
             </Button>
           </div>
         </div>

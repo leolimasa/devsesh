@@ -10,7 +10,6 @@ import (
 
 	"github.com/leolimasa/devsesh/internal/config"
 	"github.com/leolimasa/devsesh/internal/db"
-	"github.com/leolimasa/devsesh/internal/sessions"
 )
 
 const pairingCodeChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -28,8 +27,8 @@ func generatePairingCode() (string, error) {
 }
 
 type codeRequest struct {
-	Code    string `json:"code"`
-	HostID  *int64 `json:"host_id"`
+	Code    string          `json:"code"`
+	HostID  *int64          `json:"host_id"`
 	NewHost *newHostRequest `json:"new_host"`
 }
 
@@ -64,7 +63,7 @@ func PairStartHandler(database *sql.DB, cfg config.Config) http.HandlerFunc {
 
 func PairExchangeHandler(database *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

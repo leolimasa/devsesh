@@ -110,6 +110,7 @@ func EnrollmentWebSocketHandler(database *sql.DB, hub *EnrollmentHub, cfg config
 		}
 
 		token := r.URL.Query().Get("token")
+		slog.Info("WebSocket token debug", "token_len", len(token))
 
 		enrollment, err := db.GetPasskeyEnrollment(database, code)
 		if err != nil {
@@ -151,9 +152,12 @@ func EnrollmentWebSocketHandler(database *sql.DB, hub *EnrollmentHub, cfg config
 				return
 			}
 
-			claims, err := ValidateToken(token, cfg.JWTSecret)
+			claims, err := ValidateToken(cfg.JWTSecret, token)
 			if err != nil {
-				slog.Error("failed to validate token", "error", err)
+				slog.Warn("failed to validate token",
+					"error", err,
+					"token_length", len(token),
+					"code", code)
 				http.Error(w, "invalid token", http.StatusUnauthorized)
 				return
 			}
@@ -184,6 +188,14 @@ func EnrollmentWebSocketHandler(database *sql.DB, hub *EnrollmentHub, cfg config
 
 		if isMachineA {
 			pair.machineA = client
+			// Notify Machine B that Machine A has connected
+			if pair.machineB != nil {
+				peerConnectedMsg, _ := json.Marshal(wsMessage{Type: "peer_connected"})
+				select {
+				case pair.machineB.send <- peerConnectedMsg:
+				default:
+				}
+			}
 		} else {
 			pair.machineB = client
 		}

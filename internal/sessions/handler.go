@@ -4,46 +4,43 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
+	"github.com/leolimasa/devsesh/internal/auth"
 	"github.com/leolimasa/devsesh/internal/db"
 )
 
+// Use the same context keys as auth package for consistency
+// auth package defines: ContextKeyUserID, ContextKeyHostID, ContextKeySession
+// We define them here too but they need to match the auth values
+
 type contextKey string
 
+// These constants must have the same string values as in auth/webauthn.go
 const (
-	ContextKeyUserID  contextKey = "userID"
-	ContextKeyHostID  contextKey = "hostID"
-	ContextKeySession contextKey = "session"
+	ContextKeyUserID  = auth.ContextKeyUserID
+	ContextKeyHostID  = auth.ContextKeyHostID
+	ContextKeySession = auth.ContextKeySession
 )
 
-type jwtClaims struct {
-	UserID int64 `json:"sub"`
-	jwt.RegisteredClaims
+func UserIDFromContext(ctx context.Context) (int64, bool) {
+	return auth.UserIDFromContext(ctx)
 }
 
-func validateJWT(secret, tokenStr string) (*jwtClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &jwtClaims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
-		return []byte(secret), nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("parse token: %w", err)
-	}
+func HostIDFromContext(ctx context.Context) (int64, bool) {
+	return auth.HostIDFromContext(ctx)
+}
 
-	claims, ok := token.Claims.(*jwtClaims)
-	if !ok || !token.Valid {
-		return nil, fmt.Errorf("invalid token")
-	}
+func SessionFromContext(ctx context.Context) (*db.Session, bool) {
+	session, ok := ctx.Value(auth.ContextKeySession).(*db.Session)
+	return session, ok
+}
 
-	return claims, nil
+func validateJWT(secret, tokenStr string) (*auth.Claims, error) {
+	return auth.ValidateToken(secret, tokenStr)
 }
 
 func makeUpgrader(rpOrigin string) websocket.Upgrader {
@@ -325,19 +322,4 @@ func UpdatesHandler(database *sql.DB, hub *Hub, jwtSecret string, rpOrigin strin
 			}
 		}
 	}
-}
-
-func UserIDFromContext(ctx context.Context) (int64, bool) {
-	userID, ok := ctx.Value(ContextKeyUserID).(int64)
-	return userID, ok
-}
-
-func HostIDFromContext(ctx context.Context) (int64, bool) {
-	hostID, ok := ctx.Value(ContextKeyHostID).(int64)
-	return hostID, ok
-}
-
-func SessionFromContext(ctx context.Context) (*db.Session, bool) {
-	session, ok := ctx.Value(ContextKeySession).(*db.Session)
-	return session, ok
 }

@@ -72,6 +72,14 @@ export async function startServer(options: ServerOptions = {}): Promise<ServerIn
     DEVSESH_SESSION_DIR: sessionDir,
   });
 
+  // Log all output from the server process
+  devseshProcess.process.stdout?.on('data', (data: Buffer) => {
+    console.log('[SERVER stdout]:', data.toString().trim());
+  });
+  devseshProcess.process.stderr?.on('data', (data: Buffer) => {
+    console.log('[SERVER stderr]:', data.toString().trim());
+  });
+
   devseshProcess.process.on('error', (err) => {
     console.error('Server process error:', err);
   });

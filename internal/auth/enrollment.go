@@ -68,9 +68,8 @@ func CreateEnrollmentHandler(database *sql.DB) http.HandlerFunc {
 	}
 }
 
-type enrollmentBeginResponse struct {
-	PublicKey protocol.CredentialCreation `json:"publicKey"`
-}
+// Note: protocol.CredentialCreation already has structure {publicKey: {...}}
+// so we encode it directly without wrapping
 
 func EnrollmentBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +126,7 @@ func EnrollmentBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challen
 		cs.Set(code, sessionData)
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(enrollmentBeginResponse{PublicKey: *options})
+		json.NewEncoder(w).Encode(options)
 	}
 }
 

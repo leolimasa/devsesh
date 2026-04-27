@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { browserSupportsWebAuthn } from "@simplewebauthn/browser"
+import { browserSupportsWebAuthn, bufferToBase64URLString } from "@simplewebauthn/browser"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -7,30 +7,13 @@ import { Label } from "@/components/ui/label"
 import { getToken, getMasterKey, getEnrollmentWebSocketURL } from "@/lib/api"
 import { spake2Init, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
-import { deriveMasterKeyFromPrf, decodeBase64, encodeBase64, parseEncryptedMasterKey, getPrfSalt } from "@/lib/crypto/prf"
+import { deriveMasterKeyFromPrf, decodeBase64, decodeBase64URL, encodeBase64, parseEncryptedMasterKey, getPrfSalt } from "@/lib/crypto/prf"
 
 type Status = "idle" | "authenticating" | "connecting" | "handshaking" | "transferring" | "success" | "error"
 
 interface AuthBeginResponse {
   options: unknown
   sessionKey: string
-}
-
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return bytes
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  for (const b of bytes) {
-    binary += String.fromCharCode(b)
-  }
-  return btoa(binary)
 }
 
 export default function AddPasskeyPage() {
@@ -79,6 +62,9 @@ export default function AddPasskeyPage() {
     }
 
     const token = getToken()
+    console.log('[AddPasskeyPage] Token from getToken():', token ? 'present' : 'null');
+    console.log('[AddPasskeyPage] localStorage token:', localStorage.getItem('token'));
+    console.log('[AddPasskeyPage] localStorage user:', localStorage.getItem('user'));
     if (!token) {
       setError("You must be logged in to add a passkey")
       setStatus("error")
@@ -95,26 +81,31 @@ export default function AddPasskeyPage() {
           'Authorization': `Bearer ${token}`
         }
       })
-
+      
+      console.log('[AddPasskeyPage] auth-begin response status:', beginResp.status);
       if (!beginResp.ok) {
-        throw new Error('Failed to get authentication options')
+        const errorText = await beginResp.text();
+        console.log('[AddPasskeyPage] auth-begin error:', errorText);
+        throw new Error('Failed to get authentication options: ' + errorText)
       }
 
       const { options: authOptions, sessionKey: sessKey }: AuthBeginResponse = await beginResp.json()
 
-      const opts = authOptions as { challenge: string; allowCredentials?: { id: string }[]; rpId?: string; extensions?: Record<string, unknown> }
+      const opts = authOptions as { publicKey: { challenge: string; allowCredentials?: { id: string }[]; rpId?: string; extensions?: Record<string, unknown> } }
+
+      const pkOpts = opts.publicKey
 
       // Add PRF extension with proper ArrayBuffer salt
       const prfSalt = getPrfSalt()
       const adjustedOptions = {
-        ...opts,
-        challenge: base64ToUint8Array(opts.challenge),
-        allowCredentials: opts.allowCredentials?.map(cred => ({
+        ...pkOpts,
+        challenge: decodeBase64URL(pkOpts.challenge),
+        allowCredentials: pkOpts.allowCredentials?.map(cred => ({
           ...cred,
-          id: base64ToUint8Array(cred.id)
+          id: decodeBase64URL(cred.id)
         })),
         extensions: {
-          ...opts.extensions,
+          ...pkOpts.extensions,
           prf: {
             eval: {
               first: prfSalt.buffer
@@ -130,21 +121,21 @@ export default function AddPasskeyPage() {
       }
 
       const credential = assertion as PublicKeyCredential
-
-      const clientDataJSON = await (credential.response as AuthenticatorAssertionResponse).clientDataJSON
-      const authenticatorData = new Uint8Array((credential.response as AuthenticatorAssertionResponse).authenticatorData)
-      const signature = new Uint8Array((credential.response as AuthenticatorAssertionResponse).signature)
-      const userHandle = (credential.response as AuthenticatorAssertionResponse).userHandle ?
-        new Uint8Array((credential.response as AuthenticatorAssertionResponse).userHandle!) : null
-
+      const response = credential.response as AuthenticatorAssertionResponse
+      
+      let userHandleStr: string | null = null
+      if (response.userHandle) {
+        userHandleStr = new TextDecoder("utf-8").decode(response.userHandle)
+      }
+      
       const credJSON = {
         id: credential.id,
-        rawId: uint8ArrayToBase64(new Uint8Array(credential.rawId)),
+        rawId: bufferToBase64URLString(credential.rawId),
         response: {
-          clientDataJSON: uint8ArrayToBase64(new Uint8Array(clientDataJSON)),
-          authenticatorData: uint8ArrayToBase64(authenticatorData),
-          signature: uint8ArrayToBase64(signature),
-          userHandle: userHandle ? uint8ArrayToBase64(userHandle) : null
+          clientDataJSON: bufferToBase64URLString(response.clientDataJSON),
+          authenticatorData: bufferToBase64URLString(response.authenticatorData),
+          signature: bufferToBase64URLString(response.signature),
+          userHandle: userHandleStr
         },
         type: 'public-key',
         clientExtensionResults: (credential as unknown as { getClientExtensionResults?: () => unknown }).getClientExtensionResults?.() || {}

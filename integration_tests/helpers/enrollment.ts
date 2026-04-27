@@ -138,3 +138,55 @@ export async function checkCredentialWithMasterKey(dbPath: string, userId: numbe
     db.close();
   }
 }
+
+/**
+ * Gets the user ID by email address.
+ * @param dbPath - Path to the SQLite database
+ * @param email - Email address to look up
+ * @returns User ID or null if not found
+ */
+export async function getUserIdByEmail(dbPath: string, email: string): Promise<number | null> {
+  const Database = require('better-sqlite3');
+  const db = new Database(dbPath, { readonly: true });
+  
+  try {
+    const result = db.prepare(
+      'SELECT id FROM users WHERE email = ?'
+    ).get(email);
+    
+    return result ? result.id : null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Gets the number of credentials with encrypted_master_key for a user.
+ * @param dbPath - Path to the SQLite database
+ * @param userId - User ID to check credentials for
+ * @returns Number of credentials with encrypted master key
+ */
+export async function getCredentialCountForUser(dbPath: string, userId: number): Promise<number> {
+  const Database = require('better-sqlite3');
+  const db = new Database(dbPath, { readonly: true });
+  
+  try {
+    const result = db.prepare(
+      'SELECT COUNT(*) as count FROM webauthn_credentials WHERE user_id = ? AND encrypted_master_key IS NOT NULL'
+    ).get(userId);
+    
+    return result ? result.count : 0;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Waits for the enrollment success message to appear on the page.
+ * @param page - Playwright page object
+ * @param timeout - Maximum time to wait in milliseconds (default: 15000)
+ */
+export async function waitForEnrollmentSuccess(page: Page, timeout = 15000): Promise<void> {
+  const successMessage = page.locator('text=Passkey added successfully!');
+  await expect(successMessage).toBeVisible({ timeout });
+}

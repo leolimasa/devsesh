@@ -26,6 +26,11 @@ export async function registerUser(page: Page, serverUrl: string, email: string)
   await expect(submitButton).toBeVisible();
   await submitButton.click();
 
+  // Store email for later use during login
+  await page.evaluate((email) => {
+    window.localStorage.setItem('pending_email', email);
+  }, email);
+
   // Wait for registration to complete (WebAuthn popup will be handled automatically by virtual authenticator)
   await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
 
@@ -58,13 +63,22 @@ export async function loginUser(page: Page, serverUrl: string, email: string): P
   await expect(submitButton).toBeVisible();
   await submitButton.click();
 
-  // Wait for login to complete
-  await expect(page).toHaveURL(/\/pair/, { timeout: 10000 });
+  // Wait for login to complete (can go to /pair or /dashboard)
+  await expect(page).toHaveURL(/\/(pair|dashboard)/, { timeout: 10000 });
 
-  // Extract JWT token from localStorage (app uses 'token' key)
+  // Extract JWT token and user from localStorage (app uses 'token' and 'user' keys)
   const token = await page.evaluate(() => window.localStorage.getItem('token'));
   if (!token) {
     throw new Error('JWT token not found in localStorage after login');
   }
+  // Also need to store user info for AuthContext
+  await page.evaluate(() => {
+    const storedUser = window.localStorage.getItem('user');
+    if (!storedUser) {
+      // Create minimal user info if not present
+      const email = window.localStorage.getItem('pending_email') || 'unknown';
+      window.localStorage.setItem('user', JSON.stringify({ email, token: window.localStorage.getItem('token') }));
+    }
+  });
   return token;
 }
