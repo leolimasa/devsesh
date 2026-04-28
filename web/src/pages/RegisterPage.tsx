@@ -107,26 +107,64 @@ export default function RegisterPage() {
 
       let encryptedMasterKey: string
       const masterKey = generateMasterKey()
+      let prfOutput: Uint8Array | null = null
 
+      // Check if PRF results were returned during creation (some authenticators support this)
       if (extResults?.prf?.results?.first) {
-        const prfOutput = new Uint8Array(extResults.prf.results.first)
+        prfOutput = new Uint8Array(extResults.prf.results.first)
+      } else if (extResults?.prf?.enabled) {
+        // PRF is supported but results weren't returned during create()
+        // This is common for hardware security keys - we need to do a get() call
+        // to actually get the PRF output
 
-        // Derive encryption key from PRF output
-        const prfKey = await deriveMasterKeyFromPrf(prfOutput)
+        const assertionOptions: PublicKeyCredentialRequestOptions = {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rpId: pubKey.rp.id || window.location.hostname,
+          allowCredentials: [{
+            id: credential.rawId,
+            type: 'public-key' as const,
+          }],
+          userVerification: 'required',
+          extensions: {
+            prf: {
+              eval: {
+                first: prfSalt.buffer
+              }
+            }
+          } as AuthenticationExtensionsClientInputs
+        }
 
-        // Encrypt the master key
-        const { nonce, ciphertext } = await encrypt(prfKey, masterKey)
+        const assertion = await navigator.credentials.get({ publicKey: assertionOptions })
+        if (!assertion) {
+          throw new Error('Failed to get PRF output from authenticator')
+        }
 
-        // Combine nonce + ciphertext with version byte
-        const combined = new Uint8Array(12 + ciphertext.length)
-        combined.set(nonce, 0)
-        combined.set(ciphertext, 12)
-        const versioned = formatEncryptedMasterKey(combined)
-        encryptedMasterKey = encodeBase64(versioned)
-      } else {
-        // PRF not available - REQUIRED for security
-        throw new Error('WebAuthn PRF extension is required for registration')
+        const assertionExtResults = (assertion as PublicKeyCredential).getClientExtensionResults() as {
+          prf?: { results?: { first?: ArrayBuffer } }
+        }
+
+        if (assertionExtResults?.prf?.results?.first) {
+          prfOutput = new Uint8Array(assertionExtResults.prf.results.first)
+        }
       }
+
+      if (!prfOutput) {
+        // PRF not available - REQUIRED for security
+        throw new Error('WebAuthn PRF extension is required for registration. Your authenticator must support the PRF/hmac-secret extension.')
+      }
+
+      // Derive encryption key from PRF output
+      const prfKey = await deriveMasterKeyFromPrf(prfOutput)
+
+      // Encrypt the master key
+      const { nonce, ciphertext } = await encrypt(prfKey, masterKey)
+
+      // Combine nonce + ciphertext with version byte
+      const combined = new Uint8Array(12 + ciphertext.length)
+      combined.set(nonce, 0)
+      combined.set(ciphertext, 12)
+      const versioned = formatEncryptedMasterKey(combined)
+      encryptedMasterKey = encodeBase64(versioned)
 
       // Convert credential to JSON format for server
       const credentialJSON = {

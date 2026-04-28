@@ -192,11 +192,50 @@ export default function RegisterPasskeyPage() {
                     throw new Error("Master key not available")
                   }
 
-                  if (!extResults?.prf?.results?.first) {
-                    throw new Error('WebAuthn PRF extension is required for passkey registration')
+                  let prfOutput: Uint8Array | null = null
+
+                  // Check if PRF results were returned during creation (some authenticators support this)
+                  if (extResults?.prf?.results?.first) {
+                    prfOutput = new Uint8Array(extResults.prf.results.first)
+                  } else if (extResults?.prf?.enabled) {
+                    // PRF is supported but results weren't returned during create()
+                    // This is common for hardware security keys - we need to do a get() call
+
+                    const assertionOptions: PublicKeyCredentialRequestOptions = {
+                      challenge: crypto.getRandomValues(new Uint8Array(32)),
+                      rpId: options.rp.id || window.location.hostname,
+                      allowCredentials: [{
+                        id: credential.rawId,
+                        type: 'public-key' as const,
+                      }],
+                      userVerification: 'required',
+                      extensions: {
+                        prf: {
+                          eval: {
+                            first: prfSalt.buffer
+                          }
+                        }
+                      } as AuthenticationExtensionsClientInputs
+                    }
+
+                    const assertion = await navigator.credentials.get({ publicKey: assertionOptions })
+                    if (!assertion) {
+                      throw new Error('Failed to get PRF output from authenticator')
+                    }
+
+                    const assertionExtResults = (assertion as PublicKeyCredential).getClientExtensionResults() as {
+                      prf?: { results?: { first?: ArrayBuffer } }
+                    }
+
+                    if (assertionExtResults?.prf?.results?.first) {
+                      prfOutput = new Uint8Array(assertionExtResults.prf.results.first)
+                    }
                   }
 
-                  const prfOutput = new Uint8Array(extResults.prf.results.first)
+                  if (!prfOutput) {
+                    throw new Error('WebAuthn PRF extension is required for passkey registration. Your authenticator must support the PRF/hmac-secret extension.')
+                  }
+
                   const prfKey = await deriveMasterKeyFromPrf(prfOutput)
                   const encrypted = await encrypt(prfKey, masterKeyRef.current)
                   // Combine nonce + ciphertext
