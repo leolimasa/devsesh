@@ -58,6 +58,11 @@ export default function RegisterPage() {
 
       const pubKey = response.publicKey
       const prfSalt = getPrfSalt()
+      // Create a new ArrayBuffer to be safe in case getPrfSalt returns a view of a larger buffer
+      const prfSaltBuffer = prfSalt.buffer.slice(
+        prfSalt.byteOffset,
+        prfSalt.byteOffset + prfSalt.byteLength
+      )
 
       // Convert JSON options to native WebAuthn format
       const publicKeyOptions: PublicKeyCredentialCreationOptions = {
@@ -84,7 +89,7 @@ export default function RegisterPage() {
         extensions: {
           prf: {
             eval: {
-              first: prfSalt.buffer
+              first: prfSaltBuffer
             }
           }
         } as AuthenticationExtensionsClientInputs
@@ -128,7 +133,7 @@ export default function RegisterPage() {
           extensions: {
             prf: {
               eval: {
-                first: prfSalt.buffer
+                first: prfSaltBuffer
               }
             }
           } as AuthenticationExtensionsClientInputs

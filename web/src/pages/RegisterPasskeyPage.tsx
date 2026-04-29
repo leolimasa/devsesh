@@ -142,6 +142,11 @@ export default function RegisterPasskeyPage() {
                   }
                   const options = beginResp.publicKey
                   const prfSalt = getPrfSalt()
+                  // Create a new ArrayBuffer to be safe in case getPrfSalt returns a view of a larger buffer
+                  const prfSaltBuffer = prfSalt.buffer.slice(
+                    prfSalt.byteOffset,
+                    prfSalt.byteOffset + prfSalt.byteLength
+                  )
 
                   // Convert JSON options to native WebAuthn format
                   const publicKeyOptions: PublicKeyCredentialCreationOptions = {
@@ -168,7 +173,7 @@ export default function RegisterPasskeyPage() {
                     extensions: {
                       prf: {
                         eval: {
-                          first: prfSalt.buffer
+                          first: prfSaltBuffer
                         }
                       }
                     } as AuthenticationExtensionsClientInputs
@@ -212,7 +217,7 @@ export default function RegisterPasskeyPage() {
                       extensions: {
                         prf: {
                           eval: {
-                            first: prfSalt.buffer
+                            first: prfSaltBuffer
                           }
                         }
                       } as AuthenticationExtensionsClientInputs

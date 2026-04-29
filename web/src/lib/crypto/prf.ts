@@ -75,6 +75,6 @@ export function parseEncryptedMasterKey(data: Uint8Array): { version: number; da
     return { version, data: content, isEncrypted: true }
   } else {
     // Version 0 (plain) or unknown version not allowed
-    throw new Error(`Master key must be encrypted with PRF. Found version: ${version}`)
+    throw new Error('Invalid master key format')
   }
 }

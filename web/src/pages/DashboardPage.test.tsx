@@ -144,13 +144,13 @@ describe("DashboardPage", () => {
     })
   })
 
-  it("shows passkeys link", async () => {
+  it("shows add passkey link", async () => {
     vi.mocked(api.listSessions).mockResolvedValue([])
 
     renderDashboardPage()
 
     await waitFor(() => {
-      expect(screen.getByText("Passkeys")).toBeInTheDocument()
+      expect(screen.getByText("Add Passkey")).toBeInTheDocument()
     })
   })
 })

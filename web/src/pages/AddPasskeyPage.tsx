@@ -23,6 +23,13 @@ export default function AddPasskeyPage() {
   const wsRef = useRef<WebSocket | null>(null)
   const sessionKeyRef = useRef<Uint8Array | null>(null)
   const completedRef = useRef(false)
+  const statusRef = useRef<Status>("idle")
+
+  // Update both status state and ref to avoid stale closures
+  const updateStatus = (newStatus: Status) => {
+    statusRef.current = newStatus
+    setStatus(newStatus)
+  }
 
   useEffect(() => {
     return () => {
@@ -62,17 +69,14 @@ export default function AddPasskeyPage() {
     }
 
     const token = getToken()
-    console.log('[AddPasskeyPage] Token from getToken():', token ? 'present' : 'null');
-    console.log('[AddPasskeyPage] localStorage token:', localStorage.getItem('token'));
-    console.log('[AddPasskeyPage] localStorage user:', localStorage.getItem('user'));
     if (!token) {
       setError("You must be logged in to add a passkey")
-      setStatus("error")
+      updateStatus("error")
       return
     }
 
     try {
-      setStatus("authenticating")
+      updateStatus("authenticating")
 
       const beginResp = await fetch('/api/v1/auth/passkeys/auth-begin', {
         method: 'POST',
@@ -82,11 +86,8 @@ export default function AddPasskeyPage() {
         }
       })
       
-      console.log('[AddPasskeyPage] auth-begin response status:', beginResp.status);
       if (!beginResp.ok) {
-        const errorText = await beginResp.text();
-        console.log('[AddPasskeyPage] auth-begin error:', errorText);
-        throw new Error('Failed to get authentication options: ' + errorText)
+        throw new Error('Failed to get authentication options')
       }
 
       const { options: authOptions, sessionKey: sessKey }: AuthBeginResponse = await beginResp.json()
@@ -97,6 +98,11 @@ export default function AddPasskeyPage() {
 
       // Add PRF extension with proper ArrayBuffer salt
       const prfSalt = getPrfSalt()
+      // Create a new ArrayBuffer to be safe in case getPrfSalt returns a view of a larger buffer
+      const prfSaltBuffer = prfSalt.buffer.slice(
+        prfSalt.byteOffset,
+        prfSalt.byteOffset + prfSalt.byteLength
+      )
       const adjustedOptions = {
         ...pkOpts,
         challenge: decodeBase64URL(pkOpts.challenge),
@@ -108,7 +114,7 @@ export default function AddPasskeyPage() {
           ...pkOpts.extensions,
           prf: {
             eval: {
-              first: prfSalt.buffer
+              first: prfSaltBuffer
             }
           }
         }
@@ -177,14 +183,14 @@ export default function AddPasskeyPage() {
         prfKeyDerived = await deriveMasterKeyFromPrf(prfResults)
       }
 
-      setStatus("connecting")
+      updateStatus("connecting")
 
       const wsURL = getEnrollmentWebSocketURL(cleanCode, token)
       const ws = new WebSocket(wsURL)
       wsRef.current = ws
 
       ws.onopen = () => {
-        setStatus("handshaking")
+        updateStatus("handshaking")
       }
 
       ws.onmessage = async (event) => {
@@ -205,7 +211,7 @@ export default function AddPasskeyPage() {
               message: encodeMessage(spake2Msg)
             }))
 
-            setStatus("transferring")
+            updateStatus("transferring")
 
             try {
               const masterKeyResp = await getMasterKey()
@@ -234,7 +240,7 @@ export default function AddPasskeyPage() {
             } catch (err) {
               console.error("Failed to transfer master key:", err)
               setError("Failed to transfer master key")
-              setStatus("error")
+              updateStatus("error")
               ws.close()
             }
           } else if (msg.type === "encrypted_payload") {
@@ -250,31 +256,31 @@ export default function AddPasskeyPage() {
 
             if (decoded === "received") {
               completedRef.current = true
-              setStatus("success")
+              updateStatus("success")
               ws.close()
             }
           }
         } catch (err) {
           console.error("WebSocket error:", err)
           setError("Connection error")
-          setStatus("error")
+          updateStatus("error")
         }
       }
 
       ws.onerror = () => {
         setError("Connection failed")
-        setStatus("error")
+        updateStatus("error")
       }
 
       ws.onclose = () => {
-        if (!completedRef.current && status !== "error") {
+        if (!completedRef.current && statusRef.current !== "error") {
           setError("Connection closed unexpectedly")
-          setStatus("error")
+          updateStatus("error")
         }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred")
-      setStatus("error")
+      updateStatus("error")
     }
   }
 
@@ -283,7 +289,7 @@ export default function AddPasskeyPage() {
       wsRef.current.close()
       wsRef.current = null
     }
-    setStatus("idle")
+    updateStatus("idle")
     sessionKeyRef.current = null
     completedRef.current = false
   }

@@ -14,7 +14,6 @@ import (
 
 	"github.com/leolimasa/devsesh/internal/config"
 	"github.com/leolimasa/devsesh/internal/db"
-	"github.com/leolimasa/devsesh/internal/sessions"
 	_ "modernc.org/sqlite"
 )
 
@@ -49,7 +48,7 @@ func TestPairStartHandler(t *testing.T) {
 	handler := PairStartHandler(dbConn, cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pair/start", nil)
-	req = req.WithContext(context.WithValue(req.Context(), sessions.ContextKeyUserID, int64(1)))
+	req = req.WithContext(context.WithValue(req.Context(), ContextKeyUserID, int64(1)))
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -84,7 +83,7 @@ func TestPairExchangeHandler(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pair/exchange", bytes.NewReader([]byte(`{"code":"EXCHNG","host_id":`+fmt.Sprintf("%d",hostID)+`}`)))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(context.WithValue(req.Context(), sessions.ContextKeyUserID, userID))
+	req = req.WithContext(context.WithValue(req.Context(), ContextKeyUserID, userID))
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -114,7 +113,7 @@ func TestPairExchangeHandlerInvalidCode(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/pair/exchange", bytes.NewReader([]byte(`{"code":"NOPE"}`)))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(context.WithValue(req.Context(), sessions.ContextKeyUserID, userID))
+	req = req.WithContext(context.WithValue(req.Context(), ContextKeyUserID, userID))
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)

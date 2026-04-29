@@ -31,6 +31,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '15' }),
         json: () => Promise.resolve({ exists: true }),
       })
 
@@ -77,6 +78,8 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 204,
+        headers: new Headers(),
+        text: () => Promise.resolve(""),
       })
 
       const { deletePasskey } = await import("@/lib/api")
@@ -90,6 +93,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '15' }),
         json: () => Promise.resolve({ exists: true }),
       })
 
@@ -104,6 +108,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '23' }),
         json: () => Promise.resolve({ challenge: "abc123" }),
       })
 
@@ -125,6 +130,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '23' }),
         json: () => Promise.resolve({ challenge: "reg123" }),
       })
 
@@ -142,6 +148,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '100' }),
         json: () => Promise.resolve(sessions),
       })
 
@@ -158,6 +165,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '100' }),
         json: () => Promise.resolve(session),
       })
 
@@ -172,6 +180,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '14' }),
         json: () => Promise.resolve({ deleted: 3 }),
       })
 
@@ -190,6 +199,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '22' }),
         json: () => Promise.resolve({ token: "jwt-token" }),
       })
 
@@ -206,6 +216,7 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 200,
+        headers: new Headers({ 'content-length': '50' }),
         json: () => Promise.resolve(passkeys),
       })
 
@@ -220,6 +231,8 @@ describe("api client", () => {
       ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
         ok: true,
         status: 204,
+        headers: new Headers(),
+        text: () => Promise.resolve(""),
       })
 
       const { deletePasskey } = await import("@/lib/api")

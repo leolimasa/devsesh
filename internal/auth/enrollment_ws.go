@@ -110,7 +110,7 @@ func EnrollmentWebSocketHandler(database *sql.DB, hub *EnrollmentHub, cfg config
 		}
 
 		token := r.URL.Query().Get("token")
-		slog.Info("WebSocket token debug", "token_len", len(token))
+		slog.Debug("WebSocket connection", "has_token", len(token) > 0)
 
 		enrollment, err := db.GetPasskeyEnrollment(database, code)
 		if err != nil {
@@ -222,6 +222,9 @@ func (c *enrollmentClient) readPump(database *sql.DB, hub *EnrollmentHub, isMach
 		if err != nil {
 			break
 		}
+
+		// Extend deadline on successful read
+		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
 		var wsMsg wsMessage
 		if err := json.Unmarshal(message, &wsMsg); err != nil {
