@@ -22,7 +22,7 @@ The CA public certificate will be stored in the sqllite database. Users will be 
 
 **Go**
 
-* `filippo.io/edwards25519` - Low-level Ed25519 scalar operations
+* `taurushq-io/multi-party-sig` - FROST Ed25519 threshold signatures
 * `golang.org/x/crypto/ssh` - SSH certificate generation
 
 ### Webworker
@@ -71,3 +71,14 @@ The CA public certificate will be stored in the sqllite database. Users will be 
 * Server returns the complete signed certificate to client
 * If either party fails or times out, the session is aborted (no partial state retained)
 * Client can retry immediately with a new session on failure
+
+## Testing
+
+* Change the existing SSH docker container to accept an SSH CA if one is provided
+* Change the existing container to contain a "flag" file with a some static content.
+* Create a new integration test that:
+   * Uses the existing webauthn + PRF workflow to create a new user, leading to the creation of the SSH CA public key
+   * Spings up the SSH test docker container which will accept the SSH CA public key created above as authentication
+   * Create a new host that points to the running docker container with a valid principal. DO NOT SET A PASSWORD, so that it uses the CA public key.
+   * Uses the **web interface** to connect to the docker host
+   * Execute `cat FLAG_FILE` on the xterm that is connected to the docker machine and validate that the output matches the created flag file
