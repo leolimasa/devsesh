@@ -22,6 +22,13 @@ type Config struct {
 	SSHTimeout          time.Duration
 	SSHIdleTimeout      time.Duration
 	SSHMaxConnections   int
+	SSHCA               SSHCAConfig
+}
+
+type SSHCAConfig struct {
+	WorkerTimeout    time.Duration
+	CertValiditySecs int
+	RateLimitPerMin  int
 }
 
 func LoadFromEnv() Config {
@@ -46,6 +53,11 @@ func LoadFromEnv() Config {
 		SSHTimeout:          parseDuration("DEVSESH_SSH_TIMEOUT", 30*time.Second),
 		SSHIdleTimeout:      parseDuration("DEVSESH_SSH_IDLE_TIMEOUT", 30*time.Minute),
 		SSHMaxConnections:   parseInt("DEVSESH_SSH_MAX_CONNECTIONS", 5),
+		SSHCA: SSHCAConfig{
+			WorkerTimeout:    parseDuration("DEVSESH_SSHCA_WORKER_TIMEOUT", 30*time.Minute),
+			CertValiditySecs: parseInt("DEVSESH_SSHCA_CERT_VALIDITY_SECS", 60),
+			RateLimitPerMin:  parseInt("DEVSESH_SSHCA_RATE_LIMIT_PER_MIN", 10),
+		},
 	}
 	return cfg
 }

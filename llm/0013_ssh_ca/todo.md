@@ -1,28 +1,47 @@
 # SSH CA Implementation Todo
 
+## Project Status
+
+- 🟡 Phase 1: Database Schema & Go Dependencies - IMPLEMENTED
+- 🔴 Phase 2: FROST Key Generation & Certificate Building - NOT STARTED
+- 🔴 Phase 3: Session Management & Rate Limiting - NOT STARTED
+- 🔴 Phase 4: FROST Signing Protocol (Server Side) - NOT STARTED
+- 🔴 Phase 5: User Registration Integration - NOT STARTED
+- 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
+- 🔴 Phase 7: FROST Crypto Library (Frontend) - NOT STARTED
+- 🔴 Phase 8: FROST Web Worker - NOT STARTED
+- 🔴 Phase 9: FROST Client Library - NOT STARTED
+- 🔴 Phase 10: Frontend UI Components - NOT STARTED
+- 🔴 Phase 11: SSH Client Integration - NOT STARTED
+- 🔴 Phase 12: Docker Container CA Support - NOT STARTED
+- 🔴 Phase 13: Integration Test - NOT STARTED
+- 🔴 Phase 14: Final Validation - NOT STARTED
+
+---
+
 ## Phase 1: Database Schema & Go Dependencies
 
-- [ ] Add `taurushq-io/multi-party-sig` dependency to go.mod [req.c02qrs]
-- [ ] Create migration `sql/00012_create_ssh_ca_table.sql` [req.c02qrs] [req.1mujak]
-- [ ] Create migration `sql/00013_create_ssh_ca_client_shares_table.sql` [req.qwdm15] [req.gvq1jj]
-- [ ] Create migration `sql/00014_add_ssh_principal_to_hosts.sql` [req.zbf0si] [req.w51l9k]
-- [ ] Create migration `sql/00015_create_cert_audit_log_table.sql` [req.xj6amw]
-- [ ] Create `internal/db/sshca.go` with database functions:
-  - [ ] `CreateSSHCA()`
-  - [ ] `GetSSHCA()`
-  - [ ] `IncrementCertSerial()` [req.56dvhi]
-  - [ ] `SaveClientShare()` [req.qwdm15]
-  - [ ] `GetClientShare()`
-  - [ ] `LogCertIssuance()` [req.xj6amw]
-- [ ] Update `internal/db/queries.go` Host struct with `SSHPrincipal` field [req.zbf0si]
-- [ ] Update host CRUD functions to handle `ssh_principal` column
-- [ ] Add `SSHCAConfig` to `internal/config/config.go` [req.2k5is9] [req.u72wa2]
+- [x] Add `taurushq-io/multi-party-sig` dependency to go.mod [req.c02qrs]
+- [x] Create migration `sql/00012_create_ssh_ca_table.sql` [req.c02qrs] [req.1mujak]
+- [x] Create migration `sql/00013_create_ssh_ca_client_shares_table.sql` [req.qwdm15] [req.gvq1jj]
+- [x] Create migration `sql/00014_add_ssh_principal_to_hosts.sql` [req.zbf0si] [req.w51l9k]
+- [x] Create migration `sql/00015_create_cert_audit_log_table.sql` [req.xj6amw]
+- [x] Create `internal/db/sshca.go` with database functions:
+  - [x] `CreateSSHCA()`
+  - [x] `GetSSHCA()`
+  - [x] `IncrementCertSerial()` [req.56dvhi]
+  - [x] `SaveClientShare()` [req.qwdm15]
+  - [x] `GetClientShare()`
+  - [x] `LogCertIssuance()` [req.xj6amw]
+- [x] Update `internal/db/queries.go` Host struct with `SSHPrincipal` field [req.zbf0si]
+- [x] Update host CRUD functions to handle `ssh_principal` column
+- [x] Add `SSHCAConfig` to `internal/config/config.go` [req.2k5is9] [req.u72wa2]
 
 **Phase 1 Testing:**
-- [ ] Run migrations: `go run main.go migrate`
-- [ ] Verify tables exist: `sqlite3 devsesh.db ".schema ssh_ca"`, `.schema ssh_ca_client_shares`, `.schema cert_audit_log`
-- [ ] Verify hosts table has ssh_principal: `sqlite3 devsesh.db ".schema hosts"`
-- [ ] Run `go build ./...` to verify compilation
+- [x] Run migrations: `go run main.go migrate`
+- [x] Verify tables exist: `sqlite3 devsesh.db ".schema ssh_ca"`, `.schema ssh_ca_client_shares`, `.schema cert_audit_log`
+- [x] Verify hosts table has ssh_principal: `sqlite3 devsesh.db ".schema hosts"`
+- [x] Run `go build ./...` to verify compilation
 
 ---
 
@@ -121,8 +140,8 @@
 
 ## Phase 6: Frontend TypeScript Dependencies & Types
 
-- [ ] Add `@noble/curves` to web/package.json [req.0xpudr]
-- [ ] Add `@noble/hashes` to web/package.json [req.jap7ew]
+- [x] Add `@noble/curves` to web/package.json [req.0xpudr]
+- [x] Add `@noble/hashes` to web/package.json [req.jap7ew]
 - [ ] Create `web/src/types/sshca.ts` with TypeScript interfaces [req.0xpudr]:
   - [ ] `FROSTShare`
   - [ ] `SigningSessionState`
