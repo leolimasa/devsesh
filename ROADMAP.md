@@ -28,3 +28,4 @@
 * [ ] Sign the javascript bundle so that clients can verify it was not tampered with
 * [ ] Add built in rate limits for endpoints
 * [ ] Convert mutexes to actor model
+* [ ] Replace internal/ssh/ca.GenerateKeyShares with a mechanism that generates the client share on the client.

@@ -47,18 +47,18 @@
 
 ## Phase 2: FROST Key Generation & Certificate Building
 
-- [ ] Create `internal/sshca/types.go` with `SSHCAData` and `SigningSession` structs [req.c02qrs]
-- [ ] Create `internal/sshca/frost.go`:
+- [ ] Create `internal/ssh/ca.go` with `SSHCAData` and `SigningSession` structs [req.c02qrs]
+- [ ] Create `internal/ssh/ca.go`:
   - [ ] `GenerateKeyShares()` - FROST 2-of-2 Ed25519 keygen [req.c02qrs]
   - [ ] `CreateTBSCertificate()` - build certificate structure [req.umkdzs] [req.zbf0si] [req.2x3a51] [req.56dvhi]
   - [ ] `BuildSignedCertificate()` - assemble final certificate [req.jki5t0]
-- [ ] Create `internal/sshca/frost_test.go`:
+- [ ] Create `internal/ssh/ca_test.go`:
   - [ ] Test key share generation produces valid shares
   - [ ] Test TBS certificate has correct format and extensions
   - [ ] Test certificate assembly produces valid OpenSSH certificate
 
 **Phase 2 Testing:**
-- [ ] Run unit tests: `go test ./internal/sshca/... -v`
+- [ ] Run unit tests: `go test ./internal/ssh/... -v`
 
 ---
 
