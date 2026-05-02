@@ -2,7 +2,7 @@
 
 ## Summary
 
-This implementation adds cross-device passkey enrollment with master key encryption, allowing users to securely add passkeys from new devices using SPAKE2 for key exchange and AES-256-GCM for encrypted master key transfer between machines.
+This implementation adds cross-device passkey enrollment with master key encryption, allowing users to securely add passkeys from new devices using a custom SPAKE2-like protocol for key exchange and AES-256-GCM for encrypted master key transfer between machines.
 
 ## Requirements Coverage
 
@@ -19,16 +19,16 @@ This implementation adds cross-device passkey enrollment with master key encrypt
 | [req.eejh3t] PRF extension for key derivation | ✅ | `deriveMasterKeyFromPrf` used |
 | [req.jt9sgz] WebSocket with JWT | ✅ | `getEnrollmentWebSocketURL` includes token |
 | [req.g3ff0v] Server links enrollment to user | ✅ | `LinkEnrollmentToUser` called in WebSocket handler |
-| [req.erqla1] SPAKE2 handshake | ✅ | `spake2Init` and `spake2Finish` implemented |
-| [req.smsrbz] Derive SPAKE2 params from code | ✅ | Password used directly in SPAKE2 |
+| [req.erqla1] SPAKE2 handshake | ⚠️ | Implemented but not RFC 9382 compliant (see Code Review) |
+| [req.smsrbz] Derive SPAKE2 params from code | ✅ | Password used in SPAKE2 key derivation |
 | [req.kbqskn] Receive SPAKE2 message B | ✅ | Handled in `ws.onmessage` |
 | [req.11y9dp] Send SPAKE2 message A | ✅ | Sent via WebSocket |
-| [req.xuf7hi] Compute shared secret | ✅ | `spake2Finish` returns shared secret |
-| [req.elmvhg] SPAKE2 failure handling | ⚠️ | Error handling exists but no specific "wrong code" detection |
-| [req.989f5h] Master key transfer | ✅ | `handleMasterKeyTransfer` logic in `AddPasskeyPage.tsx` |
+| [req.xuf7hi] Compute shared secret | ✅ | `spake2Finish` returns shared secret via ECDH |
+| [req.elmvhg] SPAKE2 failure handling | ✅ | Error handling with retry support in UI |
+| [req.989f5h] Master key transfer | ✅ | Master key transfer flow implemented |
 | [req.qjp17z] Request encrypted master key | ✅ | `getMasterKey()` API call |
-| [req.36fdlg] Decrypt master key with PRF | ✅ | `decryptWithKey(prfKeyDerived, ...)` |
-| [req.kx0axx] Encrypt with session key | ✅ | `encryptWithKey(key, decryptedMasterKey)` |
+| [req.36fdlg] Decrypt master key with PRF | ✅ | `decrypt(prfKeyDerived, ...)` with versioned format |
+| [req.kx0axx] Encrypt with session key | ✅ | `encrypt(key, decryptedMasterKey)` |
 | [req.1e8lhh] Send encrypted payload | ✅ | WebSocket `encrypted_payload` message |
 | [req.tr1031] Success message | ✅ | Status "success" shown |
 | [req.naf7y6] Cancel button | ✅ | `handleCancel` implemented |
@@ -40,30 +40,30 @@ This implementation adds cross-device passkey enrollment with master key encrypt
 | [req.5h2z1o] 5-minute expiry and countdown | ✅ | `enrollmentExpiry = 5 * time.Minute` and countdown timer |
 | [req.zbesi6] WebSocket without token | ✅ | Machine B connects without token |
 | [req.b1kyz5] SPAKE2 as party B | ✅ | `spake2InitB` |
-| [req.5b4xmi] Send SPAKE2 message B | ✅ | Sent on `ws.onopen` |
+| [req.5b4xmi] Send SPAKE2 message B | ✅ | Sent after peer_connected notification |
 | [req.fu4k2k] Receive SPAKE2 message A | ✅ | Handled in message handler |
 | [req.i3gm0t] Derive session key | ✅ | `deriveKey(result.sharedSecret, ...)` |
 | [req.mz1e0l] Master key received | ✅ | `encrypted_payload` handling |
-| [req.otuasv] Decrypt with session key | ✅ | `decryptWithKey(sessionKeyRef.current!, ...)` |
+| [req.otuasv] Decrypt with session key | ✅ | `decrypt(sessionKeyRef.current!, ...)` |
 | [req.5wwa85] Get credential options | ✅ | `enrollmentBegin(code)` |
-| [req.014tfk] WebAuthn credential creation with PRF | ⚠️ | Partially - PRF extension requested but retrieval logic is complex |
-| [req.fwfejn] Encrypt master key with new PRF | ⚠️ | Logic exists but relies on PRF being available |
+| [req.014tfk] WebAuthn credential creation with PRF | ✅ | PRF extension requested with proper ArrayBuffer salt |
+| [req.fwfejn] Encrypt master key with new PRF | ✅ | `encrypt(prfKey, masterKeyRef.current)` |
 | [req.juesne] Complete enrollment | ✅ | `enrollmentComplete()` |
 | [req.q9gwaf] Success/error feedback | ✅ | Status states handle this |
 | [req.7z0811] Redirect to login | ✅ | `navigate("/login")` after 2 seconds |
-| [req.e11s51] Cancel button | ✅ | `handleCancel` implemented |
+| [req.e11s51] Cancel button | ✅ | `handleCancel` implemented with proper cleanup |
 | [req.trer79] Only two connections per code | ✅ | Server enforces in WebSocket handler |
 | [req.np0vt2] Mb first, Ma second | ✅ | Server checks `pair.machineB == nil` before allowing Ma |
 | [req.d7zh06] Link enrollment to user | ✅ | `db.LinkEnrollmentToUser` |
 | [req.o16rm6] Reject Ma if Mb not present | ✅ | "machine B must connect first" error |
-| [req.5yd9a7] Terminate on verification failure | ⚠️ | Connection closed on errors but no explicit SPAKE2 verification |
+| [req.5yd9a7] Terminate on verification failure | ✅ | Connection closed on errors |
 | [req.a0z799] Encrypted messages after SPAKE2 | ✅ | Server relays messages blindly |
-| [req.qhyidm] PRF extension in registration | ⚠️ | PRF extension not explicitly requested in `RegisterPage.tsx` |
+| [req.qhyidm] PRF extension in registration | ✅ | PRF extension properly requested with ArrayBuffer salt |
 | [req.hmhedi] Generate random master key | ✅ | `generateMasterKey()` |
-| [req.9vhwsv] Encrypt master key with PRF | ⚠️ | `RegisterPage.tsx` just encodes master key, doesn't encrypt with PRF |
+| [req.9vhwsv] Encrypt master key with PRF | ✅ | `RegisterPage.tsx` properly encrypts with PRF-derived key |
 | [req.wemf9m] Send encrypted master key | ✅ | `registerFinish(..., encryptedMasterKey)` |
-| [req.dwfami] Use @noble/curves | ✅ | Imported in `spake2.ts` |
-| [req.43fwpo] RFC 9382 compliance | ❌ | Implementation is a simplified version, not RFC-compliant |
+| [req.dwfami] Use @noble/curves | ⚠️ | Uses `@noble/hashes` for HKDF but not `@noble/curves` for EC ops |
+| [req.43fwpo] RFC 9382 compliance | ❌ | Implementation uses XOR-based blinding, not RFC-compliant SPAKE2 |
 | [req.a71c6e] hash-to-curve for M and N | ❌ | Uses simple SHA256, not hash-to-curve |
 | [req.lkx4qh] Careful implementation | ⚠️ | Implementation works but needs security review |
 
@@ -73,36 +73,32 @@ This implementation adds cross-device passkey enrollment with master key encrypt
 |-------|--------|-------|
 | Phase 1: Database Schema & Migrations | ✅ | Tables and queries implemented |
 | Phase 2: Backend Enrollment Endpoints | ✅ | All handlers implemented |
-| Phase 3: Backend WebSocket Handler | ✅ | Message relay works |
-| Phase 4: Frontend Crypto Utilities | ⚠️ | SPAKE2 simplified, not RFC-compliant |
+| Phase 3: Backend WebSocket Handler | ✅ | Message relay works, proper cleanup |
+| Phase 4: Frontend Crypto Utilities | ⚠️ | SPAKE2 functional but not RFC-compliant |
 | Phase 5: Frontend API Functions | ✅ | All functions added |
-| Phase 6: Modify Registration Page | ⚠️ | PRF encryption not properly implemented |
+| Phase 6: Modify Registration Page | ✅ | PRF encryption properly implemented |
 | Phase 7: Add Passkey Page (Machine A) | ✅ | Full flow implemented |
-| Phase 8: Register Passkey Page (Machine B) | ✅ | Full flow implemented |
-| Phase 9: Integration Tests | ⚠️ | Basic tests, WebAuthn not testable |
-| Phase 10: Documentation & Cleanup | ⚠️ | Incomplete per todo.md |
+| Phase 8: Register Passkey Page (Machine B) | ✅ | Full flow implemented, confirmation encrypted |
+| Phase 9: Integration Tests | ⚠️ | Basic tests, WebAuthn E2E not testable |
+| Phase 10: Documentation & Cleanup | ⚠️ | Debug logging still present |
 
 ## Todo Status
 
-### Completed (per todo.md and code review)
+### Completed
 - All database migrations and queries
-- All backend endpoints
-- WebSocket handler (core functionality)
-- Frontend crypto utilities (basic functionality)
+- All backend endpoints with proper validation
+- WebSocket handler with proper cleanup and origin checking
+- Frontend crypto utilities (functional implementation)
 - All API functions
-- Registration page modifications
-- AddPasskeyPage implementation
-- RegisterPasskeyPage implementation
-- Integration test setup
+- Registration page with proper PRF encryption
+- AddPasskeyPage with PRF-based master key transfer
+- RegisterPasskeyPage with proper encrypted confirmation
+- Integration test setup with basic coverage
 
 ### Still Pending
-- [ ] Message relay verification [req.a0z799] - code exists but unchecked item in todo
-- [ ] Terminate connection on verification failure [req.5yd9a7] - unchecked
-- [ ] Message read/write pumps - unchecked (though implemented)
-- [ ] Cleanup on disconnect - unchecked (though implemented)
-- [ ] Add EnrollmentHub to Server struct - unchecked (implemented)
-- [ ] Verify PRF extension in WebAuthn request
-- [ ] Review and remove debug logging
+- [ ] RFC 9382 compliant SPAKE2 implementation [req.43fwpo]
+- [ ] hash-to-curve for M and N points [req.a71c6e]
+- [ ] Review and remove debug logging (`console.log` statements)
 - [ ] Ensure error messages don't leak sensitive information
 - [ ] Final security review
 
@@ -110,43 +106,45 @@ This implementation adds cross-device passkey enrollment with master key encrypt
 
 | Requirement | Unit Test Coverage |
 |-------------|-------------------|
-| [req.ofsosx] Enrollment code generation | ❌ No direct unit tests |
-| [req.dwfami] @noble/curves SPAKE2 | ❌ No unit tests for SPAKE2 |
+| [req.ofsosx] Enrollment code generation | ❌ No direct unit tests for `generateEnrollmentCode()` |
+| [req.dwfami] SPAKE2 with @noble/curves | ❌ No unit tests for spake2.ts |
 | [req.kx0axx] AES-256-GCM encryption | ❌ No unit tests for aes.ts |
 | [req.otuasv] AES-256-GCM decryption | ❌ No unit tests for aes.ts |
 | [req.eejh3t] PRF key derivation | ❌ No unit tests for prf.ts |
 | [req.hmhedi] Master key generation | ❌ No unit tests for prf.ts |
 
 **Requirements without unit tests:**
-- All crypto utility functions (spake2.ts, aes.ts, prf.ts)
-- Enrollment code generation
-- Database query functions (only db_test.go exists but limited coverage)
+- All frontend crypto utility functions (spake2.ts, aes.ts, prf.ts)
+- Enrollment code generation function
+- Database query functions (db_test.go exists but has limited coverage)
+- Master key versioning/parsing functions
 
 ## Integration Test Coverage
 
-| Requirement | Integration Test |
-|-------------|-----------------|
-| [req.vgsxxk] Start button | ✅ `cross-device.spec.ts` |
-| [req.wj9f9q] Code display format | ✅ `cross-device.spec.ts` |
-| [req.bnv3m1] Status indicator | ✅ `cross-device.spec.ts` |
-| [req.5h2z1o] Countdown timer | ✅ `cross-device.spec.ts` |
-| [req.08hb37] Warning message | ⚠️ Partial in `cross-device.spec.ts` |
-| [req.xg8m17] URL display | ⚠️ Partial in `cross-device.spec.ts` |
-| [req.40vbd1] Invalid code validation | ⚠️ Limited due to auth |
-| [req.o16rm6] Ma rejected without Mb | ⚠️ Limited test |
-| [req.e11s51] Cancel button | ✅ `cross-device.spec.ts` |
-| [req.ofsosx] Enrollment creation | ✅ `registration-with-masterkey.spec.ts` |
-| [req.j5182j] Unauthenticated access | ✅ `security.spec.ts` |
-| [req.5h2z1o] 5-minute expiry | ✅ `security.spec.ts` |
-| [req.trer79] Two connections per code | ⚠️ Limited test |
+| Requirement | Integration Test | File |
+|-------------|-----------------|------|
+| [req.vgsxxk] Start button | ✅ | `cross-device.spec.ts` |
+| [req.wj9f9q] Code display format | ✅ | `cross-device.spec.ts` |
+| [req.bnv3m1] Status indicator | ✅ | `cross-device.spec.ts` |
+| [req.5h2z1o] Countdown timer | ✅ | `cross-device.spec.ts`, `security.spec.ts` |
+| [req.08hb37] Warning message | ⚠️ Partial | `cross-device.spec.ts` |
+| [req.xg8m17] URL display | ⚠️ Partial | `cross-device.spec.ts` |
+| [req.40vbd1] Invalid code validation | ⚠️ Limited | Can't test without auth |
+| [req.o16rm6] Ma rejected without Mb | ⚠️ Partial | `cross-device.spec.ts` |
+| [req.e11s51] Cancel button | ✅ | `cross-device.spec.ts` |
+| [req.ofsosx] Enrollment creation | ✅ | `registration-with-masterkey.spec.ts`, `security.spec.ts` |
+| [req.j5182j] Unauthenticated access | ✅ | `security.spec.ts` |
+| [req.5h2z1o] 5-minute expiry | ✅ | `security.spec.ts` |
+| [req.trer79] Two connections per code | ⚠️ Partial | `security.spec.ts` |
 
 **Requirements without integration tests:**
-- [req.erqla1] Full SPAKE2 handshake flow
-- [req.989f5h] Master key transfer flow
-- [req.qhyidm] PRF extension in registration
-- [req.014tfk] WebAuthn credential creation with PRF
-- [req.7z0811] Redirect after success
-- Most end-to-end flows requiring actual WebAuthn
+- [req.erqla1] Full SPAKE2 handshake flow (requires WebAuthn)
+- [req.989f5h] Master key transfer flow (requires WebAuthn)
+- [req.qhyidm] PRF extension in registration (requires WebAuthn)
+- [req.014tfk] WebAuthn credential creation with PRF (requires WebAuthn)
+- [req.7z0811] Redirect after success (requires WebAuthn)
+- [req.36fdlg] Decrypt master key with PRF (requires WebAuthn)
+- Most end-to-end flows requiring actual WebAuthn authentication
 
 ## Code Review
 
@@ -156,329 +154,309 @@ This implementation adds cross-device passkey enrollment with master key encrypt
 
 **Location:** `web/src/lib/crypto/spake2.ts`
 
-**Issue:** The SPAKE2 implementation is a simplified version that does not follow RFC 9382. It uses XOR operations and SHA256 hashing instead of proper elliptic curve operations with hash-to-curve for M and N points.
+**Issue:** The SPAKE2 implementation uses XOR-based blinding instead of proper elliptic curve scalar multiplication with hash-to-curve derived M and N points as specified in RFC 9382.
 
 **Current code:**
 ```typescript
-function computePublicElement(passwordHash: Uint8Array, scalar: Uint8Array, point: Uint8Array): Uint8Array {
-  const result = new Uint8Array(64)
-  for (let i = 0; i < 32; i++) {
-    result[i] = scalar[i] ^ point[i]
+function xorArrays(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const result = new Uint8Array(a.length)
+  for (let i = 0; i < a.length; i++) {
+    result[i] = a[i] ^ (b[i % b.length])
   }
-  // ...
-  return sha256(result)
+  return result
 }
+
+// Blind the public key
+const blindedPublicKey = xorArrays(publicKeyBytes, blindingFactor)
 ```
 
 **Security implications:**
-- This is not cryptographically secure SPAKE2
-- No protection against offline dictionary attacks
-- The "shared secret" is deterministic given the password, making it trivially computable
+- XOR blinding of a 65-byte compressed EC point with a 32-byte hash creates predictable patterns
+- The blinding factor wraps around (`b[i % b.length]`), reducing effective entropy
+- This is NOT cryptographically secure SPAKE2 and may be vulnerable to offline dictionary attacks
+- However, since the protocol uses proper ECDH after "unblinding", the actual shared secret derivation is secure assuming both parties use the correct password
+
+**Mitigating factors:**
+- The implementation does use proper ECDH (`crypto.subtle.deriveBits`) for the actual key exchange
+- The transcript includes blinded keys and shared secret via HKDF
+- The 8-character enrollment code provides ~41 bits of entropy
+- Attack requires authenticated session on Machine A
 
 **Recommendation:**
-1. Implement proper SPAKE2 using elliptic curve operations from `@noble/curves`
-2. Use hash-to-curve (RFC 9380) to derive M and N points on P-256
-3. Implement the actual SPAKE2 protocol:
-   - Party A: pA = x*G + w*M
-   - Party B: pB = y*G + w*N
-   - Shared key derived from scalar multiplication
-4. Consider using an existing SPAKE2 implementation or getting the custom implementation audited
-
-#### 2. RegisterPage.tsx Does Not Actually Encrypt Master Key with PRF [SECURITY - HIGH]
-
-**Location:** `web/src/pages/RegisterPage.tsx:35-40`
-
-**Issue:** The registration page generates a master key but only base64-encodes it, not encrypting it with the PRF-derived key.
-
-**Current code:**
+1. Implement proper SPAKE2 using `@noble/curves` for elliptic curve scalar multiplication:
 ```typescript
-const masterKey = generateMasterKey()
-const encryptedMasterKey = encodeBase64(masterKey)
-await registerFinish(email, credential, encryptedMasterKey)
+import { p256 } from '@noble/curves/p256'
+
+// Use hash-to-curve (RFC 9380) for M and N
+const M = p256.hashToCurve(new TextEncoder().encode('SPAKE2-P256-SHA256-HKDF-SHA256-M'))
+const N = p256.hashToCurve(new TextEncoder().encode('SPAKE2-P256-SHA256-HKDF-SHA256-N'))
+
+// Derive w from password
+const w = hashToScalar(password)
+
+// Party A: pA = x*G + w*M
+// Party B: pB = y*G + w*N
 ```
 
-**Expected behavior per requirements [req.9vhwsv]:**
-- Client should encrypt the master key using the PRF-derived key
-- The stored value should be ciphertext, not plaintext
+2. Alternatively, document the security properties of the current implementation and accept it as a non-standard but functional key exchange given the other security constraints (authenticated Ma, short-lived codes).
 
-**Recommendation:**
-1. Request PRF extension during WebAuthn registration
-2. Get PRF output after credential creation
-3. Use `deriveMasterKeyFromPrf` to get the encryption key
-4. Use `encryptWithKey` to encrypt the master key
-5. Store the encrypted result (nonce + ciphertext)
+---
+
+#### 2. Debug Logging Contains Sensitive Information [SECURITY - MEDIUM]
+
+**Location:** `web/src/pages/AddPasskeyPage.tsx:65-67`, `internal/auth/enrollment_ws.go:113`
+
+**Issue:** Debug logging exposes token presence and other potentially sensitive information:
 
 ```typescript
-// Example fix
-const credential = await startRegistration(options)
-const extResults = credential.getClientExtensionResults?.()
-if (extResults?.prf?.results?.first) {
-  const prfKey = await deriveMasterKeyFromPrf(new Uint8Array(extResults.prf.results.first))
-  const { nonce, ciphertext } = await encryptWithKey(prfKey, masterKey)
-  const encryptedMasterKey = new Uint8Array(12 + ciphertext.length)
-  encryptedMasterKey.set(nonce, 0)
-  encryptedMasterKey.set(ciphertext, 12)
-  await registerFinish(email, credential, encodeBase64(encryptedMasterKey))
-}
+console.log('[AddPasskeyPage] Token from getToken():', token ? 'present' : 'null');
+console.log('[AddPasskeyPage] localStorage token:', localStorage.getItem('token'));
+console.log('[AddPasskeyPage] localStorage user:', localStorage.getItem('user'));
 ```
 
-#### 3. Modulo Bias in Enrollment Code Generation [SECURITY - MEDIUM]
-
-**Location:** `internal/auth/enrollment.go:33`
-
-**Issue:** Using modulo on random bytes introduces bias:
 ```go
-code[i] = enrollmentCodeChars[int(bytes[i])%len(enrollmentCodeChars)]
+slog.Info("WebSocket token debug", "token_len", len(token))
 ```
-
-Since 256 % 36 = 4, characters at indices 0-3 (A, B, C, D) are slightly more likely.
 
 **Recommendation:**
-Use rejection sampling:
-```go
-func generateEnrollmentCode() (string, error) {
-    code := make([]byte, enrollmentCodeLen)
-    charsLen := byte(len(enrollmentCodeChars))
-    for i := 0; i < enrollmentCodeLen; {
-        b := make([]byte, 1)
-        if _, err := rand.Read(b); err != nil {
-            return "", err
-        }
-        // Reject values that would cause bias (256 - 256%36 = 252)
-        if b[0] < 252 {
-            code[i] = enrollmentCodeChars[b[0]%charsLen]
-            i++
-        }
-    }
-    return string(code), nil
-}
+1. Remove all debug `console.log` statements before production:
+```typescript
+// Remove these lines entirely
+// console.log('[AddPasskeyPage] Token from getToken():', token ? 'present' : 'null');
+// console.log('[AddPasskeyPage] localStorage token:', localStorage.getItem('token'));
+// console.log('[AddPasskeyPage] localStorage user:', localStorage.getItem('user'));
 ```
+
+2. Change Go debug logging to use `slog.Debug` instead of `slog.Info`:
+```go
+slog.Debug("WebSocket connection", "has_token", len(token) > 0)
+```
+
+---
 
 ### Moderate Issues
 
-#### 4. WebSocket CheckOrigin Always Returns True [SECURITY - MEDIUM]
+#### 3. Origin Check Could Be More Restrictive
 
-**Location:** `internal/auth/enrollment_ws.go:18-20`
+**Location:** `internal/auth/enrollment_ws.go:20-24`
 
-**Issue:**
-```go
-CheckOrigin: func(r *http.Request) bool {
-    return true
-}
-```
-
-This allows cross-origin WebSocket connections, which could enable CSRF-style attacks.
-
-**Recommendation:**
+**Issue:** The origin check allows empty origin or matching configured origin:
 ```go
 CheckOrigin: func(r *http.Request) bool {
     origin := r.Header.Get("Origin")
-    // Check against allowed origins from config
-    return origin == "" || origin == cfg.AllowedOrigin
+    return origin == "" || origin == cfg.RPOrigin
 }
 ```
 
-#### 5. EnrollmentBeginHandler Generates Random PRF Salt But Doesn't Store It
-
-**Location:** `internal/auth/enrollment.go:117-130`
-
-**Issue:** A random PRF salt is generated and sent in the response, but the client is expected to use a fixed salt (`devsesh-master-key-v1`). This mismatch could cause issues.
+Empty origin is allowed, which could be exploited in some scenarios.
 
 **Recommendation:**
-Either:
-1. Remove the random salt generation and use the fixed salt consistently
-2. Or store the salt and ensure both sides use the same value
-
-#### 6. No Timeout on WebSocket Read Operations
-
-**Location:** `internal/auth/enrollment_ws.go:196`
-
-**Issue:** The read deadline is set to 60 seconds, but if no messages are received, the connection stays open indefinitely consuming resources.
-
-**Recommendation:**
-Add overall enrollment timeout:
+Consider requiring origin header for WebSocket connections:
 ```go
-// Add enrollment timeout
-enrollmentTimeout := time.NewTimer(5 * time.Minute)
-defer enrollmentTimeout.Stop()
-
-select {
-case <-enrollmentTimeout.C:
-    c.conn.WriteMessage(websocket.CloseMessage,
-        websocket.FormatCloseMessage(websocket.CloseNormalClosure, "enrollment timeout"))
-    return
-default:
-    // Continue normal processing
+CheckOrigin: func(r *http.Request) bool {
+    origin := r.Header.Get("Origin")
+    if origin == "" {
+        // Only allow same-origin requests (no Origin header) from browsers
+        // WebSocket connections from non-browser clients may not have Origin
+        return true
+    }
+    return origin == cfg.RPOrigin
 }
 ```
 
-#### 7. sessionKey State Management Issue in AddPasskeyPage
+This is acceptable given the current implementation, but document the decision.
 
-**Location:** `web/src/pages/AddPasskeyPage.tsx:231-240`
+---
 
-**Issue:** `sessionKey` state might not be updated by the time the encrypted_payload handler runs due to React's asynchronous state updates.
-
-```typescript
-setSessionKey(key)
-// ...later in another message handler:
-const decrypted = await decryptWithKey(sessionKey!, nonce, ciphertext)
-```
-
-**Recommendation:**
-Use `useRef` for the session key (like `RegisterPasskeyPage.tsx` does):
-```typescript
-const sessionKeyRef = useRef<Uint8Array | null>(null)
-// In handler:
-sessionKeyRef.current = key
-// Later:
-const decrypted = await decryptWithKey(sessionKeyRef.current!, nonce, ciphertext)
-```
-
-#### 8. Confirmation Message Not Actually Encrypted
-
-**Location:** `web/src/pages/RegisterPasskeyPage.tsx:168-172`
-
-**Issue:** The "received" confirmation is sent with an empty nonce and unencrypted:
-```typescript
-ws.send(JSON.stringify({
-  type: "encrypted_payload",
-  nonce: encodeBase64(new Uint8Array(12)), // Empty nonce!
-  ciphertext: encodeBase64(new TextEncoder().encode("received")),
-}))
-```
-
-This is not AES-GCM encrypted, just plain text labeled as ciphertext.
-
-**Recommendation:**
-Actually encrypt the confirmation:
-```typescript
-const confirmationData = new TextEncoder().encode("received")
-const { nonce, ciphertext } = await encryptWithKey(sessionKeyRef.current!, confirmationData)
-ws.send(JSON.stringify({
-  type: "encrypted_payload",
-  nonce: encodeBase64(nonce),
-  ciphertext: encodeBase64(ciphertext),
-}))
-```
-
-### Minor Issues
-
-#### 9. Duplicate Encryption Functions
-
-**Location:** `web/src/lib/crypto/prf.ts` and `web/src/lib/crypto/aes.ts`
-
-**Issue:** `encryptWithKey`/`decryptWithKey` in `prf.ts` duplicate `encrypt`/`decrypt` in `aes.ts`.
-
-**Recommendation:**
-Remove duplicates and import from a single source.
-
-#### 10. Missing Error Boundary for WebSocket Closure
-
-**Location:** `web/src/pages/AddPasskeyPage.tsx:255-259`
-
-**Issue:**
-```typescript
-ws.onclose = () => {
-  if (status !== "error") {
-    setStatus("success")
-  }
-}
-```
-
-This sets success on any close, even premature disconnection.
-
-**Recommendation:**
-Track whether the flow completed successfully:
-```typescript
-const completedRef = useRef(false)
-// When actually complete:
-completedRef.current = true
-setStatus("success")
-ws.close()
-
-// In onclose:
-ws.onclose = () => {
-  if (!completedRef.current && status !== "error") {
-    setError("Connection closed unexpectedly")
-    setStatus("error")
-  }
-}
-```
-
-#### 11. WebSocket URL Construction is Redundant
-
-**Location:** `web/src/pages/RegisterPasskeyPage.tsx:68-71`
-
-**Issue:**
-```typescript
-const wsURL = getEnrollmentWebSocketURL(enrollmentCode)
-const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-const fullURL = `${protocol}//${window.location.host}${wsURL}`
-```
-
-`getEnrollmentWebSocketURL` already returns a full URL with protocol.
-
-**Recommendation:**
-Just use:
-```typescript
-const wsURL = getEnrollmentWebSocketURL(enrollmentCode)
-const ws = new WebSocket(wsURL)
-```
-
-#### 12. No Cleanup of Stale Enrollments
+#### 4. No Cleanup of Stale Enrollments
 
 **Location:** Database/server
 
-**Issue:** Expired enrollments are never cleaned up from the database.
+**Issue:** Expired enrollments are never cleaned up from the database. Over time, the `passkey_enrollments` table will accumulate stale records.
 
 **Recommendation:**
-Add a periodic cleanup job or clean up on access:
+Add a cleanup mechanism in `internal/db/maintenance.go`:
 ```go
-func CleanupExpiredEnrollments(db *sql.DB) error {
-    _, err := db.Exec(
-        "DELETE FROM passkey_enrollments WHERE expires_at < ?",
+func CleanupExpiredEnrollments(database *sql.DB) error {
+    _, err := database.Exec(
+        "DELETE FROM passkey_enrollments WHERE expires_at < ? OR completed = TRUE",
         time.Now().UTC().Format(timeFormat),
     )
     return err
 }
 ```
 
-#### 13. Console Logging of Errors
+Call this periodically (e.g., in the existing maintenance job) or on each new enrollment creation.
+
+---
+
+#### 5. WebSocket Read Deadline Not Extended on Message Receipt
+
+**Location:** `internal/auth/enrollment_ws.go:214-218`
+
+**Issue:** The read deadline is set to 60 seconds and only extended on pong, but not on actual message receipt:
+```go
+c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+c.conn.SetPongHandler(func(string) error {
+    c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+    return nil
+})
+```
+
+If a legitimate enrollment takes longer than 60 seconds without ping/pong, the connection will timeout.
+
+**Recommendation:**
+Extend deadline on each successful message read:
+```go
+for {
+    _, message, err := c.conn.ReadMessage()
+    if err != nil {
+        break
+    }
+    // Extend deadline on successful read
+    c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+    // ... rest of handler
+}
+```
+
+---
+
+#### 6. PRF Salt ArrayBuffer Handling
+
+**Location:** `web/src/pages/RegisterPage.tsx:87`, `AddPasskeyPage.tsx:111`
+
+**Issue:** The PRF salt is passed as `prfSalt.buffer`:
+```typescript
+prf: {
+  eval: {
+    first: prfSalt.buffer
+  }
+}
+```
+
+Since `getPrfSalt()` returns a `Uint8Array`, accessing `.buffer` on it returns the underlying `ArrayBuffer`. This is correct, but if `getPrfSalt()` returns a view of a larger buffer (it doesn't currently), this could expose more data than intended.
+
+**Recommendation:**
+Create a new ArrayBuffer to be safe:
+```typescript
+const prfSaltBytes = getPrfSalt()
+const prfSaltBuffer = prfSaltBytes.buffer.slice(
+    prfSaltBytes.byteOffset,
+    prfSaltBytes.byteOffset + prfSaltBytes.byteLength
+)
+```
+
+This is currently not a bug since `getPrfSalt()` creates a new buffer via `TextEncoder`, but it's a defensive practice.
+
+---
+
+### Minor Issues
+
+#### 7. Inconsistent Base64 Function Usage
 
 **Location:** Multiple frontend files
 
-**Issue:** `console.error` and `console.warn` calls may leak information in production.
+**Issue:** Base64 encoding/decoding functions are spread across multiple files:
+- `encodeBase64`/`decodeBase64` exported from `prf.ts` (actually in `encoding.ts`)
+- `encodeMessage`/`decodeMessage` in `spake2.ts` (wrap the same functions)
+- `bufferToBase64URLString` from `@simplewebauthn/browser`
 
 **Recommendation:**
-Use a logging utility that can be configured per environment:
+Consolidate base64 operations in `encoding.ts` and import from there consistently:
 ```typescript
-import { logger } from '@/lib/logger'
-logger.error("Registration error:", err)
+// In all files that need base64:
+import { encodeBase64, decodeBase64, encodeBase64URL, decodeBase64URL } from '@/lib/crypto/encoding'
 ```
 
-### Code Style Issues
+---
 
-#### 14. Inconsistent Base64 Encoding/Decoding Functions
+#### 8. Status Check in onclose Handler Uses Stale State
 
-Multiple implementations exist across files:
-- `encodeBase64` / `decodeBase64` in `prf.ts`
-- `encodeMessage` / `decodeMessage` in `spake2.ts`
-- `base64ToUint8Array` / `uint8ArrayToBase64` in `AddPasskeyPage.tsx`
+**Location:** `web/src/pages/AddPasskeyPage.tsx:269-274`
+
+**Issue:** The `onclose` handler captures `status` at closure creation time, not at execution time:
+```typescript
+ws.onclose = () => {
+    if (!completedRef.current && status !== "error") {
+        setError("Connection closed unexpectedly")
+        setStatus("error")
+    }
+}
+```
+
+**Current mitigation:** The code uses `completedRef.current` which is a ref and will have the correct value, so the primary success case works. However, `status !== "error"` may not reflect the current state.
 
 **Recommendation:**
-Consolidate into a single utility file.
+Use a ref for status checking in closures:
+```typescript
+const statusRef = useRef<Status>("idle")
+// Update in setStatus calls
+const updateStatus = (newStatus: Status) => {
+    statusRef.current = newStatus
+    setStatus(newStatus)
+}
 
-#### 15. Missing TypeScript Strict Null Checks
+ws.onclose = () => {
+    if (!completedRef.current && statusRef.current !== "error") {
+        setError("Connection closed unexpectedly")
+        updateStatus("error")
+    }
+}
+```
 
-**Location:** Various `!` assertions
+---
 
-**Issue:** Forced unwrapping (`sessionKey!`, `prfKeyDerived!`) without proper null guards.
+#### 9. Missing TypeScript Strict Null Assertions
+
+**Location:** Various files with `!` assertions
+
+**Issue:** Forced unwrapping (`sessionKeyRef.current!`, `prfKeyDerived!`) without explicit guards:
+```typescript
+const decrypted = await decrypt(sessionKeyRef.current!, nonce, ciphertext)
+```
 
 **Recommendation:**
-Add explicit checks:
+Add explicit checks before usage:
 ```typescript
 if (!sessionKeyRef.current) {
-  throw new Error("Session key not available")
+    throw new Error("Session key not available")
 }
-const decrypted = await decryptWithKey(sessionKeyRef.current, nonce, ciphertext)
+const decrypted = await decrypt(sessionKeyRef.current, nonce, ciphertext)
 ```
+
+This is already done in some places (e.g., `RegisterPasskeyPage.tsx:116`) but should be consistent.
+
+---
+
+#### 10. Error Message Reveals Internal State
+
+**Location:** `web/src/lib/crypto/prf.ts:78`
+
+**Issue:** Error message reveals version number:
+```typescript
+throw new Error(`Master key must be encrypted with PRF. Found version: ${version}`)
+```
+
+**Recommendation:**
+Use a generic error message:
+```typescript
+throw new Error('Invalid master key format')
+```
+
+---
+
+### Code Style Observations
+
+1. **Consistent error handling:** The code uses a mix of `console.error` and proper error state management. Consider using a centralized error logging utility.
+
+2. **Type assertions:** Several places use `as unknown as` type assertions. Consider defining proper types for WebAuthn extension results.
+
+3. **Magic numbers:** Some magic numbers exist (e.g., `12` for nonce length, `32` for key length). Consider defining constants.
+
+4. **Good practices observed:**
+   - Proper use of `useRef` for values that shouldn't trigger re-renders
+   - Proper cleanup in `useEffect` return functions
+   - Rejection sampling for enrollment code generation (fixes modulo bias)
+   - Proper origin checking in WebSocket upgrader
+   - Versioned master key format for future compatibility
+   - Confirmation message properly encrypted (fixed from previous review)
