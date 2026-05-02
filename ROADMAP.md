@@ -2,9 +2,10 @@
 
 * [x] Simple SSH authentication
 * [x] Fix no ping
-* [ ] Add multi passkey (create single use code to add another passkey)
+* [x] Add multi passkey (create single use code to add another passkey)
 * [ ] SSH auth with CA using threshold signatures
 * [ ] Looks like there are several endpoints that require session owner and do not have the middleware
+* [ ] Deploy to VM with HTTPS support + tailscale
 
 # Mvp
 
@@ -18,9 +19,12 @@
 # Polishing
 
 * [ ] Fix SSH trust on first use (if the target machine ssh key changes, the app won't say anythjing)
+* [ ] Have the CA also sign host certificates
 * [ ] Add support for CORS for all calls
 * [ ] Add SXG to sign JS bundle
 * [ ] New session button
 * [ ] SSH/command payload
 * [ ] Keyboard shortcuts
 * [ ] Sign the javascript bundle so that clients can verify it was not tampered with
+* [ ] Add built in rate limits for endpoints
+* [ ] Convert mutexes to actor model

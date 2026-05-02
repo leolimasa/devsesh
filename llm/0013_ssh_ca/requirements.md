@@ -17,68 +17,68 @@ The CA public certificate will be stored in the sqllite database. Users will be 
 
 **JavaScript/TypeScript**
 
-* `@noble/curves` - FROST Ed25519 threshold signatures
-* `@noble/hashes` - SHA-512, HKDF
+* `@noble/curves` - FROST Ed25519 threshold signatures [req.0xpudr]
+* `@noble/hashes` - SHA-512, HKDF [req.jap7ew]
 
 **Go**
 
-* `taurushq-io/multi-party-sig` - FROST Ed25519 threshold signatures
-* `golang.org/x/crypto/ssh` - SSH certificate generation
+* `taurushq-io/multi-party-sig` - FROST Ed25519 threshold signatures [req.c02qrs]
+* `golang.org/x/crypto/ssh` - SSH certificate generation [req.1mujak]
 
 ### Webworker
 
-* Main thread must NOT have access to the decrypted FROST share
-* Webworker holds the share in memory only (never persisted to disk/IndexedDB)
-* Webworker exposes postMessage API for: init, round1, round2, status, terminate
-* Share must be zeroed from memory on terminate
-* Inactivity timeout: 30 minutes (configurable)
+* Main thread must NOT have access to the decrypted FROST share [req.qwdm15]
+* Webworker holds the share in memory only (never persisted to disk/IndexedDB) [req.gvq1jj]
+* Webworker exposes postMessage API for: init, round1, round2, status, terminate [req.xxu1i4]
+* Share must be zeroed from memory on terminate [req.obmwbr]
+* Inactivity timeout: 30 minutes (configurable) [req.2k5is9]
 
 ### Security
 
-* User must be authenticated (JWT) to perform signing requests
-* User must own the host being accessed
-* WebAuthn PRF authentication required to unlock the client share
-* Fresh cryptographic nonces for every signing session (never reuse)
-* Signing sessions expire after 60 seconds
-* Session IDs are single-use UUIDs
-* Rate limit: max 10 certificates per minute per user
-* Certificates valid for 60 seconds max (configurable up to 5 minutes)
-* Audit log all certificate issuance and failed attempts
+* User must be authenticated (JWT) to perform signing requests [req.o9pemq]
+* User must own the host being accessed [req.hs8zrm]
+* WebAuthn PRF authentication required to unlock the client share [req.qogtvx]
+* Fresh cryptographic nonces for every signing session (never reuse) [req.ey98nq]
+* Signing sessions expire after 60 seconds [req.tie4zq]
+* Session IDs are single-use UUIDs [req.1i6osk]
+* Rate limit: max 10 certificates per minute per user [req.zp9nw1]
+* Certificates valid for 60 seconds max (configurable up to 5 minutes) [req.u72wa2]
+* Audit log all certificate issuance and failed attempts [req.xj6amw]
 
 ### Certificates
 
-* Type: `ssh-ed25519-cert-v01@openssh.com` user certificates
-* Principals: configured per-host in hosts table
-* Extensions: `permit-pty`, `permit-port-forwarding`
-* Serial numbers: monotonically increasing per user
+* Type: `ssh-ed25519-cert-v01@openssh.com` user certificates [req.umkdzs]
+* Principals: configured per-host in hosts table [req.zbf0si]
+* Extensions: `permit-pty`, `permit-port-forwarding` [req.2x3a51]
+* Serial numbers: monotonically increasing per user [req.56dvhi]
 
 ### User Interface
 
-* Users can download CA public key in OpenSSH format
-* Display CA fingerprint (SHA256)
-* Show webworker status indicator when active (with countdown)
-* Prompt for WebAuthn when SSH connection requires inactive webworker
-* Host edit form includes SSH principal field
+* Users can download CA public key in OpenSSH format [req.23hk63]
+* Display CA fingerprint (SHA256) [req.0lpwy4]
+* Show webworker status indicator when active (with countdown) [req.35jehk]
+* Prompt for WebAuthn when SSH connection requires inactive webworker [req.4oofln]
+* Host edit form includes SSH principal field [req.w51l9k]
 
 ### Signing Flow
 
-* Signing uses WebSocket for real-time two-round FROST protocol
-* Client initiates by requesting a certificate for a specific host
-* Server builds the certificate-to-be-signed (TBS) data and creates a signing session
-* Round 1: Both parties generate nonces and exchange commitments
-* Round 2: Both parties compute partial signatures using the exchanged commitments
-* Server aggregates partial signatures into final Ed25519 signature
-* Server returns the complete signed certificate to client
-* If either party fails or times out, the session is aborted (no partial state retained)
-* Client can retry immediately with a new session on failure
+* Signing uses WebSocket for real-time two-round FROST protocol [req.5kl1v5]
+* Client initiates by requesting a certificate for a specific host [req.3j5hnq]
+* Server builds the certificate-to-be-signed (TBS) data and creates a signing session [req.wdalb2]
+* Round 1: Both parties generate nonces and exchange commitments [req.5xcc6i]
+* Round 2: Both parties compute partial signatures using the exchanged commitments [req.o3lf24]
+* Server aggregates partial signatures into final Ed25519 signature [req.dzym7r]
+* Server returns the complete signed certificate to client [req.jki5t0]
+* If either party fails or times out, the session is aborted (no partial state retained) [req.3zw1de]
+* Client can retry immediately with a new session on failure [req.9e2ob6]
 
 ## Testing
 
-* Change the existing SSH docker container to accept an SSH CA if one is provided
-* Change the existing container to contain a "flag" file with a some static content.
-* Create a new integration test that:
-   * Uses the existing webauthn + PRF workflow to create a new user, leading to the creation of the SSH CA public key
-   * Spings up the SSH test docker container which will accept the SSH CA public key created above as authentication
-   * Create a new host that points to the running docker container with a valid principal. DO NOT SET A PASSWORD, so that it uses the CA public key.
-   * Uses the **web interface** to connect to the docker host
-   * Execute `cat FLAG_FILE` on the xterm that is connected to the docker machine and validate that the output matches the created flag file
+* Change the existing SSH docker container to accept an SSH CA if one is provided [req.17dfwk]
+* Change the existing container to contain a "flag" file with a some static content. [req.cu1f0k]
+* Create a new integration test that: [req.jc1drs]
+   * Uses the existing webauthn + PRF workflow to create a new user, leading to the creation of the SSH CA public key [req.ancud7]
+   * Spings up the SSH test docker container which will accept the SSH CA public key created above as authentication [req.vz2fg3]
+   * Create a new host that points to the running docker container with a valid principal. DO NOT SET A PASSWORD, so that it uses the CA public key. [req.4whcli]
+   * Uses the **web interface** to connect to the docker host [req.twjlw7]
+   * Execute `cat FLAG_FILE` on the xterm that is connected to the docker machine and validate that the output matches the created flag file [req.xbft6g]
