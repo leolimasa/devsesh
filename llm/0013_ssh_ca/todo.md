@@ -47,10 +47,10 @@
 
 ## Phase 2: FROST Key Generation & Certificate Building
 
-- [ ] Create `internal/ssh/ca.go` with `SSHCAData` and `SigningSession` structs [req.c02qrs]
-- [ ] Create `internal/ssh/ca.go`:
-  - [ ] `GenerateKeyShares()` - FROST 2-of-2 Ed25519 keygen [req.c02qrs]
-  - [ ] `CreateTBSCertificate()` - build certificate structure [req.umkdzs] [req.zbf0si] [req.2x3a51] [req.56dvhi]
+- [x] Create `internal/ssh/ca.go` with `SSHCAData` and `SigningSession` structs [req.c02qrs]
+- [o] Create `internal/ssh/ca.go`:
+  - [x] `GenerateKeyShares()` - FROST 2-of-2 Ed25519 keygen [req.c02qrs]
+  - [x] `CreateTBSCertificate()` - build certificate structure [req.umkdzs] [req.zbf0si] [req.2x3a51] [req.56dvhi]
   - [ ] `BuildSignedCertificate()` - assemble final certificate [req.jki5t0]
 - [ ] Create `internal/ssh/ca_test.go`:
   - [ ] Test key share generation produces valid shares

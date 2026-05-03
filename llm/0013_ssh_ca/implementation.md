@@ -105,7 +105,7 @@ interface WorkerResponse {
 
 ## Backend Implementation
 
-### Module: `internal/sshca/frost.go` (new file)
+### Module: `internal/ssh/ca.go` (new file)
 
 **Dependencies:** `taurushq-io/multi-party-sig` [req.c02qrs]
 
@@ -265,7 +265,7 @@ Send check command to actor, receive whether user can request another certificat
 
 #### Modify `FinishRegistration` [req.ancud7]
 After successful registration with PRF:
-- Call `sshca.GenerateKeyShares()` to create FROST shares
+- Call `ssh.GenerateKeyShares()` to create FROST shares
 - Store server share in `ssh_ca` table
 - Encrypt client share with random key, store in `ssh_ca_client_shares`
 - Return encrypted client share to frontend (will be re-encrypted with master key)
