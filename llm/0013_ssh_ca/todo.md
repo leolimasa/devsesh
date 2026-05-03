@@ -2,9 +2,9 @@
 
 ## Project Status
 
-- 🟡 Phase 1: Database Schema & Go Dependencies - IMPLEMENTED
-- 🔴 Phase 2: FROST Key Generation & Certificate Building - NOT STARTED
-- 🔴 Phase 3: Session Management & Rate Limiting - NOT STARTED
+- 🟢 Phase 1: Database Schema & Go Dependencies - COMMITTED
+- 🟢 Phase 2: FROST Key Generation & Certificate Building - COMMITTED
+- 🟡 Phase 3: Session Management & Rate Limiting - IMPLEMENTED
 - 🔴 Phase 4: FROST Signing Protocol (Server Side) - NOT STARTED
 - 🔴 Phase 5: User Registration Integration - NOT STARTED
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
@@ -64,27 +64,27 @@
 
 ## Phase 3: Session Management & Rate Limiting (Actor Model)
 
-- [ ] Create `internal/ssh/ca/session.go` with actor-based `SessionManager` [req.1i6osk] [req.tie4zq]:
-  - [ ] `NewSessionManager()` - spawn actor goroutine
-  - [ ] `CreateSession()` - UUID generation, 60-second expiry [req.1i6osk]
-  - [ ] `GetSession()` - retrieve or error if expired
-  - [ ] `DeleteSession()` - cleanup sensitive data [req.3zw1de]
-  - [ ] Cleanup ticker for expired sessions
-- [ ] Create `internal/ssh/ca/ratelimit.go` with actor-based `RateLimiter` [req.zp9nw1]:
-  - [ ] `NewRateLimiter()` - spawn actor goroutine
-  - [ ] `Allow()` - check rate limit (10/minute default)
-  - [ ] Periodic cleanup of old timestamps
-- [ ] Create `internal/ssh/ca/session_test.go`:
-  - [ ] Test session creation returns unique UUIDs
-  - [ ] Test session expiration after 60 seconds
-  - [ ] Test concurrent session access via actor
-- [ ] Create `internal/ssh/ca/ratelimit_test.go`:
-  - [ ] Test allows up to limit requests
-  - [ ] Test blocks after limit exceeded
-  - [ ] Test window resets after time passes
+- [x] Create `internal/ssh/ca/session.go` with actor-based `SessionManager` [req.1i6osk] [req.tie4zq]:
+  - [x] `NewSessionManager()` - spawn actor goroutine
+  - [x] `CreateSession()` - UUID generation, 60-second expiry [req.1i6osk]
+  - [x] `GetSession()` - retrieve or error if expired
+  - [x] `DeleteSession()` - cleanup sensitive data [req.3zw1de]
+  - [x] Cleanup ticker for expired sessions
+- [x] Create `internal/ssh/ca/ratelimit.go` with actor-based `RateLimiter` [req.zp9nw1]:
+  - [x] `NewRateLimiter()` - spawn actor goroutine
+  - [x] `Allow()` - check rate limit (10/minute default)
+  - [x] Periodic cleanup of old timestamps
+- [x] Create `internal/ssh/ca/session_test.go`:
+  - [x] Test session creation returns unique UUIDs
+  - [x] Test session expiration after 60 seconds
+  - [x] Test concurrent session access via actor
+- [x] Create `internal/ssh/ca/ratelimit_test.go`:
+  - [x] Test allows up to limit requests
+  - [x] Test blocks after limit exceeded
+  - [x] Test window resets after time passes
 
 **Phase 3 Testing:**
-- [ ] Run unit tests: `go test ./internal/ssh/ca/... -v -race`
+- [x] Run unit tests: `go test ./internal/ssh/ca/... -v -race`
 
 ---
 
