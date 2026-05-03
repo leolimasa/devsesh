@@ -105,7 +105,7 @@ interface WorkerResponse {
 
 ## Backend Implementation
 
-### Module: `internal/ssh/ca.go` (new file)
+### Module: `internal/ssh/ca/ca.go` (new file)
 
 **Dependencies:** `taurushq-io/multi-party-sig` [req.c02qrs]
 
@@ -147,7 +147,7 @@ Assemble final signed certificate.
 - Format as OpenSSH certificate wire format
 - Return base64-encoded certificate
 
-### Module: `internal/sshca/handler.go` (new file)
+### Module: `internal/ssh/ca/handler.go` (new file)
 
 **Dependencies:** `gorilla/websocket` [req.5kl1v5]
 
@@ -196,7 +196,7 @@ Retrieve encrypted client share for transmission to client.
 #### `LogCertIssuance(db *sql.DB, userID, hostID int64, serial int64, success bool, errMsg string) error` [req.xj6amw]
 Record certificate issuance attempt in audit log.
 
-### Module: `internal/sshca/session.go` (new file)
+### Module: `internal/ssh/ca/session.go` (new file)
 
 #### `SessionManager` struct [req.1i6osk] [req.tie4zq]
 In-memory signing session storage with expiration using actor model.
@@ -236,7 +236,7 @@ Send get command to actor, receive session or error if expired/not found.
 #### `DeleteSession(sessionID string)` [req.3zw1de]
 Send delete command to actor, which removes session and clears sensitive data.
 
-### Module: `internal/sshca/ratelimit.go` (new file)
+### Module: `internal/ssh/ca/ratelimit.go` (new file)
 
 #### `RateLimiter` struct [req.zp9nw1]
 Per-user rate limiting for certificate requests using actor model.

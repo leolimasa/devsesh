@@ -48,53 +48,53 @@
 ## Phase 2: FROST Key Generation & Certificate Building
 
 - [x] Create `internal/ssh/ca.go` with `SSHCAData` and `SigningSession` structs [req.c02qrs]
-- [o] Create `internal/ssh/ca.go`:
+- [x] Create `internal/ssh/ca.go`:
   - [x] `GenerateKeyShares()` - FROST 2-of-2 Ed25519 keygen [req.c02qrs]
   - [x] `CreateTBSCertificate()` - build certificate structure [req.umkdzs] [req.zbf0si] [req.2x3a51] [req.56dvhi]
-  - [ ] `BuildSignedCertificate()` - assemble final certificate [req.jki5t0]
-- [ ] Create `internal/ssh/ca_test.go`:
-  - [ ] Test key share generation produces valid shares
-  - [ ] Test TBS certificate has correct format and extensions
-  - [ ] Test certificate assembly produces valid OpenSSH certificate
+  - [x] `BuildSignedCertificate()` - assemble final certificate [req.jki5t0]
+- [x] Create `internal/ssh/ca_test.go`:
+  - [x] Test key share generation produces valid shares
+  - [x] Test TBS certificate has correct format and extensions
+  - [x] Test certificate assembly produces valid OpenSSH certificate
 
 **Phase 2 Testing:**
-- [ ] Run unit tests: `go test ./internal/ssh/... -v`
+- [x] Run unit tests: `go test ./internal/ssh/... -v`
 
 ---
 
 ## Phase 3: Session Management & Rate Limiting (Actor Model)
 
-- [ ] Create `internal/sshca/session.go` with actor-based `SessionManager` [req.1i6osk] [req.tie4zq]:
+- [ ] Create `internal/ssh/ca/session.go` with actor-based `SessionManager` [req.1i6osk] [req.tie4zq]:
   - [ ] `NewSessionManager()` - spawn actor goroutine
   - [ ] `CreateSession()` - UUID generation, 60-second expiry [req.1i6osk]
   - [ ] `GetSession()` - retrieve or error if expired
   - [ ] `DeleteSession()` - cleanup sensitive data [req.3zw1de]
   - [ ] Cleanup ticker for expired sessions
-- [ ] Create `internal/sshca/ratelimit.go` with actor-based `RateLimiter` [req.zp9nw1]:
+- [ ] Create `internal/ssh/ca/ratelimit.go` with actor-based `RateLimiter` [req.zp9nw1]:
   - [ ] `NewRateLimiter()` - spawn actor goroutine
   - [ ] `Allow()` - check rate limit (10/minute default)
   - [ ] Periodic cleanup of old timestamps
-- [ ] Create `internal/sshca/session_test.go`:
+- [ ] Create `internal/ssh/ca/session_test.go`:
   - [ ] Test session creation returns unique UUIDs
   - [ ] Test session expiration after 60 seconds
   - [ ] Test concurrent session access via actor
-- [ ] Create `internal/sshca/ratelimit_test.go`:
+- [ ] Create `internal/ssh/ca/ratelimit_test.go`:
   - [ ] Test allows up to limit requests
   - [ ] Test blocks after limit exceeded
   - [ ] Test window resets after time passes
 
 **Phase 3 Testing:**
-- [ ] Run unit tests: `go test ./internal/sshca/... -v -race`
+- [ ] Run unit tests: `go test ./internal/ssh/ca/... -v -race`
 
 ---
 
 ## Phase 4: FROST Signing Protocol (Server Side)
 
-- [ ] Add to `internal/sshca/frost.go`:
+- [ ] Add to `internal/ssh/ca/frost.go`:
   - [ ] `ServerRound1()` - generate nonces, return commitment [req.5xcc6i] [req.ey98nq]
   - [ ] `ServerRound2()` - compute partial signature [req.o3lf24]
   - [ ] `AggregateSignatures()` - combine partials into final sig [req.dzym7r]
-- [ ] Create `internal/sshca/handler.go` WebSocket handler [req.5kl1v5]:
+- [ ] Create `internal/ssh/ca/handler.go` WebSocket handler [req.5kl1v5]:
   - [ ] JWT authentication on connection [req.o9pemq]
   - [ ] Host ownership validation [req.hs8zrm]
   - [ ] Handle `request_cert` message - create session, build TBS [req.wdalb2]
@@ -108,14 +108,14 @@
   - [ ] `GET /api/v1/sshca/public-key` [req.23hk63]
   - [ ] `GET /api/v1/sshca/client-share`
   - [ ] `WS /api/v1/sshca/sign` [req.5kl1v5]
-- [ ] Add FROST signing tests to `internal/sshca/frost_test.go`:
+- [ ] Add FROST signing tests to `internal/ssh/ca/frost_test.go`:
   - [ ] Test round 1 produces valid commitment
   - [ ] Test round 2 produces valid partial signature
   - [ ] Test signature aggregation produces verifiable Ed25519 signature
   - [ ] Test nonces are never reused [req.ey98nq]
 
 **Phase 4 Testing:**
-- [ ] Run unit tests: `go test ./internal/sshca/... -v`
+- [ ] Run unit tests: `go test ./internal/ssh/ca/... -v`
 - [ ] Manual test: Start server, verify `/api/v1/sshca/public-key` returns 404 (no user yet)
 
 ---
