@@ -1,4 +1,4 @@
-package ssh
+package ca
 
 import (
 	"crypto/ed25519"
@@ -14,9 +14,11 @@ import (
 )
 
 type KeyShares struct {
-	PublicKey   []byte
-	ServerShare []byte
-	ClientShare []byte
+	PublicKey            []byte
+	ServerShare          []byte
+	ClientShare          []byte
+	ServerVerifyingShare []byte
+	ClientVerifyingShare []byte
 }
 
 // GenerateKeyShares generates the server and client shares to be used in the FROST
@@ -26,25 +28,43 @@ type KeyShares struct {
 //   - PublicKey: the group public key (32 bytes) - used as the CA public key
 //   - ServerShare: the server's secret share - stored in the database
 //   - ClientShare: the client's secret share - encrypted and stored in the database
+//   - ServerVerifyingShare: the server's public verification share (for FROST Configuration)
+//   - ClientVerifyingShare: the client's public verification share (for FROST Configuration)
 func GenerateKeyShares() (KeyShares, error) {
 	var threshold uint16 = 2
 	var maxSigners uint16 = 2
 
 	// Generates the key shares using trusted dealer (simpler than DKG for 2-of-2).
-	keyShares, groupVerifyingKey, _ := fdb.TrustedDealerKeygen(
+	// The third return value contains the verifying shares for each participant.
+	keyShares, groupVerifyingKey, verifyingShares := fdb.TrustedDealerKeygen(
 		frost.Ed25519, nil, threshold, maxSigners)
 
-	// Encode public key - use Compressed() for Ed25519 format
+	// Encode public key - use Encode() for Ed25519 format
 	publicKey := groupVerifyingKey.Encode()
 	// Ed25519 points are 32 bytes when compressed
 	if len(publicKey) != 32 {
 		return KeyShares{}, fmt.Errorf("invalid public key length: %d", len(publicKey))
 	}
 
+	// Verify we got two verification shares
+	if len(verifyingShares) != 2 {
+		return KeyShares{}, fmt.Errorf("expected 2 verifying shares, got %d", len(verifyingShares))
+	}
+
+	// Encode verification shares (they are public information needed for FROST Configuration)
+	serverVerifyingShare := verifyingShares[0].Encode()
+	clientVerifyingShare := verifyingShares[1].Encode()
+
+	if len(serverVerifyingShare) != 32 || len(clientVerifyingShare) != 32 {
+		return KeyShares{}, fmt.Errorf("invalid verification share length")
+	}
+
 	return KeyShares{
-		PublicKey:   publicKey,
-		ServerShare: keyShares[0].Encode(),
-		ClientShare: keyShares[1].Encode(),
+		PublicKey:            publicKey,
+		ServerShare:          keyShares[0].Encode(),
+		ClientShare:          keyShares[1].Encode(),
+		ServerVerifyingShare: serverVerifyingShare,
+		ClientVerifyingShare: clientVerifyingShare,
 	}, nil
 }
 

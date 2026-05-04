@@ -5,6 +5,7 @@
 - 🟢 Phase 1: Database Schema & Go Dependencies - COMMITTED
 - 🟢 Phase 2: FROST Key Generation & Certificate Building - COMMITTED
 - 🟡 Phase 3: Session Management & Rate Limiting - IMPLEMENTED
+- 🟡 Phase 3.5: Add Verification Shares to KeyShares - IMPLEMENTED
 - 🔴 Phase 4: FROST Signing Protocol (Server Side) - NOT STARTED
 - 🔴 Phase 5: User Registration Integration - NOT STARTED
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
@@ -94,10 +95,30 @@
 
 ---
 
+## Phase 3.5: Add Verification Shares to KeyShares [req.v8k2fs]
+
+- [x] Create migration `sql/00016_add_verification_shares_to_ssh_ca.sql`:
+  - [x] Add `server_verifying_share BLOB NOT NULL`
+  - [x] Add `client_verifying_share BLOB NOT NULL`
+- [x] Update `internal/ssh/ca/ca.go` `KeyShares` struct:
+  - [x] Add `ServerVerifyingShare []byte`
+  - [x] Add `ClientVerifyingShare []byte`
+- [x] Update `GenerateKeyShares()` to extract and return both verification shares
+- [x] Update `internal/db/sshca.go`:
+  - [x] Update `SSHCAData` struct with verification share fields
+  - [x] Update `CreateSSHCA()` to store verification shares
+  - [x] Update `GetSSHCA()` to retrieve verification shares
+
+**Phase 3.5 Testing:**
+- [x] Run `go test ./internal/ssh/ca/... -v` to verify key generation includes verification shares
+- [x] Run `go test ./internal/db/... -v` to verify migration test passes
+
+---
+
 ## Phase 4: FROST Signing Protocol (Server Side)
 
 - [ ] Add to `internal/ssh/ca/frost.go`:
-  - [ ] `ServerRound1()` - generate nonces, return commitment [req.5xcc6i] [req.ey98nq]
+  - [ ] `ServerRound1()` - generate nonces, return commitment (uses verification shares for Configuration) [req.5xcc6i] [req.ey98nq] [req.v8k2fs]
   - [ ] `ServerRound2()` - compute partial signature [req.o3lf24]
   - [ ] `AggregateSignatures()` - combine partials into final sig [req.dzym7r]
 - [ ] Create `internal/ssh/ca/handler.go` WebSocket handler [req.5kl1v5]:
@@ -324,6 +345,7 @@
 - [ ] Run all frontend tests: `cd web && npm test`
 - [ ] Run all integration tests: `cd integration_tests && npx playwright test`
 - [ ] Verify all requirement tags are covered:
+  - [ ] [req.v8k2fs] Verification shares stored for FROST Configuration
   - [ ] [req.0xpudr] @noble/curves dependency
   - [ ] [req.jap7ew] @noble/hashes dependency
   - [ ] [req.c02qrs] multi-party-sig FROST implementation

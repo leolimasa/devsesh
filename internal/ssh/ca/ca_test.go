@@ -1,4 +1,4 @@
-package ssh
+package ca
 
 import (
 	"crypto/ed25519"
@@ -28,6 +28,19 @@ func TestGenerateKeyShares(t *testing.T) {
 
 	if string(shares.ServerShare) == string(shares.ClientShare) {
 		t.Error("ServerShare and ClientShare are identical - shares should be different")
+	}
+
+	// Verify verification shares are present and valid [req.v8k2fs]
+	if len(shares.ServerVerifyingShare) != 32 {
+		t.Errorf("ServerVerifyingShare length = %d, want 32", len(shares.ServerVerifyingShare))
+	}
+
+	if len(shares.ClientVerifyingShare) != 32 {
+		t.Errorf("ClientVerifyingShare length = %d, want 32", len(shares.ClientVerifyingShare))
+	}
+
+	if string(shares.ServerVerifyingShare) == string(shares.ClientVerifyingShare) {
+		t.Error("ServerVerifyingShare and ClientVerifyingShare are identical - should be different")
 	}
 }
 

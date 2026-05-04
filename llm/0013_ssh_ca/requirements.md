@@ -60,6 +60,12 @@ The CA public certificate will be stored in the sqllite database. Users will be 
 * Prompt for WebAuthn when SSH connection requires inactive webworker [req.4oofln]
 * Host edit form includes SSH principal field [req.w51l9k]
 
+### FROST Key Storage
+
+* Server stores both verification shares (public key shares) for FROST configuration [req.v8k2fs]
+* Verification shares are public information needed to set up FROST signing sessions
+* Each participant's verification share is extracted during key generation and stored separately
+
 ### Signing Flow
 
 * Signing uses WebSocket for real-time two-round FROST protocol [req.5kl1v5]

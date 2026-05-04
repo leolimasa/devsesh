@@ -7,11 +7,13 @@ import (
 )
 
 type SSHCAData struct {
-	UserID      int64
-	PublicKey   []byte
-	ServerShare []byte
-	CertSerial  int64
-	CreatedAt   time.Time
+	UserID               int64
+	PublicKey            []byte
+	ServerShare          []byte
+	ServerVerifyingShare []byte
+	ClientVerifyingShare []byte
+	CertSerial           int64
+	CreatedAt            time.Time
 }
 
 type SSHCAClientShare struct {
@@ -32,8 +34,8 @@ type CertAuditLog struct {
 
 func CreateSSHCA(db *sql.DB, ca SSHCAData) error {
 	_, err := db.Exec(
-		"INSERT INTO ssh_ca (user_id, public_key, server_share, cert_serial, created_at) VALUES (?, ?, ?, ?, ?)",
-		ca.UserID, ca.PublicKey, ca.ServerShare, ca.CertSerial, ca.CreatedAt.Format(timeFormat),
+		"INSERT INTO ssh_ca (user_id, public_key, server_share, server_verifying_share, client_verifying_share, cert_serial, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		ca.UserID, ca.PublicKey, ca.ServerShare, ca.ServerVerifyingShare, ca.ClientVerifyingShare, ca.CertSerial, ca.CreatedAt.Format(timeFormat),
 	)
 	if err != nil {
 		return fmt.Errorf("create SSH CA: %w", err)
@@ -45,9 +47,9 @@ func GetSSHCA(db *sql.DB, userID int64) (*SSHCAData, error) {
 	var ca SSHCAData
 	var createdAt string
 	err := db.QueryRow(
-		"SELECT user_id, public_key, server_share, cert_serial, created_at FROM ssh_ca WHERE user_id = ?",
+		"SELECT user_id, public_key, server_share, server_verifying_share, client_verifying_share, cert_serial, created_at FROM ssh_ca WHERE user_id = ?",
 		userID,
-	).Scan(&ca.UserID, &ca.PublicKey, &ca.ServerShare, &ca.CertSerial, &createdAt)
+	).Scan(&ca.UserID, &ca.PublicKey, &ca.ServerShare, &ca.ServerVerifyingShare, &ca.ClientVerifyingShare, &ca.CertSerial, &createdAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil

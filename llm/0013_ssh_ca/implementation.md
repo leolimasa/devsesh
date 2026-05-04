@@ -6,16 +6,18 @@ This document describes the implementation of FROST-based threshold signature SS
 
 ### Database Tables
 
-#### `ssh_ca` (new table) [req.c02qrs] [req.1mujak]
-Stores the CA public key and server's FROST share per user.
+#### `ssh_ca` (new table) [req.c02qrs] [req.1mujak] [req.v8k2fs]
+Stores the CA public key, server's FROST share, and both verification shares per user.
 
-| Column         | Type                | Description                         |
-|----------------|---------------------|-------------------------------------|
-| `user_id`      | INTEGER PRIMARY KEY | Foreign key to users                |
-| `public_key`   | BLOB                | Ed25519 CA public key (32 bytes)    |
-| `server_share` | BLOB                | Server's FROST Ed25519 secret share |
-| `cert_serial`  | INTEGER             | Current certificate serial number   |
-| `created_at`   | DATETIME            | Timestamp                           |
+| Column                    | Type                | Description                              |
+|---------------------------|---------------------|------------------------------------------|
+| `user_id`                 | INTEGER PRIMARY KEY | Foreign key to users                     |
+| `public_key`              | BLOB                | Ed25519 CA public key (32 bytes)         |
+| `server_share`            | BLOB                | Server's FROST Ed25519 secret share      |
+| `server_verifying_share`  | BLOB                | Server's public verification share       |
+| `client_verifying_share`  | BLOB                | Client's public verification share       |
+| `cert_serial`             | INTEGER             | Current certificate serial number        |
+| `created_at`              | DATETIME            | Timestamp                                |
 
 #### `ssh_ca_client_shares` (new table) [req.qwdm15] [req.gvq1jj]
 Stores the encrypted client FROST share.
@@ -48,15 +50,17 @@ Audit log for certificate issuance.
 
 ### Go Types
 
-#### `internal/sshca/types.go` (new file) [req.c02qrs]
+#### `internal/sshca/types.go` (new file) [req.c02qrs] [req.v8k2fs]
 
 ```go
 type SSHCAData struct {
-    UserID      int64
-    PublicKey   []byte
-    ServerShare []byte
-    CertSerial  int64
-    CreatedAt   time.Time
+    UserID               int64
+    PublicKey            []byte
+    ServerShare          []byte
+    ServerVerifyingShare []byte
+    ClientVerifyingShare []byte
+    CertSerial           int64
+    CreatedAt            time.Time
 }
 
 type SigningSession struct {
@@ -109,11 +113,17 @@ interface WorkerResponse {
 
 **Dependencies:** `taurushq-io/multi-party-sig` [req.c02qrs]
 
-#### `GenerateKeyShares(userID int64) (publicKey, serverShare, clientShare []byte, error)` [req.c02qrs]
+#### `GenerateKeyShares() (KeyShares, error)` [req.c02qrs] [req.v8k2fs]
 Generate new FROST 2-of-2 Ed25519 key shares during user registration.
-- Use `multi-party-sig` Keygen for Ed25519 FROST
-- Return public key, server share, and client share
-- Client share will be encrypted by caller before storage
+- Use `bytemare/frost` TrustedDealerKeygen for Ed25519 FROST
+- Return `KeyShares` struct containing:
+  - `PublicKey`: group public key (CA public key, 32 bytes)
+  - `ServerShare`: server's encoded secret key share
+  - `ClientShare`: client's encoded secret key share (encrypted by caller before storage)
+  - `ServerVerifyingShare`: server's public verification share (for FROST Configuration)
+  - `ClientVerifyingShare`: client's public verification share (for FROST Configuration)
+- Both verification shares are stored plaintext as they are public information
+- Verification shares are needed to set up `frost.Configuration` during signing
 
 #### `CreateTBSCertificate(publicKey []byte, principal string, serial uint64, validSeconds int) (tbsData []byte, error)` [req.umkdzs] [req.zbf0si] [req.2x3a51] [req.56dvhi]
 Build certificate-to-be-signed data.
@@ -123,8 +133,9 @@ Build certificate-to-be-signed data.
 - Set validity window (default 60 seconds, max 5 minutes)
 - Use monotonically increasing serial per user
 
-#### `ServerRound1(session *SigningSession, tbsData []byte) (commitment []byte, error)` [req.5xcc6i] [req.ey98nq]
+#### `ServerRound1(session *SigningSession, serverShare, serverVerifyingShare, clientVerifyingShare, publicKey, tbsData []byte) (commitment []byte, error)` [req.5xcc6i] [req.ey98nq] [req.v8k2fs]
 Server's FROST round 1: generate nonces and commitment.
+- Decode server share and set up FROST Configuration with both verification shares
 - Generate fresh cryptographic nonces
 - Store nonces in session for round 2
 - Return commitment to client
@@ -501,6 +512,8 @@ CREATE TABLE ssh_ca (
     user_id INTEGER PRIMARY KEY REFERENCES users(id),
     public_key BLOB NOT NULL,
     server_share BLOB NOT NULL,
+    server_verifying_share BLOB NOT NULL,
+    client_verifying_share BLOB NOT NULL,
     cert_serial INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
