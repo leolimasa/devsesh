@@ -70,7 +70,13 @@
   - [x] `GetSession()` - retrieve or error if expired
   - [x] `DeleteSession()` - cleanup sensitive data [req.3zw1de]
   - [x] Cleanup ticker for expired sessions
-- [x] Create `internal/ssh/ca/ratelimit.go` with actor-based `RateLimiter` [req.zp9nw1]:
+- [x] Create `internal/ssh/ca/session.go` with actor-based `SessionManager` [req.1i6osk] [req.tie4zq]:
+  - [x] `NewSessionManager()` - spawn actor goroutine
+  - [x] `CreateSession()` - UUID generation, 60-second expiry [req.1i6osk]
+  - [x] `GetSession()` - retrieve or error if expired
+  - [x] `DeleteSession()` - cleanup sensitive data [req.3zw1de]
+  - [x] Cleanup ticker for expired sessions
+- [x] Use `internal/util/ratelimit.go` (generic RateLimiter) [req.zp9nw1]:
   - [x] `NewRateLimiter()` - spawn actor goroutine
   - [x] `Allow()` - check rate limit (10/minute default)
   - [x] Periodic cleanup of old timestamps
@@ -78,7 +84,7 @@
   - [x] Test session creation returns unique UUIDs
   - [x] Test session expiration after 60 seconds
   - [x] Test concurrent session access via actor
-- [x] Create `internal/ssh/ca/ratelimit_test.go`:
+- [x] Create `internal/util/ratelimit_test.go`:
   - [x] Test allows up to limit requests
   - [x] Test blocks after limit exceeded
   - [x] Test window resets after time passes

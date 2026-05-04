@@ -236,7 +236,7 @@ Send get command to actor, receive session or error if expired/not found.
 #### `DeleteSession(sessionID string)` [req.3zw1de]
 Send delete command to actor, which removes session and clears sensitive data.
 
-### Module: `internal/ssh/ca/ratelimit.go` (new file)
+### Module: `internal/util/ratelimit.go` (reuses generic RateLimiter)
 
 #### `RateLimiter` struct [req.zp9nw1]
 Per-user rate limiting for certificate requests using actor model.

@@ -1,4 +1,4 @@
-package ssh
+package util
 
 import (
 	"time"
@@ -10,9 +10,9 @@ type rateLimitCmd struct {
 	respCh chan bool
 }
 
-// RateLimiter enforces per-user rate limits for certificate requests
-// using the actor model. A single goroutine owns the timestamp map
-// and processes commands sequentially via a channel.
+// RateLimiter enforces per-user rate limits using the actor model.
+// A single goroutine owns the timestamp map and processes commands
+// sequentially via a channel.
 type RateLimiter struct {
 	cmdCh  chan rateLimitCmd
 	limit  int
@@ -83,7 +83,7 @@ func (rl *RateLimiter) actor() {
 	}
 }
 
-// Allow checks if a user is allowed to make another certificate request.
+// Allow checks if a user is allowed to make another request.
 // Returns true if the user is within the rate limit, false otherwise.
 // This sends a check command to the actor and waits for the response.
 func (rl *RateLimiter) Allow(userID int64) bool {
