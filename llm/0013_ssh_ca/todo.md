@@ -6,7 +6,8 @@
 - 🟢 Phase 2: FROST Key Generation & Certificate Building - COMMITTED
 - 🟡 Phase 3: Session Management & Rate Limiting - IMPLEMENTED
 - 🟡 Phase 3.5: Add Verification Shares to KeyShares - IMPLEMENTED
-- 🔴 Phase 4: FROST Signing Protocol (Server Side) - NOT STARTED
+- 🔴 Phase 4a: FROST Signing Protocol (frost.go) - NOT STARTED
+- 🔴 Phase 4b: WebSocket Handler & Routes - NOT STARTED
 - 🔴 Phase 5: User Registration Integration - NOT STARTED
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
 - 🔴 Phase 7: FROST Crypto Library (Frontend) - NOT STARTED
@@ -115,12 +116,25 @@
 
 ---
 
-## Phase 4: FROST Signing Protocol (Server Side)
+## Phase 4a: FROST Signing Protocol (frost.go)
 
 - [ ] Add to `internal/ssh/ca/frost.go`:
   - [ ] `ServerRound1()` - generate nonces, return commitment (uses verification shares for Configuration) [req.5xcc6i] [req.ey98nq] [req.v8k2fs]
   - [ ] `ServerRound2()` - compute partial signature [req.o3lf24]
   - [ ] `AggregateSignatures()` - combine partials into final sig [req.dzym7r]
+- [ ] Add FROST signing tests to `internal/ssh/ca/frost_test.go`:
+  - [ ] Test round 1 produces valid commitment
+  - [ ] Test round 2 produces valid partial signature
+  - [ ] Test signature aggregation produces verifiable Ed25519 signature
+  - [ ] Test nonces are never reused [req.ey98nq]
+
+**Phase 4a Testing:**
+- [ ] Run unit tests: `go test ./internal/ssh/ca/... -v`
+
+---
+
+## Phase 4b: WebSocket Handler & Routes
+
 - [ ] Create `internal/ssh/ca/handler.go` WebSocket handler [req.5kl1v5]:
   - [ ] JWT authentication on connection [req.o9pemq]
   - [ ] Host ownership validation [req.hs8zrm]
@@ -135,14 +149,8 @@
   - [ ] `GET /api/v1/sshca/public-key` [req.23hk63]
   - [ ] `GET /api/v1/sshca/client-share`
   - [ ] `WS /api/v1/sshca/sign` [req.5kl1v5]
-- [ ] Add FROST signing tests to `internal/ssh/ca/frost_test.go`:
-  - [ ] Test round 1 produces valid commitment
-  - [ ] Test round 2 produces valid partial signature
-  - [ ] Test signature aggregation produces verifiable Ed25519 signature
-  - [ ] Test nonces are never reused [req.ey98nq]
 
-**Phase 4 Testing:**
-- [ ] Run unit tests: `go test ./internal/ssh/ca/... -v`
+**Phase 4b Testing:**
 - [ ] Manual test: Start server, verify `/api/v1/sshca/public-key` returns 404 (no user yet)
 
 ---
