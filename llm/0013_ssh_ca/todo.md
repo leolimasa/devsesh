@@ -6,7 +6,7 @@
 - 🟢 Phase 2: FROST Key Generation & Certificate Building - COMMITTED
 - 🟡 Phase 3: Session Management & Rate Limiting - IMPLEMENTED
 - 🟡 Phase 3.5: Add Verification Shares to KeyShares - IMPLEMENTED
-- 🔴 Phase 4a: FROST Signing Protocol (frost.go) - NOT STARTED
+- 🟡 Phase 4a: FROST Signing Protocol (frost.go) - IMPLEMENTED
 - 🔴 Phase 4b: WebSocket Handler & Routes - NOT STARTED
 - 🔴 Phase 5: User Registration Integration - NOT STARTED
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
@@ -118,18 +118,22 @@
 
 ## Phase 4a: FROST Signing Protocol (frost.go)
 
-- [ ] Add to `internal/ssh/ca/frost.go`:
-  - [ ] `ServerRound1()` - generate nonces, return commitment (uses verification shares for Configuration) [req.5xcc6i] [req.ey98nq] [req.v8k2fs]
-  - [ ] `ServerRound2()` - compute partial signature [req.o3lf24]
-  - [ ] `AggregateSignatures()` - combine partials into final sig [req.dzym7r]
-- [ ] Add FROST signing tests to `internal/ssh/ca/frost_test.go`:
-  - [ ] Test round 1 produces valid commitment
-  - [ ] Test round 2 produces valid partial signature
-  - [ ] Test signature aggregation produces verifiable Ed25519 signature
-  - [ ] Test nonces are never reused [req.ey98nq]
+- [x] Add to `internal/ssh/ca/frost.go`:
+  - [x] `FROSTSigningState` struct - holds state between signing rounds
+  - [x] `ServerRound1()` - generate nonces, return commitment (uses PublicKeyShares for Configuration) [req.5xcc6i] [req.ey98nq] [req.v8k2fs]
+  - [x] `ServerRound2()` - compute partial signature [req.o3lf24]
+  - [x] `AggregateSignatures()` - combine partials into final 64-byte Ed25519 sig [req.dzym7r]
+  - [x] `CreateClientSigner()` - **for testing only** - simulates client-side FROST signer in Go tests (actual client uses TypeScript/@noble/curves)
+  - [x] `ZeroSigningState()` - securely clear signing state from memory
+- [x] Add FROST signing tests to `internal/ssh/ca/frost_test.go`:
+  - [x] Test round 1 produces valid commitment
+  - [x] Test round 2 produces valid partial signature
+  - [x] Test signature aggregation produces verifiable Ed25519 signature
+  - [x] Test nonces are never reused [req.ey98nq]
+  - [x] Test full signing flow with SSH certificate
 
 **Phase 4a Testing:**
-- [ ] Run unit tests: `go test ./internal/ssh/ca/... -v`
+- [x] Run unit tests: `go test ./internal/ssh/ca/... -v`
 
 ---
 

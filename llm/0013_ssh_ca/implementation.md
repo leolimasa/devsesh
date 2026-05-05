@@ -118,12 +118,12 @@ Generate new FROST 2-of-2 Ed25519 key shares during user registration.
 - Use `bytemare/frost` TrustedDealerKeygen for Ed25519 FROST
 - Return `KeyShares` struct containing:
   - `PublicKey`: group public key (CA public key, 32 bytes)
-  - `ServerShare`: server's encoded secret key share
-  - `ClientShare`: client's encoded secret key share (encrypted by caller before storage)
-  - `ServerVerifyingShare`: server's public verification share (for FROST Configuration)
-  - `ClientVerifyingShare`: client's public verification share (for FROST Configuration)
-- Both verification shares are stored plaintext as they are public information
-- Verification shares are needed to set up `frost.Configuration` during signing
+  - `ServerShare`: server's encoded secret key share (KeyShare)
+  - `ClientShare`: client's encoded secret key share (KeyShare, encrypted by caller before storage)
+  - `ServerVerifyingShare`: server's encoded PublicKeyShare (~103 bytes, includes ID, public key, VSS commitment)
+  - `ClientVerifyingShare`: client's encoded PublicKeyShare (~103 bytes, includes ID, public key, VSS commitment)
+- PublicKeyShare structs are public information and stored plaintext
+- PublicKeyShares are needed to set up `frost.Configuration` during signing sessions
 
 #### `CreateTBSCertificate(publicKey []byte, principal string, serial uint64, validSeconds int) (tbsData []byte, error)` [req.umkdzs] [req.zbf0si] [req.2x3a51] [req.56dvhi]
 Build certificate-to-be-signed data.
@@ -133,24 +133,45 @@ Build certificate-to-be-signed data.
 - Set validity window (default 60 seconds, max 5 minutes)
 - Use monotonically increasing serial per user
 
-#### `ServerRound1(session *SigningSession, serverShare, serverVerifyingShare, clientVerifyingShare, publicKey, tbsData []byte) (commitment []byte, error)` [req.5xcc6i] [req.ey98nq] [req.v8k2fs]
+### Module: `internal/ssh/ca/frost.go` (new file)
+
+Contains the FROST signing protocol implementation.
+
+#### `FROSTSigningState` struct
+Holds state between FROST signing rounds:
+- `Signer`: the FROST signer with internal nonce state
+- `ServerCommitment`: the server's commitment from Round 1
+- `Configuration`: the FROST configuration for this session
+
+#### `ServerRound1(serverShare, serverPublicKeyShare, clientPublicKeyShare, publicKey, message []byte) (commitment []byte, state *FROSTSigningState, error)` [req.5xcc6i] [req.ey98nq] [req.v8k2fs]
 Server's FROST round 1: generate nonces and commitment.
-- Decode server share and set up FROST Configuration with both verification shares
-- Generate fresh cryptographic nonces
-- Store nonces in session for round 2
-- Return commitment to client
+- Decode server's KeyShare and both PublicKeyShares
+- Set up FROST Configuration with threshold=2, maxSigners=2
+- Create Signer and call Commit() to generate fresh nonces
+- Return encoded commitment and FROSTSigningState for Round 2
 
-#### `ServerRound2(session *SigningSession, clientCommitment []byte) (partialSig []byte, error)` [req.o3lf24]
+#### `ServerRound2(state *FROSTSigningState, clientCommitment, message []byte) (partialSig []byte, error)` [req.o3lf24]
 Server's FROST round 2: compute partial signature.
-- Validate client commitment
-- Compute server's partial signature using stored nonces
-- Clear nonces from memory after use
+- Decode client's commitment
+- Build commitment list with both commitments (sorted by signer ID)
+- Call Sign() to compute server's partial signature
+- Return encoded signature share
 
-#### `AggregateSignatures(session *SigningSession, serverPartial, clientPartial []byte) (signature []byte, error)` [req.dzym7r]
+#### `AggregateSignatures(state *FROSTSigningState, serverPartial, clientPartial, clientCommitment, message []byte) (signature []byte, error)` [req.dzym7r]
 Combine partial signatures into final Ed25519 signature.
-- Aggregate both partial signatures
-- Verify combined signature against public key
-- Return complete signature
+- Decode both partial signatures
+- Aggregate using Configuration.AggregateSignatures()
+- Verify combined signature against group public key
+- Return 64-byte Ed25519 signature (R || S format)
+
+#### `CreateClientSigner(clientShare, serverPublicKeyShare, clientPublicKeyShare, publicKey []byte) (*frost.Signer, *frost.Configuration, error)`
+**Used for testing only.** Creates a FROST signer for the client side.
+- In production, the client-side signing is done in TypeScript using `@noble/curves`
+- This function is used in Go unit tests to simulate the client's participation in the signing protocol
+- Returns a configured Signer ready to generate commitments and partial signatures
+
+#### `ZeroSigningState(state *FROSTSigningState)`
+Securely clears the signing state from memory by setting all fields to nil.
 
 #### `BuildSignedCertificate(tbsData, signature []byte) (cert []byte, error)` [req.jki5t0]
 Assemble final signed certificate.
@@ -367,6 +388,8 @@ Manually terminate worker and clear share.
 ### Module: `web/src/lib/crypto/frost.ts` (new file) [req.0xpudr]
 
 FROST Ed25519 cryptographic operations using `@noble/curves`.
+
+**Note:** This is the production client-side implementation. The Go function `CreateClientSigner()` in `internal/ssh/ca/frost.go` serves the same purpose but is only used for testing the server-side code.
 
 #### `function generateNonces(): { hiding: Uint8Array, binding: Uint8Array }`  [req.ey98nq]
 Generate fresh nonces for signing round.

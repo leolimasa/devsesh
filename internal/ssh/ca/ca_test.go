@@ -30,13 +30,14 @@ func TestGenerateKeyShares(t *testing.T) {
 		t.Error("ServerShare and ClientShare are identical - shares should be different")
 	}
 
-	// Verify verification shares are present and valid [req.v8k2fs]
-	if len(shares.ServerVerifyingShare) != 32 {
-		t.Errorf("ServerVerifyingShare length = %d, want 32", len(shares.ServerVerifyingShare))
+	// Verify public key shares are present and valid [req.v8k2fs]
+	// Public key shares are encoded PublicKeyShare structs (~103 bytes each)
+	if len(shares.ServerVerifyingShare) == 0 {
+		t.Error("ServerVerifyingShare is empty")
 	}
 
-	if len(shares.ClientVerifyingShare) != 32 {
-		t.Errorf("ClientVerifyingShare length = %d, want 32", len(shares.ClientVerifyingShare))
+	if len(shares.ClientVerifyingShare) == 0 {
+		t.Error("ClientVerifyingShare is empty")
 	}
 
 	if string(shares.ServerVerifyingShare) == string(shares.ClientVerifyingShare) {
