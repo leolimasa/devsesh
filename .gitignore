@@ -44,3 +44,4 @@ project-status.yml
 node_modules
 integration_tests/test-results
 web/dist
+.llm-cur-command*
