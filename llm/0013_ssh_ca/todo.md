@@ -4,12 +4,12 @@
 
 - 🟢 Phase 1: Database Schema & Go Dependencies - COMMITTED
 - 🟢 Phase 2: FROST Key Generation & Certificate Building - COMMITTED
-- 🟡 Phase 3: Session Management & Rate Limiting - IMPLEMENTED
-- 🟡 Phase 3.5: Add Verification Shares to KeyShares - IMPLEMENTED
-- 🟡 Phase 4a: FROST Signing Protocol (frost.go) - IMPLEMENTED
-- 🟡 Phase 4b: WebSocket Handler & Routes - IMPLEMENTED
+- 🟢 Phase 3: Session Management & Rate Limiting - COMMITTED
+- 🟢 Phase 3.5: Add Verification Shares to KeyShares - COMMITTED
+- 🟢 Phase 4a: FROST Signing Protocol (frost.go) - COMMITTED
+- 🟢 Phase 4b: WebSocket Handler & Routes - COMMITTED
 - 🟢 Phase 5: User Registration Integration - COMMITTED
-- 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
+- 🟢 Phase 6: Frontend TypeScript Dependencies & Types - COMMITTED
 - 🔴 Phase 7: FROST Crypto Library (Frontend) - NOT STARTED
 - 🔴 Phase 8: FROST Web Worker - NOT STARTED
 - 🔴 Phase 9: FROST Client Library - NOT STARTED
