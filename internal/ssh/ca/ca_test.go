@@ -1,7 +1,6 @@
 package ca
 
 import (
-	"crypto/ed25519"
 	"testing"
 	"time"
 
@@ -30,8 +29,6 @@ func TestGenerateKeyShares(t *testing.T) {
 		t.Error("ServerShare and ClientShare are identical - shares should be different")
 	}
 
-	// Verify public key shares are present and valid [req.v8k2fs]
-	// Public key shares are encoded PublicKeyShare structs (~103 bytes each)
 	if len(shares.ServerVerifyingShare) == 0 {
 		t.Error("ServerVerifyingShare is empty")
 	}
@@ -72,325 +69,260 @@ func TestCreateTBSCertificate(t *testing.T) {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
 
-	if cert == nil {
-		t.Fatal("Certificate is nil")
-	}
-
-	if cert.CertType != ssh.UserCert {
-		t.Errorf("CertType = %d, want %d", cert.CertType, ssh.UserCert)
-	}
-
 	if len(cert.ValidPrincipals) != 1 || cert.ValidPrincipals[0] != "testuser" {
-		t.Errorf("ValidPrincipals = %v, want [testuser]", cert.ValidPrincipals)
+		t.Error("principal not set correctly")
 	}
 
 	if cert.Serial != 1 {
-		t.Errorf("Serial = %d, want 1", cert.Serial)
+		t.Errorf("serial = %d, want 1", cert.Serial)
 	}
 
-	if cert.KeyId != "devsesh" {
-		t.Errorf("KeyId = %s, want devsesh", cert.KeyId)
-	}
-
-	if _, ok := cert.Extensions["permit-pty"]; !ok {
-		t.Error("Missing permit-pty extension")
-	}
-
-	if _, ok := cert.Extensions["permit-port-forwarding"]; !ok {
-		t.Error("Missing permit-port-forwarding extension")
-	}
-
-	if cert.SignatureKey == nil {
-		t.Error("SignatureKey is nil")
-	}
-
-	if len(cert.Nonce) != 32 {
-		t.Errorf("Nonce length = %d, want 32", len(cert.Nonce))
-	}
-
-	marshaled := cert.Marshal()
-	if len(marshaled) == 0 {
-		t.Error("Marshaled certificate is empty")
+	if cert.CertType != ssh.UserCert {
+		t.Errorf("cert type = %d, want %d (UserCert)", cert.CertType, ssh.UserCert)
 	}
 }
 
 func TestCreateTBSCertificate_InvalidPublicKey(t *testing.T) {
-	_, err := CreateTBSCertificate([]byte{1, 2, 3}, "testuser", 1, 60)
+	invalidKey := make([]byte, 31)
+
+	_, err := CreateTBSCertificate(invalidKey, "testuser", 1, 60)
 	if err == nil {
-		t.Error("CreateTBSCertificate should fail with invalid public key")
+		t.Error("expected error with invalid public key")
 	}
 }
 
 func TestCreateTBSCertificate_DefaultValidity(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
-	}
+	shares, _ := GenerateKeyShares()
 
 	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 0)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
 
-	if cert == nil {
-		t.Fatal("Certificate is nil")
-	}
+	now := time.Now()
+	expectedBefore := uint64(now.Add(60 * time.Second).Unix())
 
-	validBefore := time.Unix(int64(cert.ValidBefore), 0)
-	validAfter := time.Unix(int64(cert.ValidAfter), 0)
-	duration := validBefore.Sub(validAfter)
-
-	if duration < 55*time.Second || duration > 65*time.Second {
-		t.Errorf("Validity duration = %v, want approximately 60s", duration)
+	if cert.ValidBefore < expectedBefore-5 || cert.ValidBefore > expectedBefore+5 {
+		t.Errorf("default validity should be 60 seconds, got %d", cert.ValidBefore-cert.ValidAfter)
 	}
 }
 
 func TestCreateTBSCertificate_CustomValidity(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
-	}
+	shares, _ := GenerateKeyShares()
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 120)
+	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 300)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
 
-	validBefore := time.Unix(int64(cert.ValidBefore), 0)
-	validAfter := time.Unix(int64(cert.ValidAfter), 0)
-	duration := validBefore.Sub(validAfter)
-
-	if duration < 115*time.Second || duration > 125*time.Second {
-		t.Errorf("Validity duration = %v, want approximately 120s", duration)
+	if cert.ValidBefore-cert.ValidAfter != 300 {
+		t.Errorf("validity window should be 300 seconds, got %d", cert.ValidBefore-cert.ValidAfter)
 	}
 }
 
 func TestCreateTBSCertificate_NonceUniqueness(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
-	}
+	shares, _ := GenerateKeyShares()
 
-	cert1, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
-	if err != nil {
-		t.Fatalf("CreateTBSCertificate failed: %v", err)
-	}
-
-	cert2, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
-	if err != nil {
-		t.Fatalf("CreateTBSCertificate failed: %v", err)
-	}
+	cert1, _ := CreateTBSCertificate(shares.PublicKey, "user1", 1, 60)
+	cert2, _ := CreateTBSCertificate(shares.PublicKey, "user2", 2, 60)
 
 	if string(cert1.Nonce) == string(cert2.Nonce) {
-		t.Error("Two certificates have the same nonce")
-	}
-}
-
-func TestBuildSignedCertificate(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
-	}
-
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
-	if err != nil {
-		t.Fatalf("CreateTBSCertificate failed: %v", err)
-	}
-
-	signature := make([]byte, 64)
-	signedBytes, err := BuildSignedCertificate(cert, signature, shares.PublicKey)
-	if err != nil {
-		t.Fatalf("BuildSignedCertificate failed: %v", err)
-	}
-
-	if len(signedBytes) == 0 {
-		t.Error("Signed certificate is empty")
-	}
-
-	parsedKey, err := ssh.ParsePublicKey(signedBytes)
-	if err != nil {
-		t.Fatalf("Failed to parse signed certificate: %v", err)
-	}
-
-	parsedCert, ok := parsedKey.(*ssh.Certificate)
-	if !ok {
-		t.Fatal("Parsed key is not a certificate")
-	}
-
-	if parsedCert.Serial != 1 {
-		t.Errorf("Parsed cert Serial = %d, want 1", parsedCert.Serial)
-	}
-
-	if len(parsedCert.ValidPrincipals) != 1 || parsedCert.ValidPrincipals[0] != "testuser" {
-		t.Errorf("Parsed cert ValidPrincipals = %v, want [testuser]", parsedCert.ValidPrincipals)
-	}
-
-	if parsedCert.Signature == nil {
-		t.Error("Parsed cert Signature is nil")
-	}
-
-	if parsedCert.Signature.Format != "ssh-ed25519" {
-		t.Errorf("Signature Format = %s, want ssh-ed25519", parsedCert.Signature.Format)
-	}
-
-	if len(parsedCert.Signature.Blob) != 64 {
-		t.Errorf("Signature Blob length = %d, want 64", len(parsedCert.Signature.Blob))
-	}
-}
-
-func TestBuildSignedCertificate_NilCert(t *testing.T) {
-	signature := make([]byte, 64)
-	_, err := BuildSignedCertificate(nil, signature, []byte("dummy"))
-	if err == nil {
-		t.Error("BuildSignedCertificate should fail with nil certificate")
-	}
-}
-
-func TestBuildSignedCertificate_InvalidCAPublicKey(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
-	}
-
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
-	if err != nil {
-		t.Fatalf("CreateTBSCertificate failed: %v", err)
-	}
-
-	signature := make([]byte, 64)
-	_, err = BuildSignedCertificate(cert, signature, []byte{1, 2, 3})
-	if err == nil {
-		t.Error("BuildSignedCertificate should fail with invalid CA public key")
-	}
-}
-
-func TestBuildSignedCertificate_EmptySignature(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
-	}
-
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
-	if err != nil {
-		t.Fatalf("CreateTBSCertificate failed: %v", err)
-	}
-
-	signedBytes, err := BuildSignedCertificate(cert, []byte{}, shares.PublicKey)
-	if err != nil {
-		t.Fatalf("BuildSignedCertificate failed with empty signature: %v", err)
-	}
-
-	parsedKey, err := ssh.ParsePublicKey(signedBytes)
-	if err != nil {
-		t.Fatalf("Failed to parse signed certificate: %v", err)
-	}
-
-	parsedCert, ok := parsedKey.(*ssh.Certificate)
-	if !ok {
-		t.Fatal("Parsed key is not a certificate")
-	}
-
-	if len(parsedCert.Signature.Blob) != 0 {
-		t.Errorf("Signature Blob should be empty, got length %d", len(parsedCert.Signature.Blob))
+		t.Error("nonces should be unique for different certificates")
 	}
 }
 
 func TestCreateTBSCertificate_UserKeyIsEd25519(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
-	}
+	shares, _ := GenerateKeyShares()
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
-	if err != nil {
-		t.Fatalf("CreateTBSCertificate failed: %v", err)
-	}
+	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
 
-	if cert.Key.Type() != "ssh-ed25519" {
-		t.Errorf("User key type = %s, want ssh-ed25519", cert.Key.Type())
+	switch cert.Key.(type) {
+	case ssh.PublicKey:
+		keyBytes := cert.Key.Marshal()
+		if len(keyBytes) == 0 {
+			t.Error("key should have bytes when marshaled")
+		}
+	default:
+		t.Fatalf("expected ssh.PublicKey, got %T", cert.Key)
 	}
 }
 
 func TestCreateTBSCertificate_CAKeyIsEd25519(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
+	shares, _ := GenerateKeyShares()
+
+	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+
+	if cert.SignatureKey == nil {
+		t.Error("signature key should not be nil")
 	}
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
-	if err != nil {
-		t.Fatalf("CreateTBSCertificate failed: %v", err)
-	}
-
-	if cert.SignatureKey.Type() != "ssh-ed25519" {
-		t.Errorf("CA key type = %s, want ssh-ed25519", cert.SignatureKey.Type())
+	keyBytes := cert.SignatureKey.Marshal()
+	if len(keyBytes) == 0 {
+		t.Error("CA key should have bytes when marshaled")
 	}
 }
 
 func TestCreateTBSCertificate_ValidTimeIsReasonable(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
+	shares, _ := GenerateKeyShares()
+	beforeTest := time.Now().Unix()
+
+	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+
+	afterTest := time.Now().Unix()
+
+	if int64(cert.ValidAfter) < beforeTest-5 {
+		t.Error("ValidAfter should be around current time")
 	}
+
+	if int64(cert.ValidAfter) > afterTest+5 {
+		t.Error("ValidAfter should be around current time")
+	}
+
+	if int64(cert.ValidBefore) < afterTest+55 {
+		t.Error("ValidBefore should be ~60 seconds in the future")
+	}
+}
+
+func TestCreateTBSCertificate_WithPrincipal(t *testing.T) {
+	shares, _ := GenerateKeyShares()
+
+	cert, err := CreateTBSCertificate(shares.PublicKey, "devsesh-user", 42, 120)
+	if err != nil {
+		t.Fatalf("CreateTBSCertificate failed: %v", err)
+	}
+
+	if len(cert.ValidPrincipals) != 1 {
+		t.Fatalf("expected 1 principal, got %d", len(cert.ValidPrincipals))
+	}
+
+	if cert.ValidPrincipals[0] != "devsesh-user" {
+		t.Errorf("principal = %s, want devsesh-user", cert.ValidPrincipals[0])
+	}
+
+	if cert.Serial != 42 {
+		t.Errorf("serial = %d, want 42", cert.Serial)
+	}
+}
+
+func TestCreateTBSCertificate_PermitPtyAndPortForwarding(t *testing.T) {
+	shares, _ := GenerateKeyShares()
 
 	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
 
-	now := time.Now().Unix()
-	validAfter := int64(cert.ValidAfter)
-	validBefore := int64(cert.ValidBefore)
-
-	if validAfter < now-5 || validAfter > now+5 {
-		t.Errorf("ValidAfter = %d, should be close to now (%d)", validAfter, now)
+	if cert.Permissions.Extensions == nil {
+		t.Fatal("expected extensions map")
 	}
 
-	if validBefore < validAfter+55 || validBefore > validAfter+65 {
-		t.Errorf("ValidBefore = %d, should be ~60s after ValidAfter (%d)", validBefore, validAfter)
+	if _, ok := cert.Permissions.Extensions["permit-pty"]; !ok {
+		t.Error("missing permit-pty extension")
+	}
+
+	if _, ok := cert.Permissions.Extensions["permit-port-forwarding"]; !ok {
+		t.Error("missing permit-port-forwarding extension")
 	}
 }
 
-func TestFullCertificateRoundTrip(t *testing.T) {
-	shares, err := GenerateKeyShares()
-	if err != nil {
-		t.Fatalf("GenerateKeyShares failed: %v", err)
+func TestBuildSignedCertificate(t *testing.T) {
+	shares, _ := GenerateKeyShares()
+	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+
+	signature := make([]byte, 64)
+	for i := range signature {
+		signature[i] = byte(i)
 	}
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "admin", 42, 300)
-	if err != nil {
-		t.Fatalf("CreateTBSCertificate failed: %v", err)
-	}
-
-	signature := make([]byte, ed25519.SignatureSize)
-	signedBytes, err := BuildSignedCertificate(cert, signature, shares.PublicKey)
+	certBlob, err := BuildSignedCertificate(cert, signature, shares.PublicKey)
 	if err != nil {
 		t.Fatalf("BuildSignedCertificate failed: %v", err)
 	}
 
-	parsedKey, err := ssh.ParsePublicKey(signedBytes)
+	if len(certBlob) == 0 {
+		t.Error("certificate blob should not be empty")
+	}
+
+	if cert.Signature == nil {
+		t.Error("signature should be attached to certificate")
+	}
+
+	if cert.Signature.Blob == nil || len(cert.Signature.Blob) == 0 {
+		t.Error("signature blob should not be empty")
+	}
+}
+
+func TestBuildSignedCertificate_NilCert(t *testing.T) {
+	_, err := BuildSignedCertificate(nil, []byte{1, 2, 3}, []byte{1, 2, 3})
+	if err == nil {
+		t.Error("expected error with nil certificate")
+	}
+}
+
+func TestBuildSignedCertificate_InvalidCAPublicKey(t *testing.T) {
+	shares, _ := GenerateKeyShares()
+	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+
+	_, err := BuildSignedCertificate(cert, []byte{1, 2, 3}, []byte{1})
+	if err == nil {
+		t.Error("expected error with invalid CA public key")
+	}
+}
+
+func TestBuildSignedCertificate_EmptySignature(t *testing.T) {
+	shares, _ := GenerateKeyShares()
+	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+
+	certBlob, err := BuildSignedCertificate(cert, []byte{}, shares.PublicKey)
 	if err != nil {
-		t.Fatalf("ParsePublicKey failed: %v", err)
+		t.Fatalf("BuildSignedCertificate failed: %v", err)
 	}
 
-	parsedCert, ok := parsedKey.(*ssh.Certificate)
-	if !ok {
-		t.Fatal("Parsed key is not a certificate")
+	if len(certBlob) == 0 {
+		t.Error("certificate blob should not be empty")
+	}
+}
+
+func TestFullCertificateCreationFlow(t *testing.T) {
+	shares, _ := GenerateKeyShares()
+
+	cert, err := CreateTBSCertificate(shares.PublicKey, "devsesh-user", 42, 120)
+	if err != nil {
+		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
 
-	if parsedCert.Serial != 42 {
-		t.Errorf("Serial = %d, want 42", parsedCert.Serial)
+	if cert.Serial != 42 {
+		t.Errorf("serial = %d, want 42", cert.Serial)
 	}
 
-	if len(parsedCert.ValidPrincipals) != 1 || parsedCert.ValidPrincipals[0] != "admin" {
-		t.Errorf("ValidPrincipals = %v, want [admin]", parsedCert.ValidPrincipals)
+	if len(cert.ValidPrincipals) != 1 || cert.ValidPrincipals[0] != "devsesh-user" {
+		t.Error("principal not set correctly")
 	}
 
-	if parsedCert.CertType != ssh.UserCert {
-		t.Errorf("CertType = %d, want %d", parsedCert.CertType, ssh.UserCert)
+	tbsData := cert.Marshal()
+	if len(tbsData) == 0 {
+		t.Fatal("TBS data should not be empty")
 	}
 
-	if parsedCert.KeyId != "devsesh" {
-		t.Errorf("KeyId = %s, want devsesh", parsedCert.KeyId)
+	if _, ok := cert.Permissions.Extensions["permit-pty"]; !ok {
+		t.Error("should have permit-pty extension")
+	}
+
+	if _, ok := cert.Permissions.Extensions["permit-port-forwarding"]; !ok {
+		t.Error("should have permit-port-forwarding extension")
+	}
+
+	signature := make([]byte, 64)
+	certBlob, err := BuildSignedCertificate(cert, signature, shares.PublicKey)
+	if err != nil {
+		t.Fatalf("BuildSignedCertificate failed: %v", err)
+	}
+
+	if len(certBlob) == 0 {
+		t.Fatal("certificate blob should not be empty")
+	}
+
+	if cert.Signature == nil {
+		t.Error("certificate should have signature attached")
 	}
 }

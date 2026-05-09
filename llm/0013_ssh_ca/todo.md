@@ -7,7 +7,7 @@
 - 🟡 Phase 3: Session Management & Rate Limiting - IMPLEMENTED
 - 🟡 Phase 3.5: Add Verification Shares to KeyShares - IMPLEMENTED
 - 🟡 Phase 4a: FROST Signing Protocol (frost.go) - IMPLEMENTED
-- 🔴 Phase 4b: WebSocket Handler & Routes - NOT STARTED
+- 🟡 Phase 4b: WebSocket Handler & Routes - IMPLEMENTED
 - 🔴 Phase 5: User Registration Integration - NOT STARTED
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
 - 🔴 Phase 7: FROST Crypto Library (Frontend) - NOT STARTED
@@ -139,23 +139,23 @@
 
 ## Phase 4b: WebSocket Handler & Routes
 
-- [ ] Create `internal/ssh/ca/handler.go` WebSocket handler [req.5kl1v5]:
-  - [ ] JWT authentication on connection [req.o9pemq]
-  - [ ] Host ownership validation [req.hs8zrm]
-  - [ ] Handle `request_cert` message - create session, build TBS [req.wdalb2]
-  - [ ] Handle `round1` message - exchange commitments [req.5xcc6i]
-  - [ ] Handle `round2` message - exchange partial signatures [req.o3lf24]
-  - [ ] Send final certificate [req.jki5t0]
-  - [ ] Session timeout handling [req.tie4zq]
-  - [ ] Error cleanup [req.3zw1de]
-  - [ ] Retry support [req.9e2ob6]
-- [ ] Register routes in `internal/server/server.go`:
-  - [ ] `GET /api/v1/sshca/public-key` [req.23hk63]
-  - [ ] `GET /api/v1/sshca/client-share`
-  - [ ] `WS /api/v1/sshca/sign` [req.5kl1v5]
+- [x] Create `internal/ssh/ca/handler.go` WebSocket handler [req.5kl1v5]:
+  - [x] JWT authentication on connection [req.o9pemq]
+  - [x] Host ownership validation [req.hs8zrm]
+  - [x] Handle `request_cert` message - create session, build TBS [req.wdalb2]
+  - [x] Handle `round1` message - exchange commitments [req.5xcc6i]
+  - [x] Handle `round2` message - exchange partial signatures [req.o3lf24]
+  - [x] Send final certificate [req.jki5t0]
+  - [x] Session timeout handling [req.tie4zq]
+  - [x] Error cleanup [req.3zw1de]
+  - [x] Retry support [req.9e2ob6]
+- [x] Register routes in `internal/server/server.go`:
+  - [x] `GET /api/v1/sshca/public-key` [req.23hk63]
+  - [x] `GET /api/v1/sshca/client-share`
+  - [x] `WS /api/v1/sshca/sign` [req.5kl1v5]
 
 **Phase 4b Testing:**
-- [ ] Manual test: Start server, verify `/api/v1/sshca/public-key` returns 404 (no user yet)
+- [x] Manual test: Start server, verify `/api/v1/sshca/public-key` returns 404 (no user yet)
 
 ---
 

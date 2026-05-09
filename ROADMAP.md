@@ -20,7 +20,7 @@
 
 * [ ] Fix SSH trust on first use (if the target machine ssh key changes, the app won't say anythjing)
 * [ ] Have the CA also sign host certificates
-* [ ] Add support for CORS for all calls
+* [ ] Add support for CORS for all calls. Cors is sprinkled through the code. Need to centralize.
 * [ ] Add SXG to sign JS bundle
 * [ ] New session button
 * [ ] SSH/command payload

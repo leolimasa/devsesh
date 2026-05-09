@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"io/fs"
-	"log/slog"
 	"net/http"
 	"path"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/leolimasa/devsesh/internal/hosts"
 	"github.com/leolimasa/devsesh/internal/sessions"
 	"github.com/leolimasa/devsesh/internal/ssh"
+	"github.com/leolimasa/devsesh/internal/ssh/ca"
 	"github.com/leolimasa/devsesh/web"
 )
 
@@ -53,7 +53,6 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	})
 
 	jwtMiddleware := RequireJWT(cfg.JWTSecret)
-	slog.Error("RequireJWT middleware created - THIS IS A TEST - secret len: " + strconv.Itoa(len(cfg.JWTSecret)) + " - FIRST 8 CHARS: " + cfg.JWTSecret[:min(8, len(cfg.JWTSecret))])
 
 	mux.Handle("GET /api/v1/auth/status", auth.AuthStatusHandler(database))
 
@@ -95,6 +94,11 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("DELETE /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.DeleteHandler(database))))
 
 	ssh.RegisterRoutes(mux, database, jwtMiddleware, cfg)
+
+	sshCAHandler := ca.NewHandler(database, cfg.SSHCA, cfg.RPOrigin)
+	mux.Handle("GET /api/v1/sshca/public-key", jwtMiddleware(http.HandlerFunc(sshCAHandler.PublicKeyHandler())))
+	mux.Handle("GET /api/v1/sshca/client-share", jwtMiddleware(http.HandlerFunc(sshCAHandler.ClientShareHandler())))
+	mux.Handle("GET /api/v1/sshca/sign", jwtMiddleware(http.HandlerFunc(sshCAHandler.SigningWebSocketHandler())))
 
 	return &Server{
 		cfg:           cfg,
