@@ -162,7 +162,7 @@
 ## Phase 5: User Registration Integration
 
 - [ ] Modify `internal/auth/webauthn.go` `FinishRegistration` [req.ancud7]:
-  - [ ] Call `sshca.GenerateKeyShares()` after successful registration
+  - [ ] Call `ca.GenerateKeyShares()` after successful registration (import `internal/ssh/ca`)
   - [ ] Store server share in `ssh_ca` table
   - [ ] Encrypt client share, store in `ssh_ca_client_shares`
   - [ ] Return encrypted client share in registration response

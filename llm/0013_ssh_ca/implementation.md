@@ -50,7 +50,7 @@ Audit log for certificate issuance.
 
 ### Go Types
 
-#### `internal/sshca/types.go` (new file) [req.c02qrs] [req.v8k2fs]
+#### `internal/ssh/ca/ca.go` [req.c02qrs] [req.v8k2fs]
 
 ```go
 type SSHCAData struct {
