@@ -161,6 +161,23 @@
 
 ## Phase 5: User Registration Integration
 
+**Prerequisite: Break import cycle by extracting context utilities**
+
+- [ ] Create `internal/ctxutil/context.go`:
+  - [ ] Move `ContextKeyUserID`, `ContextKeyHostID`, `ContextKeySession` from `auth`
+  - [ ] Move `UserIDFromContext()`, `HostIDFromContext()` from `auth`
+  - [ ] Add `SessionFromContext()` helper
+- [ ] Update `internal/auth/`:
+  - [ ] Remove context key definitions
+  - [ ] Import `ctxutil` for context keys and helpers
+- [ ] Update `internal/sessions/handler.go`:
+  - [ ] Replace `auth` import with `ctxutil` for context utilities
+- [ ] Update `internal/ssh/ca/handler.go`:
+  - [ ] Replace `sessions` import with `ctxutil` for `UserIDFromContext`
+- [ ] Verify no import cycles: `go build ./...`
+
+**Registration integration:**
+
 - [ ] Modify `internal/auth/webauthn.go` `FinishRegistration` [req.ancud7]:
   - [ ] Call `ca.GenerateKeyShares()` after successful registration (import `internal/ssh/ca`)
   - [ ] Store server share in `ssh_ca` table
@@ -171,7 +188,10 @@
   - [ ] Modify `UpdateHost` to handle `ssh_principal` [req.w51l9k]
 
 **Phase 5 Testing:**
+- [ ] Run `go build ./...` to verify no import cycles
 - [ ] Run existing auth tests: `go test ./internal/auth/... -v`
+- [ ] Run existing sessions tests: `go test ./internal/sessions/... -v`
+- [ ] Run existing ssh/ca tests: `go test ./internal/ssh/ca/... -v`
 - [ ] Manual test: Register new user, verify `ssh_ca` and `ssh_ca_client_shares` tables populated
 - [ ] Verify `GET /api/v1/sshca/public-key` returns CA public key for authenticated user
 

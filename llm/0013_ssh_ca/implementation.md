@@ -293,11 +293,56 @@ Create rate limiter that spawns actor goroutine.
 #### `Allow(userID int64) bool`
 Send check command to actor, receive whether user can request another certificate.
 
+### Module: `internal/ctxutil/context.go` (new file)
+
+Extract shared context utilities to break import cycle between `auth`, `sessions`, and `ssh/ca`.
+
+```go
+package ctxutil
+
+import (
+	"context"
+
+	"github.com/leolimasa/devsesh/internal/db"
+)
+
+type contextKey string
+
+const (
+	ContextKeyUserID  contextKey = "userID"
+	ContextKeyHostID  contextKey = "hostID"
+	ContextKeySession contextKey = "session"
+)
+
+// UserIDFromContext extracts user ID from request context.
+func UserIDFromContext(ctx context.Context) (int64, bool) {
+	userID, ok := ctx.Value(ContextKeyUserID).(int64)
+	return userID, ok
+}
+
+// HostIDFromContext extracts host ID from request context.
+func HostIDFromContext(ctx context.Context) (int64, bool) {
+	hostID, ok := ctx.Value(ContextKeyHostID).(int64)
+	return hostID, ok
+}
+
+// SessionFromContext extracts session from request context.
+func SessionFromContext(ctx context.Context) (*db.Session, bool) {
+	session, ok := ctx.Value(ContextKeySession).(*db.Session)
+	return session, ok
+}
+```
+
+**Update existing packages:**
+- `internal/auth`: Remove context key definitions, import `ctxutil` instead
+- `internal/sessions`: Import `ctxutil` instead of `auth` for context utilities
+- `internal/ssh/ca`: Import `ctxutil` instead of `sessions` for `UserIDFromContext`
+
 ### Module: `internal/auth/webauthn.go` (modify)
 
 #### Modify `FinishRegistration` [req.ancud7]
 After successful registration with PRF:
-- Call `ssh.GenerateKeyShares()` to create FROST shares
+- Call `ca.GenerateKeyShares()` to create FROST shares (import `internal/ssh/ca`)
 - Store server share in `ssh_ca` table
 - Encrypt client share with random key, store in `ssh_ca_client_shares`
 - Return encrypted client share to frontend (will be re-encrypted with master key)
