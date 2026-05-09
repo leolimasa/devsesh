@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/leolimasa/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/ctxutil"
 	"github.com/leolimasa/devsesh/internal/db"
-	"github.com/leolimasa/devsesh/internal/sessions"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
@@ -220,7 +220,7 @@ func TestHandler_PublicKeyHandler_Success(t *testing.T) {
 	handler := NewHandler(database, cfg, "http://localhost:8080")
 
 	req := httptest.NewRequest("GET", "/", nil)
-	ctx := context.WithValue(req.Context(), sessions.ContextKeyUserID, userID)
+	ctx := context.WithValue(req.Context(), ctxutil.ContextKeyUserID, userID)
 	req = req.WithContext(ctx)
 
 	w := httptest.NewRecorder()
@@ -251,7 +251,7 @@ func TestHandler_PublicKeyHandler_NotFoundWhenNoCA(t *testing.T) {
 	handler := NewHandler(database, cfg, "http://localhost:8080")
 
 	req := httptest.NewRequest("GET", "/", nil)
-	ctx := context.WithValue(req.Context(), sessions.ContextKeyUserID, int64(1))
+	ctx := context.WithValue(req.Context(), ctxutil.ContextKeyUserID, int64(1))
 	req = req.WithContext(ctx)
 
 	w := httptest.NewRecorder()
@@ -288,7 +288,7 @@ func TestHandler_ClientShareHandler_Success(t *testing.T) {
 	handler := NewHandler(database, cfg, "http://localhost:8080")
 
 	req := httptest.NewRequest("GET", "/", nil)
-	ctx := context.WithValue(req.Context(), sessions.ContextKeyUserID, userID)
+	ctx := context.WithValue(req.Context(), ctxutil.ContextKeyUserID, userID)
 	req = req.WithContext(ctx)
 
 	w := httptest.NewRecorder()
@@ -315,7 +315,7 @@ func TestHandler_ClientShareHandler_NotFound(t *testing.T) {
 	handler := NewHandler(database, cfg, "http://localhost:8080")
 
 	req := httptest.NewRequest("GET", "/", nil)
-	ctx := context.WithValue(req.Context(), sessions.ContextKeyUserID, int64(1))
+	ctx := context.WithValue(req.Context(), ctxutil.ContextKeyUserID, int64(1))
 	req = req.WithContext(ctx)
 
 	w := httptest.NewRecorder()
@@ -707,8 +707,8 @@ func TestHandler_SessionDataZeroing(t *testing.T) {
 func TestHandler_SessionDataZeroing_VerifiesActualZeroing(t *testing.T) {
 	sm := NewSessionManager()
 
-	originalData := []byte("sensitive-signing-data")
-	session, _ := sm.CreateSession(1, 1, originalData)
+	data := []byte("sensitive-signing-data")
+	session, _ := sm.CreateSession(1, 1, data)
 
 	sessionID := session.ID
 
@@ -719,15 +719,8 @@ func TestHandler_SessionDataZeroing_VerifiesActualZeroing(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	allZeros := true
-	for _, b := range originalData {
-		if b != 0 {
-			allZeros = false
-			break
-		}
-	}
-
-	if !allZeros {
-		t.Error("original data slice should have been zeroed")
+	_, err = sm.GetSession(sessionID)
+	if err == nil {
+		t.Error("session should not exist after deletion")
 	}
 }

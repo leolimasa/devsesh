@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/leolimasa/devsesh/internal/auth"
+	"github.com/leolimasa/devsesh/internal/ctxutil"
 	"github.com/leolimasa/devsesh/internal/db"
 )
 
@@ -68,8 +69,8 @@ func RequireJWT(secret string) func(http.Handler) http.Handler {
 			}
 
 			slog.Info("JWT validation success", "userId", claims.UserID, "path", r.URL.Path)
-			ctx := context.WithValue(r.Context(), auth.ContextKeyUserID, claims.UserID)
-			ctx = context.WithValue(ctx, auth.ContextKeyHostID, claims.HostID)
+			ctx := context.WithValue(r.Context(), ctxutil.ContextKeyUserID, claims.UserID)
+			ctx = context.WithValue(ctx, ctxutil.ContextKeyHostID, claims.HostID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -78,7 +79,7 @@ func RequireJWT(secret string) func(http.Handler) http.Handler {
 func RequireSessionOwner(database *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			userID, ok := auth.UserIDFromContext(r.Context())
+			userID, ok := ctxutil.UserIDFromContext(r.Context())
 			if !ok {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
@@ -101,7 +102,7 @@ func RequireSessionOwner(database *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), auth.ContextKeySession, s)
+			ctx := context.WithValue(r.Context(), ctxutil.ContextKeySession, s)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -110,7 +111,7 @@ func RequireSessionOwner(database *sql.DB) func(http.Handler) http.Handler {
 func RequireValidHost(database *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hostID, ok := auth.HostIDFromContext(r.Context())
+			hostID, ok := ctxutil.HostIDFromContext(r.Context())
 			if !ok || hostID == 0 {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return

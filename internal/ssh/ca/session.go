@@ -26,6 +26,19 @@ func (s *SigningSession) IsExpired() bool {
 	return time.Now().After(s.ExpiresAt)
 }
 
+// zeroSensitiveData clears the sensitive session data from memory.
+func (s *SigningSession) zeroSensitiveData() {
+	for i := range s.TBSData {
+		s.TBSData[i] = 0
+	}
+	for i := range s.ServerNonces {
+		s.ServerNonces[i] = 0
+	}
+	for i := range s.Commitment {
+		s.Commitment[i] = 0
+	}
+}
+
 // sessionOp represents a typed operation for the SessionManager actor.
 type sessionOp int
 
@@ -121,16 +134,7 @@ func (sm *SessionManager) actor() {
 			case opDelete:
 				session, exists := sessions[cmd.id]
 				if exists {
-					// Zero out sensitive data before deletion
-					for i := range session.TBSData {
-						session.TBSData[i] = 0
-					}
-					for i := range session.ServerNonces {
-						session.ServerNonces[i] = 0
-					}
-					for i := range session.Commitment {
-						session.Commitment[i] = 0
-					}
+					session.zeroSensitiveData()
 					delete(sessions, cmd.id)
 				}
 				cmd.respCh <- sessionResp{}
@@ -153,16 +157,7 @@ func (sm *SessionManager) actor() {
 			case opCleanup:
 				for id, session := range sessions {
 					if session.IsExpired() {
-						// Zero out sensitive data
-						for i := range session.TBSData {
-							session.TBSData[i] = 0
-						}
-						for i := range session.ServerNonces {
-							session.ServerNonces[i] = 0
-						}
-						for i := range session.Commitment {
-							session.Commitment[i] = 0
-						}
+						session.zeroSensitiveData()
 						delete(sessions, id)
 					}
 				}
@@ -171,16 +166,7 @@ func (sm *SessionManager) actor() {
 		case <-cleanupTicker.C:
 			for id, session := range sessions {
 				if session.IsExpired() {
-					// Zero out sensitive data
-					for i := range session.TBSData {
-						session.TBSData[i] = 0
-					}
-					for i := range session.ServerNonces {
-						session.ServerNonces[i] = 0
-					}
-					for i := range session.Commitment {
-						session.Commitment[i] = 0
-					}
+					session.zeroSensitiveData()
 					delete(sessions, id)
 				}
 			}

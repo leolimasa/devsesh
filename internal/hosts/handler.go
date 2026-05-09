@@ -7,9 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"unicode"
 
+	"github.com/leolimasa/devsesh/internal/ctxutil"
 	"github.com/leolimasa/devsesh/internal/db"
-	"github.com/leolimasa/devsesh/internal/sessions"
 )
 
 type contextKey string
@@ -18,7 +19,7 @@ const ContextKeyHost contextKey = "host"
 
 func ListHandler(database *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -42,17 +43,18 @@ func ListHandler(database *sql.DB) http.HandlerFunc {
 
 func CreateHandler(database *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		var req struct {
-			Label    string `json:"label"`
-			Hostname string `json:"hostname"`
-			SSHUser  string `json:"ssh_user"`
-			SSHPort  int    `json:"ssh_port"`
+			Label        string `json:"label"`
+			Hostname     string `json:"hostname"`
+			SSHUser      string `json:"ssh_user"`
+			SSHPort      int    `json:"ssh_port"`
+			SSHPrincipal string `json:"ssh_principal"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -61,6 +63,11 @@ func CreateHandler(database *sql.DB) http.HandlerFunc {
 
 		if req.Label == "" || req.Hostname == "" {
 			http.Error(w, "label and hostname are required", http.StatusBadRequest)
+			return
+		}
+
+		if req.SSHPrincipal != "" && !isValidPrincipal(req.SSHPrincipal) {
+			http.Error(w, "invalid ssh_principal format", http.StatusBadRequest)
 			return
 		}
 
@@ -81,11 +88,12 @@ func CreateHandler(database *sql.DB) http.HandlerFunc {
 		}
 
 		host := db.Host{
-			Label:    req.Label,
-			Hostname: req.Hostname,
-			SSHUser:  req.SSHUser,
-			SSHPort:  sshPort,
-			UserID:   userID,
+			Label:        req.Label,
+			Hostname:     req.Hostname,
+			SSHUser:      req.SSHUser,
+			SSHPort:      sshPort,
+			SSHPrincipal: req.SSHPrincipal,
+			UserID:       userID,
 		}
 		id, err := db.CreateHost(database, host)
 		if err != nil {
@@ -103,7 +111,7 @@ func CreateHandler(database *sql.DB) http.HandlerFunc {
 
 func GetHandler(database *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -133,7 +141,7 @@ func GetHandler(database *sql.DB) http.HandlerFunc {
 
 func UpdateHandler(database *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -157,13 +165,19 @@ func UpdateHandler(database *sql.DB) http.HandlerFunc {
 		}
 
 		var req struct {
-			Label    string `json:"label"`
-			Hostname string `json:"hostname"`
-			SSHUser  string `json:"ssh_user"`
-			SSHPort  int    `json:"ssh_port"`
+			Label        string `json:"label"`
+			Hostname     string `json:"hostname"`
+			SSHUser      string `json:"ssh_user"`
+			SSHPort      int    `json:"ssh_port"`
+			SSHPrincipal string `json:"ssh_principal"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		if req.SSHPrincipal != "" && !isValidPrincipal(req.SSHPrincipal) {
+			http.Error(w, "invalid ssh_principal format", http.StatusBadRequest)
 			return
 		}
 
@@ -189,6 +203,9 @@ func UpdateHandler(database *sql.DB) http.HandlerFunc {
 		if req.SSHPort > 0 {
 			host.SSHPort = req.SSHPort
 		}
+		if req.SSHPrincipal != "" {
+			host.SSHPrincipal = req.SSHPrincipal
+		}
 
 		if err := db.UpdateHost(database, *host); err != nil {
 			slog.Error("failed to update host", "error", err)
@@ -203,7 +220,7 @@ func UpdateHandler(database *sql.DB) http.HandlerFunc {
 
 func DeleteHandler(database *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -239,4 +256,17 @@ func DeleteHandler(database *sql.DB) http.HandlerFunc {
 func HostFromContext(ctx context.Context) (*db.Host, bool) {
 	host, ok := ctx.Value(ContextKeyHost).(*db.Host)
 	return host, ok
+}
+
+func isValidPrincipal(principal string) bool {
+	if principal == "" || len(principal) > 256 {
+		return false
+	}
+	for _, r := range principal {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == '.' || r == '@' {
+			continue
+		}
+		return false
+	}
+	return true
 }

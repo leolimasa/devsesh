@@ -158,3 +158,27 @@ func GetCertAuditLogsByUserID(db *sql.DB, userID int64) ([]CertAuditLog, error) 
 	}
 	return logs, rows.Err()
 }
+
+func DeleteSSHCA(db *sql.DB, userID int64) error {
+	_, err := db.Exec("DELETE FROM ssh_ca WHERE user_id = ?", userID)
+	if err != nil {
+		return fmt.Errorf("delete SSH CA: %w", err)
+	}
+	return nil
+}
+
+func DeleteClientShare(db *sql.DB, userID int64) error {
+	_, err := db.Exec("DELETE FROM ssh_ca_client_shares WHERE user_id = ?", userID)
+	if err != nil {
+		return fmt.Errorf("delete client share: %w", err)
+	}
+	return nil
+}
+
+func DeleteCertAuditLogs(db *sql.DB, userID int64) error {
+	_, err := db.Exec("DELETE FROM cert_audit_log WHERE user_id = ?", userID)
+	if err != nil {
+		return fmt.Errorf("delete cert audit logs: %w", err)
+	}
+	return nil
+}

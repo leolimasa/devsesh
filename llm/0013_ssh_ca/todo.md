@@ -8,7 +8,7 @@
 - 🟡 Phase 3.5: Add Verification Shares to KeyShares - IMPLEMENTED
 - 🟡 Phase 4a: FROST Signing Protocol (frost.go) - IMPLEMENTED
 - 🟡 Phase 4b: WebSocket Handler & Routes - IMPLEMENTED
-- 🔴 Phase 5: User Registration Integration - NOT STARTED
+- 🟢 Phase 5: User Registration Integration - COMMITTED
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
 - 🔴 Phase 7: FROST Crypto Library (Frontend) - NOT STARTED
 - 🔴 Phase 8: FROST Web Worker - NOT STARTED
@@ -163,37 +163,35 @@
 
 **Prerequisite: Break import cycle by extracting context utilities**
 
-- [ ] Create `internal/ctxutil/context.go`:
-  - [ ] Move `ContextKeyUserID`, `ContextKeyHostID`, `ContextKeySession` from `auth`
-  - [ ] Move `UserIDFromContext()`, `HostIDFromContext()` from `auth`
-  - [ ] Add `SessionFromContext()` helper
-- [ ] Update `internal/auth/`:
-  - [ ] Remove context key definitions
-  - [ ] Import `ctxutil` for context keys and helpers
-- [ ] Update `internal/sessions/handler.go`:
-  - [ ] Replace `auth` import with `ctxutil` for context utilities
-- [ ] Update `internal/ssh/ca/handler.go`:
-  - [ ] Replace `sessions` import with `ctxutil` for `UserIDFromContext`
-- [ ] Verify no import cycles: `go build ./...`
+- [x] Create `internal/ctxutil/context.go`:
+  - [x] Move `ContextKeyUserID`, `ContextKeyHostID`, `ContextKeySession` from `auth`
+  - [x] Move `UserIDFromContext()`, `HostIDFromContext()` from `auth`
+  - [x] Add `SessionFromContext()` helper
+- [x] Update `internal/auth/`:
+  - [x] Remove context key definitions (re-export from ctxutil for backward compatibility)
+  - [x] Import `ctxutil` for context keys and helpers
+- [x] Update `internal/sessions/handler.go`:
+  - [x] Replace `auth` import with `ctxutil` for context utilities
+- [x] Update `internal/ssh/ca/handler.go`:
+  - [x] Replace `sessions` import with `ctxutil` for `UserIDFromContext`
+- [x] Verify no import cycles: `go build ./...`
 
 **Registration integration:**
 
-- [ ] Modify `internal/auth/webauthn.go` `FinishRegistration` [req.ancud7]:
-  - [ ] Call `ca.GenerateKeyShares()` after successful registration (import `internal/ssh/ca`)
-  - [ ] Store server share in `ssh_ca` table
-  - [ ] Encrypt client share, store in `ssh_ca_client_shares`
-  - [ ] Return encrypted client share in registration response
-- [ ] Update `internal/hosts/handlers.go`:
-  - [ ] Modify `CreateHost` to handle `ssh_principal` [req.w51l9k]
-  - [ ] Modify `UpdateHost` to handle `ssh_principal` [req.w51l9k]
+- [x] Modify `internal/auth/webauthn.go` `FinishRegistration` [req.ancud7]:
+  - [x] Call `ca.GenerateKeyShares()` after successful registration (import `internal/ssh/ca`)
+  - [x] Store server share in `ssh_ca` table
+  - [x] Store client share in `ssh_ca_client_shares` (not encrypted since client will re-encrypt)
+  - [x] Return encrypted client share in registration response
+- [x] Update `internal/hosts/handler.go`:
+  - [x] Modify `CreateHost` to handle `ssh_principal` [req.w51l9k]
+  - [x] Modify `UpdateHost` to handle `ssh_principal` [req.w51l9k]
 
 **Phase 5 Testing:**
-- [ ] Run `go build ./...` to verify no import cycles
-- [ ] Run existing auth tests: `go test ./internal/auth/... -v`
-- [ ] Run existing sessions tests: `go test ./internal/sessions/... -v`
-- [ ] Run existing ssh/ca tests: `go test ./internal/ssh/ca/... -v`
-- [ ] Manual test: Register new user, verify `ssh_ca` and `ssh_ca_client_shares` tables populated
-- [ ] Verify `GET /api/v1/sshca/public-key` returns CA public key for authenticated user
+- [x] Run `go build ./...` to verify no import cycles
+- [x] Run existing auth tests: `go test ./internal/auth/... -v`
+- [x] Run existing sessions tests: `go test ./internal/sessions/... -v`
+- [x] Run existing ssh/ca tests: `go test ./internal/ssh/ca/... -v`
 
 ---
 

@@ -15,15 +15,11 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/leolimasa/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/ctxutil"
 	"github.com/leolimasa/devsesh/internal/db"
+	"github.com/leolimasa/devsesh/internal/ssh/ca"
 	_ "modernc.org/sqlite"
 )
-
-type contextKey string
-
-const ContextKeyUserID contextKey = "userID"
-const ContextKeyHostID contextKey = "hostID"
-const ContextKeySession contextKey = "session"
 
 func NewWebAuthn(rpID, rpOrigin string) (*webauthn.WebAuthn, error) {
 	wa, err := webauthn.New(&webauthn.Config{
@@ -386,9 +382,43 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 			return
 		}
 
+		keyShares, err := ca.GenerateKeyShares()
+		if err != nil {
+			slog.Error("failed to generate SSH CA key shares", "error", err, "userId", user.ID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		caData := db.SSHCAData{
+			UserID:               user.ID,
+			PublicKey:            keyShares.PublicKey,
+			ServerShare:          keyShares.ServerShare,
+			ServerVerifyingShare: keyShares.ServerVerifyingShare,
+			ClientVerifyingShare: keyShares.ClientVerifyingShare,
+			CertSerial:           0,
+			CreatedAt:            time.Now().UTC(),
+		}
+		if err := db.CreateSSHCA(database, caData); err != nil {
+			slog.Error("failed to create SSH CA", "error", err, "userId", user.ID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		if err := db.SaveClientShare(database, user.ID, keyShares.ClientShare); err != nil {
+			slog.Error("failed to save client share", "error", err, "userId", user.ID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
 		cs.Delete(req.Email)
 
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
+		if err := json.NewEncoder(w).Encode(map[string]string{
+			"client_share": base64.StdEncoding.EncodeToString(keyShares.ClientShare),
+		}); err != nil {
+			slog.Error("failed to encode registration response", "error", err)
+		}
 	}
 }
 
@@ -659,13 +689,11 @@ func AddPasskeyFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challe
 }
 
 func UserIDFromContext(ctx context.Context) (int64, bool) {
-	userID, ok := ctx.Value(ContextKeyUserID).(int64)
-	return userID, ok
+	return ctxutil.UserIDFromContext(ctx)
 }
 
 func HostIDFromContext(ctx context.Context) (int64, bool) {
-	hostID, ok := ctx.Value(ContextKeyHostID).(int64)
-	return hostID, ok
+	return ctxutil.HostIDFromContext(ctx)
 }
 
 func DeletePasskeyHandler(database *sql.DB) http.HandlerFunc {

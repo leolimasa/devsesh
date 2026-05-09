@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/leolimasa/devsesh/internal/ctxutil"
 	"github.com/leolimasa/devsesh/internal/db"
 	_ "modernc.org/sqlite"
 )
@@ -112,7 +113,7 @@ func TestStartHandler(t *testing.T) {
 	body := `{"name":"Test Session","start_time":"2026-01-01T00:00:00Z"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/session-1/start", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(context.WithValue(context.WithValue(req.Context(), ContextKeyUserID, userID), ContextKeyHostID, hostID))
+	req = req.WithContext(context.WithValue(context.WithValue(req.Context(), ctxutil.ContextKeyUserID, userID), ctxutil.ContextKeyHostID, hostID))
 	req.SetPathValue("session_id", "session-1")
 	w := httptest.NewRecorder()
 
@@ -152,7 +153,7 @@ func TestPingHandler(t *testing.T) {
 	handler := PingHandler(dbConn, hub)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/ping-session/ping", nil)
-	req = req.WithContext(context.WithValue(req.Context(), ContextKeySession, &s))
+	req = req.WithContext(context.WithValue(req.Context(), ctxutil.ContextKeySession, &s))
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -185,7 +186,7 @@ func TestEndHandler(t *testing.T) {
 	handler := EndHandler(dbConn, hub)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/end-session/end", nil)
-	req = req.WithContext(context.WithValue(req.Context(), ContextKeySession, &s))
+	req = req.WithContext(context.WithValue(req.Context(), ctxutil.ContextKeySession, &s))
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -220,7 +221,7 @@ func TestMetaHandler(t *testing.T) {
 	body := `{"branch":"main","project":"myapp"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/meta-session/meta", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(context.WithValue(req.Context(), ContextKeySession, &s))
+	req = req.WithContext(context.WithValue(req.Context(), ctxutil.ContextKeySession, &s))
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -261,7 +262,7 @@ func TestListHandler(t *testing.T) {
 	handler := ListHandler(dbConn)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
-	req = req.WithContext(context.WithValue(req.Context(), ContextKeyUserID, userID))
+	req = req.WithContext(context.WithValue(req.Context(), ctxutil.ContextKeyUserID, userID))
 	w := httptest.NewRecorder()
 
 	handler.ServeHTTP(w, req)
@@ -280,7 +281,7 @@ func TestListHandler(t *testing.T) {
 }
 
 func TestUserIDFromContext(t *testing.T) {
-	ctx := context.WithValue(context.Background(), ContextKeyUserID, int64(42))
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeyUserID, int64(42))
 	id, ok := UserIDFromContext(ctx)
 	if !ok || id != 42 {
 		t.Errorf("expected userID 42, got %d, ok=%v", id, ok)
@@ -289,7 +290,7 @@ func TestUserIDFromContext(t *testing.T) {
 
 func TestSessionFromContext(t *testing.T) {
 	s := &db.Session{ID: "test"}
-	ctx := context.WithValue(context.Background(), ContextKeySession, s)
+	ctx := context.WithValue(context.Background(), ctxutil.ContextKeySession, s)
 	got, ok := SessionFromContext(ctx)
 	if !ok || got.ID != "test" {
 		t.Errorf("expected session 'test', got %v, ok=%v", got, ok)

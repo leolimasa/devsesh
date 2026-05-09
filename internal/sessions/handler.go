@@ -10,33 +10,23 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/leolimasa/devsesh/internal/auth"
+	"github.com/leolimasa/devsesh/internal/ctxutil"
 	"github.com/leolimasa/devsesh/internal/db"
 )
 
-// Use the same context keys as auth package for consistency
-// auth package defines: ContextKeyUserID, ContextKeyHostID, ContextKeySession
-// We define them here too but they need to match the auth values
-
-type contextKey string
-
-// These constants must have the same string values as in auth/webauthn.go
-const (
-	ContextKeyUserID  = auth.ContextKeyUserID
-	ContextKeyHostID  = auth.ContextKeyHostID
-	ContextKeySession = auth.ContextKeySession
-)
-
+// UserIDFromContext extracts user ID from context using ctxutil.
 func UserIDFromContext(ctx context.Context) (int64, bool) {
-	return auth.UserIDFromContext(ctx)
+	return ctxutil.UserIDFromContext(ctx)
 }
 
+// HostIDFromContext extracts host ID from context using ctxutil.
 func HostIDFromContext(ctx context.Context) (int64, bool) {
-	return auth.HostIDFromContext(ctx)
+	return ctxutil.HostIDFromContext(ctx)
 }
 
+// SessionFromContext extracts session from context using ctxutil.
 func SessionFromContext(ctx context.Context) (*db.Session, bool) {
-	session, ok := ctx.Value(auth.ContextKeySession).(*db.Session)
-	return session, ok
+	return ctxutil.SessionFromContext(ctx)
 }
 
 func validateJWT(secret, tokenStr string) (*auth.Claims, error) {

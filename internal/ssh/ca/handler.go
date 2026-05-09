@@ -12,8 +12,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/leolimasa/devsesh/internal/config"
+	"github.com/leolimasa/devsesh/internal/ctxutil"
 	"github.com/leolimasa/devsesh/internal/db"
-	"github.com/leolimasa/devsesh/internal/sessions"
 	"github.com/leolimasa/devsesh/internal/util"
 	"golang.org/x/crypto/ssh"
 )
@@ -93,7 +93,7 @@ func (h *Handler) checkOrigin(r *http.Request) bool {
 // GET /api/v1/sshca/public-key
 func (h *Handler) PublicKeyHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -123,7 +123,7 @@ func (h *Handler) PublicKeyHandler() http.HandlerFunc {
 // GET /api/v1/sshca/client-share
 func (h *Handler) ClientShareHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -153,7 +153,7 @@ func (h *Handler) ClientShareHandler() http.HandlerFunc {
 // WS /api/v1/sshca/sign
 func (h *Handler) SigningWebSocketHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := sessions.UserIDFromContext(r.Context())
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -289,7 +289,9 @@ func (h *Handler) handleRequestCert(client *signingClient, msg *wsMessage) {
 		principal = host.SSHUser
 	}
 	if principal == "" {
-		principal = "root"
+		client.sendError("no principal configured for host")
+		h.logCertIssuance(client.userID, msg.HostID, nil, false, "no principal configured for host")
+		return
 	}
 
 	cert, err := CreateTBSCertificate(ca.PublicKey, principal, uint64(serial), validSeconds)
