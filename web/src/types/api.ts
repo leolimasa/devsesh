@@ -56,3 +56,10 @@ export interface EnrollmentMessage {
 export interface MasterKeyResponse {
   encrypted_master_key: string;
 }
+
+export interface SSHCAConfig {
+  public_key: string;
+  client_share: string;
+  server_verifying_share: string;
+  client_verifying_share: string;
+}

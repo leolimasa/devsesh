@@ -98,6 +98,8 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	sshCAHandler := ca.NewHandler(database, cfg.SSHCA, cfg.RPOrigin)
 	mux.Handle("GET /api/v1/sshca/public-key", jwtMiddleware(http.HandlerFunc(sshCAHandler.PublicKeyHandler())))
 	mux.Handle("GET /api/v1/sshca/client-share", jwtMiddleware(http.HandlerFunc(sshCAHandler.ClientShareHandler())))
+	mux.Handle("PUT /api/v1/sshca/client-share", jwtMiddleware(http.HandlerFunc(sshCAHandler.UpdateClientShareHandler())))
+	mux.Handle("GET /api/v1/sshca/config", jwtMiddleware(http.HandlerFunc(sshCAHandler.ConfigHandler())))
 	mux.Handle("GET /api/v1/sshca/sign", jwtMiddleware(http.HandlerFunc(sshCAHandler.SigningWebSocketHandler())))
 
 	return &Server{

@@ -30,6 +30,7 @@ type wsResponse struct {
 	Session   string `json:"session"`    // Session ID from server
 	Payload   string `json:"payload"`    // Base64-encoded payload
 	ExpiresIn int64  `json:"expires_in"` // Seconds until expiry
+	Serial    int64  `json:"serial,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
 
@@ -145,6 +146,91 @@ func (h *Handler) ClientShareHandler() http.HandlerFunc {
 			"encrypted_share": base64.StdEncoding.EncodeToString(encryptedShare),
 		}); err != nil {
 			slog.Error("failed to encode client share response", "error", err)
+		}
+	}
+}
+
+// UpdateClientShareHandler updates the encrypted client share for the authenticated user.
+// PUT /api/v1/sshca/client-share
+// The frontend should call this after registration to store the encrypted (with master key) share.
+func (h *Handler) UpdateClientShareHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req struct {
+			EncryptedShare string `json:"encrypted_share"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if req.EncryptedShare == "" {
+			http.Error(w, "encrypted_share is required", http.StatusBadRequest)
+			return
+		}
+
+		encryptedShare, err := base64.StdEncoding.DecodeString(req.EncryptedShare)
+		if err != nil {
+			http.Error(w, "invalid base64 encoding", http.StatusBadRequest)
+			return
+		}
+
+		if err := db.UpdateClientShare(h.db, userID, encryptedShare); err != nil {
+			slog.Error("failed to update client share", "error", err, "user_id", userID)
+			http.Error(w, "failed to update client share", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// ConfigHandler returns the full SSH CA configuration for the authenticated user.
+// GET /api/v1/sshca/config
+// Returns public key, client share, and both verification shares needed for FROST signing.
+func (h *Handler) ConfigHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := ctxutil.UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		ca, err := db.GetSSHCA(h.db, userID)
+		if err != nil {
+			slog.Error("failed to get SSH CA", "error", err, "user_id", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if ca == nil {
+			http.Error(w, "SSH CA not found", http.StatusNotFound)
+			return
+		}
+
+		clientShare, err := db.GetClientShare(h.db, userID)
+		if err != nil {
+			slog.Error("failed to get client share", "error", err, "user_id", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if clientShare == nil {
+			http.Error(w, "client share not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]string{
+			"public_key":             base64.StdEncoding.EncodeToString(ca.PublicKey),
+			"client_share":           base64.StdEncoding.EncodeToString(clientShare),
+			"server_verifying_share": base64.StdEncoding.EncodeToString(ca.ServerVerifyingShare),
+			"client_verifying_share": base64.StdEncoding.EncodeToString(ca.ClientVerifyingShare),
+		}); err != nil {
+			slog.Error("failed to encode config response", "error", err)
 		}
 	}
 }
@@ -479,6 +565,7 @@ func (h *Handler) handleRound2(client *signingClient, msg *wsMessage) {
 		Type:    "certificate",
 		Session: client.state.sessionID,
 		Payload: base64.StdEncoding.EncodeToString(certBytes),
+		Serial:  client.state.certSerial,
 	}
 	client.sendResponse(resp)
 

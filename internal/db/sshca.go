@@ -94,6 +94,24 @@ func SaveClientShare(db *sql.DB, userID int64, encryptedShare []byte) error {
 	return nil
 }
 
+func UpdateClientShare(db *sql.DB, userID int64, encryptedShare []byte) error {
+	result, err := db.Exec(
+		"UPDATE ssh_ca_client_shares SET encrypted_share = ? WHERE user_id = ?",
+		encryptedShare, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("update client share: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("no client share found for user")
+	}
+	return nil
+}
+
 func GetClientShare(db *sql.DB, userID int64) ([]byte, error) {
 	var encryptedShare []byte
 	err := db.QueryRow(

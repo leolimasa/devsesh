@@ -8,11 +8,11 @@
 - 🟢 Phase 3.5: Add Verification Shares to KeyShares - COMMITTED
 - 🟢 Phase 4a: FROST Signing Protocol (frost.go) - COMMITTED
 - 🟢 Phase 4b: WebSocket Handler & Routes - COMMITTED
-- 🟢 Phase 5: User Registration Integration - COMMITTED
+- 🟢 Phase 5: User Registration Integration - COMMITTED (✅ encryption support added)
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
 - 🟡 Phase 7: FROST Crypto Library (Frontend) - IMPLEMENTED
 - 🟡 Phase 8: FROST Web Worker - IMPLEMENTED
-- 🔴 Phase 9: FROST Client Library - NOT STARTED
+- 🟢 Phase 9: FROST Client Library - IMPLEMENTED (✅ code review fixes applied)
 - 🔴 Phase 10: Frontend UI Components - NOT STARTED
 - 🔴 Phase 11: SSH Client Integration - NOT STARTED
 - 🔴 Phase 12: Docker Container CA Support - NOT STARTED
@@ -181,8 +181,9 @@
 - [x] Modify `internal/auth/webauthn.go` `FinishRegistration` [req.ancud7]:
   - [x] Call `ca.GenerateKeyShares()` after successful registration (import `internal/ssh/ca`)
   - [x] Store server share in `ssh_ca` table
-  - [x] Store client share in `ssh_ca_client_shares` (not encrypted since client will re-encrypt)
-  - [x] Return encrypted client share in registration response
+  - [x] Store client share in `ssh_ca_client_shares` (raw initially, frontend encrypts and updates via PUT)
+  - [x] Return client share in registration response
+  - [x] **FIXED**: Added `PUT /api/v1/sshca/client-share` endpoint for frontend to save encrypted share [req.qogtvx]
 - [x] Update `internal/hosts/handler.go`:
   - [x] Modify `CreateHost` to handle `ssh_principal` [req.w51l9k]
   - [x] Modify `UpdateHost` to handle `ssh_principal` [req.w51l9k]
@@ -253,21 +254,34 @@
 
 ## Phase 9: FROST Client Library
 
-- [ ] Create `web/src/lib/frost-client.ts` [req.0xpudr]:
-  - [ ] `FROSTClient` class [req.qwdm15]
-  - [ ] `constructor()` - spawn worker
-  - [ ] `initWithShare()` - decrypt and initialize worker [req.qogtvx]
-  - [ ] `requestCertificate()` - complete signing flow [req.3j5hnq] [req.wdalb2] [req.5xcc6i] [req.o3lf24] [req.jki5t0]
-  - [ ] `isActive()` - check worker status [req.35jehk]
-  - [ ] `getRemainingTime()` - time until auto-terminate [req.35jehk]
-  - [ ] `terminate()` - manual termination [req.obmwbr]
-- [ ] Create `web/src/contexts/FROSTContext.tsx`:
-  - [ ] `FROSTProvider` component
-  - [ ] `useFROST()` hook
+- [x] Create `web/src/lib/frost-client.ts` [req.0xpudr]:
+  - [x] `FROSTClient` class [req.qwdm15]
+  - [x] `constructor()` - spawn worker
+  - [x] `initWithShare()` - decrypt and initialize worker [req.qogtvx]
+  - [x] `requestCertificate()` - complete signing flow [req.3j5hnq] [req.wdalb2] [req.5xcc6i] [req.o3lf24] [req.jki5t0]
+  - [x] `isActive()` - check worker status [req.35jehk]
+  - [x] `getRemainingTime()` - time until auto-terminate [req.35jehk]
+  - [x] `terminate()` - manual termination [req.obmwbr]
+- [x] Add `GET /api/v1/sshca/config` endpoint returning all FROST config
+- [x] Add `getSSHCAConfig()` and `getSSHCASigningWebSocketURL()` to web/src/lib/api.ts
+- [x] Create `web/src/contexts/FROSTContext.tsx`:
+  - [x] `FROSTProvider` component
+  - [x] `useFROST()` hook
+
+**Phase 9 Code Review Fixes (required before completion):**
+- [x] Fix duplicate `SSHCAConfig` interface in `web/src/types/api.ts`
+- [x] Fix serial number always returning 0 in `requestCertificate()` return value
+- [x] Add nil check for clientShare in `ConfigHandler` (handler.go)
+- [x] Add `onclose` handler in WebSocket signing flow to prevent hanging promises
+- [x] Update `FROSTContext.tsx` to accept master key and use `initWithShare()` for decryption [req.qogtvx]
+- [x] Add `PUT /api/v1/sshca/client-share` endpoint to save encrypted share
+- [x] Add `updateSSHCAClientShare()` API function
 
 **Phase 9 Testing:**
-- [ ] Run `cd web && npm run build`
-- [ ] Verify no TypeScript errors
+- [x] Run `cd web && npm run build` - verified (build succeeds, 142 modules)
+- [x] Verify no TypeScript errors - verified (tsc --noEmit passes)
+- [x] Run frontend tests: `cd web && npm test` - verified (113 tests pass)
+- [x] Run Go tests: `go test ./internal/...` - verified (all pass)
 
 ---
 

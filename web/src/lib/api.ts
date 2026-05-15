@@ -1,4 +1,4 @@
-import type { Session, Passkey, AuthStatus, Host, PasskeyEnrollment } from "@/types/api"
+import type { Session, Passkey, AuthStatus, Host, PasskeyEnrollment, SSHCAConfig } from "@/types/api"
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null
@@ -241,4 +241,20 @@ export async function pairExchange(
 export function getSSHWebSocketURL(hostId: number): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
   return `${protocol}//${window.location.host}/api/v1/hosts/${hostId}/ssh`
+}
+
+export async function getSSHCAConfig(): Promise<SSHCAConfig> {
+  return fetchApi<SSHCAConfig>("/sshca/config")
+}
+
+export async function updateSSHCAClientShare(encryptedShare: string): Promise<void> {
+  await fetchApi<void>("/sshca/client-share", {
+    method: "PUT",
+    body: JSON.stringify({ encrypted_share: encryptedShare }),
+  })
+}
+
+export function getSSHCASigningWebSocketURL(): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+  return `${protocol}//${window.location.host}/api/v1/sshca/sign`
 }
