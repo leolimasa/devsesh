@@ -11,7 +11,7 @@
 - 🟢 Phase 5: User Registration Integration - COMMITTED
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
 - 🟡 Phase 7: FROST Crypto Library (Frontend) - IMPLEMENTED
-- 🔴 Phase 8: FROST Web Worker - NOT STARTED
+- 🟡 Phase 8: FROST Web Worker - IMPLEMENTED
 - 🔴 Phase 9: FROST Client Library - NOT STARTED
 - 🔴 Phase 10: Frontend UI Components - NOT STARTED
 - 🔴 Phase 11: SSH Client Integration - NOT STARTED
@@ -236,17 +236,18 @@
 
 ## Phase 8: FROST Web Worker
 
-- [ ] Create `web/src/workers/frost-worker.ts` [req.qwdm15] [req.gvq1jj]:
-  - [ ] `onmessage` handler for: init, round1, round2, status, terminate [req.xxu1i4]
-  - [ ] Share storage in worker-local variable (not accessible from main thread) [req.qwdm15]
-  - [ ] `zeroMemory()` function to clear share [req.obmwbr]
-  - [ ] Inactivity timer (30 minutes default) [req.2k5is9]
-  - [ ] Auto-terminate on timeout [req.obmwbr]
-- [ ] Configure Vite to bundle worker separately
+- [x] Create `web/src/workers/frost-worker.ts` [req.qwdm15] [req.gvq1jj]:
+  - [x] `onmessage` handler for: init, round1, round2, status, terminate [req.xxu1i4]
+  - [x] Share storage in worker-local variable (not accessible from main thread) [req.qwdm15]
+  - [x] `zeroMemory()` function to clear share [req.obmwbr]
+  - [x] Inactivity timer (30 minutes default) [req.2k5is9]
+  - [x] Auto-terminate on timeout [req.obmwbr]
+- [x] Configure Vite to bundle worker separately
+- [x] Create `web/src/workers/frost-worker.test.ts` with unit tests
 
 **Phase 8 Testing:**
-- [ ] Run `cd web && npm run build` to verify worker bundles
-- [ ] Create manual test page that loads worker and verifies message passing
+- [x] Run `cd web && npm run build` to verify worker bundles
+- [x] Run `cd web && npm test -- frost-worker` to verify all tests pass (16 tests)
 
 ---
 

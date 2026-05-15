@@ -25,6 +25,14 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
   },
+  worker: {
+    format: 'es',
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/[name]-[hash].js',
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

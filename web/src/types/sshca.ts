@@ -36,11 +36,12 @@ export interface InitPayload {
     server: Uint8Array
     client: Uint8Array
   }
+  /** Optional timeout in milliseconds. Default is 30 minutes. [req.2k5is9] */
+  timeoutMs?: number
 }
 
 export interface Round1Payload {
   message: Uint8Array
-  clientCommitment: Uint8Array
 }
 
 export interface Round2Payload {
