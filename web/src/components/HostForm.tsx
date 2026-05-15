@@ -5,7 +5,7 @@ import type { Host } from "@/types/api"
 
 interface HostFormProps {
   host?: Host
-  onSubmit: (host: { label: string; hostname: string; ssh_user?: string; ssh_port?: number }) => void
+  onSubmit: (host: { label: string; hostname: string; ssh_user?: string; ssh_port?: number; ssh_principal?: string }) => void
   onCancel?: () => void
   submitLabel?: string
 }
@@ -15,6 +15,7 @@ export function HostForm({ host, onSubmit, onCancel, submitLabel = "Save" }: Hos
   const [hostname, setHostname] = useState(host?.hostname || "")
   const [sshUser, setSSHUser] = useState(host?.ssh_user || "")
   const [sshPort, setSSHPort] = useState(host?.ssh_port || 22)
+  const [sshPrincipal, setSSHPrincipal] = useState(host?.ssh_principal || "")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -35,11 +36,12 @@ export function HostForm({ host, onSubmit, onCancel, submitLabel = "Save" }: Hos
     }
 
     try {
-      await onSubmit({ 
-        label: label.trim(), 
+      await onSubmit({
+        label: label.trim(),
         hostname: hostname.trim(),
         ssh_user: sshUser.trim() || undefined,
-        ssh_port: sshPort || undefined
+        ssh_port: sshPort || undefined,
+        ssh_principal: sshPrincipal.trim() || undefined
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred")
@@ -101,6 +103,22 @@ export function HostForm({ host, onSubmit, onCancel, submitLabel = "Save" }: Hos
           placeholder="22"
           disabled={isLoading}
         />
+      </div>
+      <div>
+        <label htmlFor="host-ssh-principal" className="block text-sm font-medium mb-1">
+          SSH Principal
+        </label>
+        <Input
+          id="host-ssh-principal"
+          type="text"
+          value={sshPrincipal}
+          onChange={(e) => setSSHPrincipal(e.target.value)}
+          placeholder="e.g., ubuntu (for CA auth, defaults to SSH User)"
+          disabled={isLoading}
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Principal for SSH certificate authentication. If not set, SSH User is used.
+        </p>
       </div>
       {error && (
         <p className="text-sm text-destructive">{error}</p>

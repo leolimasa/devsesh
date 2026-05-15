@@ -203,7 +203,7 @@ export async function listHosts(): Promise<Host[]> {
   return fetchApi<Host[]>("/hosts")
 }
 
-export async function createHost(host: { label: string; hostname: string; ssh_user?: string; ssh_port?: number }): Promise<Host> {
+export async function createHost(host: { label: string; hostname: string; ssh_user?: string; ssh_port?: number; ssh_principal?: string }): Promise<Host> {
   return fetchApi<Host>("/hosts", {
     method: "POST",
     body: JSON.stringify(host),
@@ -214,7 +214,7 @@ export async function getHost(id: number): Promise<Host> {
   return fetchApi<Host>(`/hosts/${id}`)
 }
 
-export async function updateHost(id: number, host: { label?: string; hostname?: string; ssh_user?: string; ssh_port?: number }): Promise<Host> {
+export async function updateHost(id: number, host: { label?: string; hostname?: string; ssh_user?: string; ssh_port?: number; ssh_principal?: string }): Promise<Host> {
   return fetchApi<Host>(`/hosts/${id}`, {
     method: "PUT",
     body: JSON.stringify(host),
@@ -245,6 +245,10 @@ export function getSSHWebSocketURL(hostId: number): string {
 
 export async function getSSHCAConfig(): Promise<SSHCAConfig> {
   return fetchApi<SSHCAConfig>("/sshca/config")
+}
+
+export async function getSSHCAPublicKey(): Promise<{ public_key: string }> {
+  return fetchApi<{ public_key: string }>("/sshca/public-key")
 }
 
 export async function updateSSHCAClientShare(encryptedShare: string): Promise<void> {

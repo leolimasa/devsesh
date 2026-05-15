@@ -4,6 +4,7 @@ export interface Host {
   hostname: string;
   ssh_user: string;
   ssh_port: number;
+  ssh_principal: string;
   user_id: number;
   created_at: string;
   updated_at: string;

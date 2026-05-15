@@ -12,8 +12,8 @@
 - 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
 - 🟡 Phase 7: FROST Crypto Library (Frontend) - IMPLEMENTED
 - 🟡 Phase 8: FROST Web Worker - IMPLEMENTED
-- 🟢 Phase 9: FROST Client Library - IMPLEMENTED (✅ code review fixes applied)
-- 🔴 Phase 10: Frontend UI Components - NOT STARTED
+- 🟢 Phase 9: FROST Client Library - COMMITTED (✅ code review fixes applied)
+- 🟡 Phase 10: Frontend UI Components - IMPLEMENTED
 - 🔴 Phase 11: SSH Client Integration - NOT STARTED
 - 🔴 Phase 12: Docker Container CA Support - NOT STARTED
 - 🔴 Phase 13: Integration Test - NOT STARTED
@@ -287,21 +287,26 @@
 
 ## Phase 10: Frontend UI Components
 
-- [ ] Create `web/src/components/WorkerStatusIndicator.tsx` [req.35jehk]:
-  - [ ] Active/inactive state display
-  - [ ] Countdown timer
-  - [ ] Pulsing indicator when ready
-- [ ] Create `web/src/components/CAPublicKeyDownload.tsx` [req.23hk63] [req.0lpwy4]:
-  - [ ] Fetch CA public key from API
-  - [ ] Display SHA256 fingerprint
-  - [ ] Download button (OpenSSH format)
-- [ ] Modify `web/src/components/HostForm.tsx` [req.w51l9k]:
-  - [ ] Add SSH principal input field
-  - [ ] Update form validation
-  - [ ] Update API calls to include principal
+- [x] Create `web/src/components/WorkerStatusIndicator.tsx` [req.35jehk]:
+  - [x] Active/inactive state display
+  - [x] Countdown timer
+  - [x] Pulsing indicator when ready
+- [x] Create `web/src/components/CAPublicKeyDownload.tsx` [req.23hk63] [req.0lpwy4]:
+  - [x] Fetch CA public key from API
+  - [x] Display SHA256 fingerprint
+  - [x] Download button (OpenSSH format)
+- [x] Modify `web/src/components/HostForm.tsx` [req.w51l9k]:
+  - [x] Add SSH principal input field
+  - [x] Update form validation
+  - [x] Update API calls to include principal
+- [x] Add `ssh_principal` field to Host type in `web/src/types/api.ts`
+- [x] Update API functions in `web/src/lib/api.ts` to include `ssh_principal`
+- [x] Add `getSSHCAPublicKey()` API function
+- [x] Update test files to include `ssh_principal` in mock Host objects
 
 **Phase 10 Testing:**
-- [ ] Run `cd web && npm run build`
+- [x] Run `cd web && npm run build` - verified (142 modules built)
+- [x] Run `cd web && npm test` - verified (113 tests pass)
 - [ ] Manual test: Verify host form shows principal field
 - [ ] Manual test: Verify CA download component renders
 
