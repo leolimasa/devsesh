@@ -9,8 +9,8 @@
 - 🟢 Phase 4a: FROST Signing Protocol (frost.go) - COMMITTED
 - 🟢 Phase 4b: WebSocket Handler & Routes - COMMITTED
 - 🟢 Phase 5: User Registration Integration - COMMITTED
-- 🟢 Phase 6: Frontend TypeScript Dependencies & Types - COMMITTED
-- 🔴 Phase 7: FROST Crypto Library (Frontend) - NOT STARTED
+- 🟡 Phase 6: Frontend TypeScript Dependencies & Types - IMPLEMENTED
+- 🟡 Phase 7: FROST Crypto Library (Frontend) - IMPLEMENTED
 - 🔴 Phase 8: FROST Web Worker - NOT STARTED
 - 🔴 Phase 9: FROST Client Library - NOT STARTED
 - 🔴 Phase 10: Frontend UI Components - NOT STARTED
@@ -199,33 +199,38 @@
 
 - [x] Add `@noble/curves` to web/package.json [req.0xpudr]
 - [x] Add `@noble/hashes` to web/package.json [req.jap7ew]
-- [ ] Create `web/src/types/sshca.ts` with TypeScript interfaces [req.0xpudr]:
-  - [ ] `FROSTShare`
-  - [ ] `SigningSessionState`
-  - [ ] `WorkerMessage`
-  - [ ] `WorkerResponse`
+- [x] Create `web/src/types/sshca.ts` with TypeScript interfaces [req.0xpudr]:
+  - [x] `FROSTShare`
+  - [x] `SigningSessionState`
+  - [x] `WorkerMessage`
+  - [x] `WorkerResponse`
 
 **Phase 6 Testing:**
-- [ ] Run `cd web && npm install`
-- [ ] Run `cd web && npm run build` to verify types compile
+- [x] Run `cd web && npm install`
+- [x] Run `cd web && npm run build` to verify types compile
 
 ---
 
 ## Phase 7: FROST Crypto Library (Frontend)
 
-- [ ] Create `web/src/lib/crypto/frost.ts` [req.0xpudr]:
-  - [ ] `generateNonces()` - fresh nonces for signing [req.ey98nq]
-  - [ ] `computeCommitment()` - compute commitment from nonces [req.5xcc6i]
-  - [ ] `computePartialSignature()` - compute partial sig [req.o3lf24]
-  - [ ] `deserializeShare()` - parse share from bytes
-  - [ ] `serializeCommitment()` - encode commitment for transmission
-- [ ] Create `web/src/lib/crypto/frost.test.ts`:
-  - [ ] Test nonce generation produces unique values
-  - [ ] Test commitment computation
-  - [ ] Test partial signature computation with known test vectors
+- [x] Create `web/src/lib/crypto/frost.ts` [req.0xpudr]:
+  - [x] `generateNonces()` - fresh nonces for signing [req.ey98nq]
+  - [x] `computeCommitment()` - compute commitment from nonces [req.5xcc6i]
+  - [x] `computePartialSignature()` - compute partial sig [req.o3lf24]
+  - [x] `deserializeShare()` - parse share from bytes
+  - [x] `encodeCommitment()` / `decodeCommitment()` - encode/decode commitment for transmission
+  - [x] `clientRound1()` / `clientRound2()` - high-level signing flow functions
+  - [x] `buildCommitmentList()` - convert commitments to @noble/curves format
+  - [x] `zeroMemory()` - securely clear sensitive data [req.obmwbr]
+- [x] Create `web/src/lib/crypto/frost.test.ts`:
+  - [x] Test nonce generation produces unique values
+  - [x] Test commitment encoding/decoding
+  - [x] Test signature share encoding/decoding
+  - [x] Test full signing flow produces valid Ed25519 signature
+  - [x] Test different messages produce different signatures
 
 **Phase 7 Testing:**
-- [ ] Run `cd web && npm test -- frost`
+- [x] Run `cd web && npm test -- frost`
 
 ---
 

@@ -29,3 +29,5 @@
 * [ ] Add built in rate limits for endpoints
 * [ ] Convert mutexes to actor model
 * [ ] Replace internal/ssh/ca.GenerateKeyShares with a mechanism that generates the client share on the client.
+* [ ] aes.ts has 0 byte salt?
+* [ ] encoding.ts is reimplementing base64 encoding?
