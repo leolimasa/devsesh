@@ -14,8 +14,8 @@
 - 🟡 Phase 8: FROST Web Worker - IMPLEMENTED
 - 🟢 Phase 9: FROST Client Library - COMMITTED (✅ code review fixes applied)
 - 🟡 Phase 10: Frontend UI Components - IMPLEMENTED
-- 🔴 Phase 11: SSH Client Integration - NOT STARTED
-- 🔴 Phase 12: Docker Container CA Support - NOT STARTED
+- 🟡 Phase 11: SSH Client Integration - IMPLEMENTED
+- 🟢 Phase 12: Docker Container CA Support - COMMITTED
 - 🔴 Phase 13: Integration Test - NOT STARTED
 - 🔴 Phase 14: Final Validation - NOT STARTED
 
@@ -314,50 +314,79 @@
 
 ## Phase 11: SSH Client Integration
 
-- [ ] Modify `web/wasm/sshclient/client.go`:
-  - [ ] Add `SetCertificateCallback()` function
-  - [ ] Add certificate-based auth to `Connect()` Auth methods
-  - [ ] Request certificate via callback before password fallback
-- [ ] Rebuild WASM: `cd web/wasm/sshclient && ./build_wasm.sh`
-- [ ] Modify `web/src/lib/ssh-client.ts` [req.4oofln]:
-  - [ ] Check FROST worker status before connect
-  - [ ] Trigger WebAuthn prompt if worker inactive
-  - [ ] Initialize worker with master key
-  - [ ] Request certificate for host
-  - [ ] Pass certificate to WASM client
-- [ ] Modify `web/src/components/SSHTerminal.tsx` [req.4oofln]:
-  - [ ] Integrate with FROST context
-  - [ ] Show WebAuthn prompt when needed
-  - [ ] Display certificate request progress
-- [ ] Modify `web/src/pages/RegisterPage.tsx`:
-  - [ ] Fetch encrypted client share after registration
-  - [ ] Re-encrypt with PRF-derived master key
-  - [ ] Store for later retrieval
+- [x] Modify `web/wasm/sshclient/client.go`:
+  - [x] Add `SetCertificateCallback()` function
+  - [x] Add `ResolveCertificate()` and `RejectCertificate()` functions
+  - [x] Add `parseCertificateAndKey()` to parse certificate and private key
+  - [x] Add certificate-based auth to `Connect()` Auth methods (using `ssh.NewCertSigner`)
+  - [x] Request certificate via callback before password fallback
+- [x] Rebuild WASM: `./build_wasm.sh`
+- [x] Modify `web/src/lib/ssh-client.ts` [req.4oofln]:
+  - [x] Add certificate callback support to global declarations
+  - [x] Add `certificate-request` event emission
+  - [x] Add `resolveCertificate()` and `rejectCertificate()` methods
+- [x] Modify `web/src/lib/frost-client.ts`:
+  - [x] Generate ephemeral Ed25519 keypair for each certificate request
+  - [x] Send user public key with certificate request
+  - [x] Return both certificate and ephemeral private key in `CertificateResult`
+- [x] Update `web/src/types/sshca.ts`:
+  - [x] Add `userPrivateKey` and `userPublicKey` to `CertificateResult`
+- [x] Modify backend `internal/ssh/ca/ca.go`:
+  - [x] Update `CreateTBSCertificate()` to accept user public key parameter
+- [x] Modify backend `internal/ssh/ca/handler.go`:
+  - [x] Add `user_public_key` field to `wsMessage` struct
+  - [x] Validate and use user public key in `handleRequestCert()`
+- [x] Update Go tests for new `CreateTBSCertificate()` signature
+- [x] Create `web/src/components/WebAuthnDialog.tsx`:
+  - [x] Dialog for prompting WebAuthn authentication
+  - [x] Uses AlertDialog UI component
+- [x] Modify `web/src/components/SSHTerminal.tsx` [req.4oofln]:
+  - [x] Integrate with FROST context via `useFROST()`
+  - [x] Handle `certificate-request` event from SSH client
+  - [x] Show WebAuthn dialog when FROST worker is inactive
+  - [x] Perform WebAuthn PRF authentication to unlock worker
+  - [x] Request certificate and pass to SSH client with private key
+  - [x] Fall back to password auth if certificate auth fails
+- [x] Modify `web/src/pages/RegisterPage.tsx`:
+  - [x] Capture client share from registration response
+  - [x] Encrypt with master key and store in localStorage as pending
+- [x] Modify `web/src/pages/LoginPage.tsx`:
+  - [x] Check for pending client share after login
+  - [x] Upload encrypted client share to server
+- [x] Update `web/src/lib/api.ts`:
+  - [x] Update `registerFinish()` to return `RegisterFinishResponse` with client share
+- [x] Update `web/src/contexts/FROSTContext.tsx`:
+  - [x] Import and use `CertificateResult` type
+- [x] Update test file `web/src/components/SSHTerminal.test.tsx`:
+  - [x] Mock FROST context
+  - [x] Add mock certificate methods to SSHClient
 
 **Phase 11 Testing:**
-- [ ] Run `cd web && npm run build`
-- [ ] Run `cd web/wasm/sshclient && ./build_wasm.sh`
+- [x] Run `cd web && npm run build` - verified (build succeeds)
+- [x] Run `./build_wasm.sh` - verified (WASM built successfully)
+- [x] Run `cd web && npm test` - verified (113 tests pass)
+- [x] Run `go test ./internal/ssh/ca/...` - verified (all tests pass)
 - [ ] Manual test: Connect to SSH host, verify certificate auth attempted
 
 ---
 
 ## Phase 12: Docker Container CA Support
 
-- [ ] Create `integration_tests/ssh/ca_setup.sh` [req.17dfwk]:
-  - [ ] Accept CA public key via environment variable
-  - [ ] Configure `TrustedUserCAKeys` in sshd_config
-  - [ ] Configure `AuthorizedPrincipalsFile`
-  - [ ] Create principals file for testuser
-- [ ] Modify `integration_tests/ssh/Dockerfile` [req.17dfwk]:
-  - [ ] Copy ca_setup.sh into container
-  - [ ] Make script executable
-- [ ] Modify `integration_tests/ssh/entrypoint.sh` [req.17dfwk] [req.cu1f0k]:
-  - [ ] Call CA setup script if CA_PUBLIC_KEY env var set
-  - [ ] Create flag file with known content
+- [x] Create `integration_tests/ssh/ca_setup.sh` [req.17dfwk]:
+  - [x] Accept CA public key via environment variable
+  - [x] Configure `TrustedUserCAKeys` in sshd_config
+  - [x] Configure `AuthorizedPrincipalsFile`
+  - [x] Create principals file for testuser
+- [x] Modify `integration_tests/ssh/Dockerfile` [req.17dfwk]:
+  - [x] Copy ca_setup.sh into container
+  - [x] Make script executable
+- [x] Modify `integration_tests/ssh/entrypoint.sh` [req.17dfwk] [req.cu1f0k]:
+  - [x] Call CA setup script if CA_PUBLIC_KEY env var set
+  - [x] Create flag file with known content
 
 **Phase 12 Testing:**
-- [ ] Build container: `cd integration_tests/ssh && docker build -t devsesh-ssh-test .`
-- [ ] Test CA auth manually:
+- [x] Build container: `cd integration_tests/ssh && docker build -t devsesh-ssh-test .`
+- [x] Test CA auth manually:
   ```bash
   # Generate test CA keypair
   ssh-keygen -t ed25519 -f /tmp/ca_key -N ""

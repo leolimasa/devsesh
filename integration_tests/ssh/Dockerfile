@@ -13,6 +13,10 @@ RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
 
 COPY --chmod=755 build/devsesh /usr/local/bin/devsesh
 
+# Copy CA setup script for certificate-based authentication [req.17dfwk]
+COPY integration_tests/ssh/ca_setup.sh /ca_setup.sh
+RUN chmod +x /ca_setup.sh
+
 COPY integration_tests/ssh/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
