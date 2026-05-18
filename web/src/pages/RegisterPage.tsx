@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { registerBegin, registerFinish } from "@/lib/api"
-import { generateMasterKey, deriveMasterKeyFromPrf, encodeBase64, formatEncryptedMasterKey, getPrfSalt, decodeBase64URL } from "@/lib/crypto/prf"
+import { registerBegin, registerFinish, updateSSHCAClientShare } from "@/lib/api"
+import { generateMasterKey, deriveMasterKeyFromPrf, encodeBase64, formatEncryptedMasterKey, getPrfSalt, decodeBase64URL, decodeBase64 } from "@/lib/crypto/prf"
 import { encrypt } from "@/lib/crypto/aes"
+import { useAuth } from "@/contexts/AuthContext"
 
 // Convert base64url to ArrayBuffer
 function base64urlToBuffer(base64url: string): ArrayBuffer {
@@ -20,6 +21,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [webAuthnSupported, setWebAuthnSupported] = useState(true)
   const navigate = useNavigate()
+  const { login } = useAuth()
 
   useEffect(() => {
     setWebAuthnSupported(browserSupportsWebAuthn())
@@ -105,6 +107,10 @@ export default function RegisterPage() {
       const credential = credentialResponse as PublicKeyCredential
       const attestationResponse = credential.response as AuthenticatorAttestationResponse
 
+      // Debug: log credential ID
+      console.log('[RegisterPage] credential.id:', credential.id)
+      console.log('[RegisterPage] credential.rawId length:', credential.rawId.byteLength)
+
       // Extract PRF extension results
       const extResults = credential.getClientExtensionResults() as {
         prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } }
@@ -114,17 +120,23 @@ export default function RegisterPage() {
       const masterKey = generateMasterKey()
       let prfOutput: Uint8Array | null = null
 
-      // Check if PRF results were returned during creation (some authenticators support this)
-      if (extResults?.prf?.results?.first) {
-        prfOutput = new Uint8Array(extResults.prf.results.first)
-      } else if (extResults?.prf?.enabled) {
+      // Always use get() to obtain PRF output for consistency with login flow.
+      // Even if create() returns PRF results, some authenticators (including Chromium's
+      // virtual authenticator) may produce different PRF outputs between create() and get().
+      // By always using get(), we ensure the same PRF derivation path is used for both
+      // registration and login, guaranteeing consistent master key derivation.
+      if (extResults?.prf?.enabled || extResults?.prf?.results?.first) {
         // PRF is supported but results weren't returned during create()
         // This is common for hardware security keys - we need to do a get() call
         // to actually get the PRF output
 
+        const rpIdToUse = pubKey.rp.id || window.location.hostname
+        console.log('[RegisterPage] PRF get() rpId:', rpIdToUse)
+        console.log('[RegisterPage] PRF salt length:', prfSalt.length)
+
         const assertionOptions: PublicKeyCredentialRequestOptions = {
           challenge: crypto.getRandomValues(new Uint8Array(32)),
-          rpId: pubKey.rp.id || window.location.hostname,
+          rpId: rpIdToUse,
           allowCredentials: [{
             id: credential.rawId,
             type: 'public-key' as const,
@@ -139,7 +151,9 @@ export default function RegisterPage() {
           } as AuthenticationExtensionsClientInputs
         }
 
+        console.log('[RegisterPage] Calling get() for PRF output...')
         const assertion = await navigator.credentials.get({ publicKey: assertionOptions })
+        console.log('[RegisterPage] PRF get() completed')
         if (!assertion) {
           throw new Error('Failed to get PRF output from authenticator')
         }
@@ -159,10 +173,14 @@ export default function RegisterPage() {
       }
 
       // Derive encryption key from PRF output
+      console.log('[RegisterPage] PRF output first 4 bytes:', Array.from(prfOutput.slice(0, 4)).join(','))
       const prfKey = await deriveMasterKeyFromPrf(prfOutput)
+      console.log('[RegisterPage] Derived prfKey first 4 bytes:', Array.from(prfKey.slice(0, 4)).join(','))
+      console.log('[RegisterPage] masterKey first 4 bytes:', Array.from(masterKey.slice(0, 4)).join(','))
 
       // Encrypt the master key
       const { nonce, ciphertext } = await encrypt(prfKey, masterKey)
+      console.log('[RegisterPage] Encryption nonce first 4 bytes:', Array.from(nonce.slice(0, 4)).join(','))
 
       // Combine nonce + ciphertext with version byte
       const combined = new Uint8Array(12 + ciphertext.length)
@@ -192,8 +210,36 @@ export default function RegisterPage() {
         authenticatorAttachment: (credential as any).authenticatorAttachment,
       }
 
-      await registerFinish(email, credentialJSON, encryptedMasterKey)
-      navigate("/login")
+      const registerResponse = await registerFinish(email, credentialJSON, encryptedMasterKey)
+
+      // Auto-login with the token returned from registration
+      if (!registerResponse.token) {
+        throw new Error("Registration succeeded but no token was returned")
+      }
+      login(registerResponse.token, { id: 0, email, token: registerResponse.token })
+
+      // If the server returned a client share, encrypt it with the master key and upload it
+      if (registerResponse.client_share) {
+        // Decode the plaintext client share
+        const clientShareBytes = decodeBase64(registerResponse.client_share)
+        console.log('[RegisterPage] Plaintext client share length:', clientShareBytes.length)
+        console.log('[RegisterPage] Plaintext client share first 4 bytes:', Array.from(clientShareBytes.slice(0, 4)).join(','))
+
+        // Encrypt the client share with the master key
+        const { nonce: shareNonce, ciphertext: shareCiphertext } = await encrypt(masterKey, clientShareBytes)
+        console.log('[RegisterPage] Client share encryption nonce first 4 bytes:', Array.from(shareNonce.slice(0, 4)).join(','))
+        console.log('[RegisterPage] Client share ciphertext length:', shareCiphertext.length)
+
+        // Combine nonce + ciphertext
+        const encryptedShare = new Uint8Array(12 + shareCiphertext.length)
+        encryptedShare.set(shareNonce, 0)
+        encryptedShare.set(shareCiphertext, 12)
+
+        // Upload the encrypted client share to the server immediately (we're now logged in)
+        await updateSSHCAClientShare(encodeBase64(encryptedShare))
+      }
+
+      navigate("/dashboard")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed")
     } finally {

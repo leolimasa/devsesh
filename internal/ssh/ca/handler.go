@@ -1,6 +1,7 @@
 package ca
 
 import (
+	"crypto/ed25519"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -19,10 +20,11 @@ import (
 )
 
 type wsMessage struct {
-	Type    string `json:"type"` // "request_cert", "round1", "round2"
-	HostID  int64  `json:"host_id,omitempty"`
-	Session string `json:"session,omitempty"` // Session ID from server
-	Payload string `json:"payload,omitempty"` // Base64-encoded payload
+	Type          string `json:"type"`                     // "request_cert", "round1", "round2"
+	HostID        int64  `json:"host_id,omitempty"`        // Host ID for certificate request
+	UserPublicKey string `json:"user_public_key,omitempty"` // Base64-encoded user ephemeral public key (32 bytes)
+	Session       string `json:"session,omitempty"`        // Session ID from server
+	Payload       string `json:"payload,omitempty"`        // Base64-encoded payload
 }
 
 type wsResponse struct {
@@ -90,8 +92,9 @@ func (h *Handler) checkOrigin(r *http.Request) bool {
 	return false
 }
 
-// PublicKeyHandler returns the CA public key for the authenticated user.
+// PublicKeyHandler returns the CA public key for the authenticated user in OpenSSH format.
 // GET /api/v1/sshca/public-key
+// [req.23hk63]
 func (h *Handler) PublicKeyHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := ctxutil.UserIDFromContext(r.Context())
@@ -111,9 +114,23 @@ func (h *Handler) PublicKeyHandler() http.HandlerFunc {
 			return
 		}
 
+		slog.Info("SSH CA public key fetched for user",
+			"user_id", userID,
+			"publicKey_hex", fmt.Sprintf("%x", ca.PublicKey),
+			"publicKey_len", len(ca.PublicKey),
+		)
+
+		// Format the public key in OpenSSH format for use in TrustedUserCAKeys
+		openSSHKey, err := FormatPublicKeyOpenSSH(ca.PublicKey)
+		if err != nil {
+			slog.Error("failed to format public key", "error", err, "user_id", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]string{
-			"public_key": base64.StdEncoding.EncodeToString(ca.PublicKey),
+			"public_key": openSSHKey,
 		}); err != nil {
 			slog.Error("failed to encode public key response", "error", err)
 		}
@@ -319,9 +336,28 @@ func (c *signingClient) handleMessage(h *Handler, msg *wsMessage) {
 
 // handleRequestCert processes a certificate request, validates host ownership,
 // creates the TBS certificate data, and returns a session ID to the client.
+// The client must provide their ephemeral public key (user_public_key) that will
+// be included in the certificate. The client holds the corresponding private key
+// and uses it for SSH authentication after receiving the signed certificate.
 func (h *Handler) handleRequestCert(client *signingClient, msg *wsMessage) {
 	if msg.HostID == 0 {
 		client.sendError("host_id is required")
+		return
+	}
+
+	if msg.UserPublicKey == "" {
+		client.sendError("user_public_key is required")
+		return
+	}
+
+	// Decode the user's ephemeral public key
+	userPubKey, err := base64.StdEncoding.DecodeString(msg.UserPublicKey)
+	if err != nil {
+		client.sendError("invalid user_public_key: must be base64 encoded")
+		return
+	}
+	if len(userPubKey) != 32 {
+		client.sendError("invalid user_public_key: must be 32 bytes (Ed25519)")
 		return
 	}
 
@@ -380,7 +416,8 @@ func (h *Handler) handleRequestCert(client *signingClient, msg *wsMessage) {
 		return
 	}
 
-	cert, err := CreateTBSCertificate(ca.PublicKey, principal, uint64(serial), validSeconds)
+	// Create certificate with the user's ephemeral public key
+	cert, err := CreateTBSCertificate(ca.PublicKey, userPubKey, principal, uint64(serial), validSeconds)
 	if err != nil {
 		client.sendError("failed to create certificate")
 		logSerial := serial
@@ -388,10 +425,21 @@ func (h *Handler) handleRequestCert(client *signingClient, msg *wsMessage) {
 		return
 	}
 
-	tbsData := cert.Marshal()
+	// Get the bytes for signing: certificate without signature, and WITHOUT the
+	// trailing 4-byte signature length field. This matches Go's ssh.Certificate.bytesForSigning().
+	certBytes := cert.Marshal()
+	tbsData := certBytes[:len(certBytes)-4]
 
 	client.state.cert = cert
 	client.state.caPublicKey = ca.PublicKey
+
+	slog.Info("Certificate TBS created",
+		"user_id", client.userID,
+		"host_id", msg.HostID,
+		"serial", serial,
+		"caPublicKey_hex", fmt.Sprintf("%x", ca.PublicKey),
+		"caPublicKey_len", len(ca.PublicKey),
+	)
 
 	session, err := h.sessionManager.CreateSession(client.userID, msg.HostID, tbsData)
 	if err != nil {
@@ -552,6 +600,31 @@ func (h *Handler) handleRound2(client *signingClient, msg *wsMessage) {
 		return
 	}
 
+	// Debug: verify the signature before building certificate
+	if !ed25519.Verify(ed25519.PublicKey(client.state.caPublicKey), client.state.tbsData, finalSig) {
+		slog.Error("FROST signature verification FAILED",
+			"user_id", client.userID,
+			"session", client.state.sessionID,
+			"sig_len", len(finalSig),
+			"tbs_len", len(client.state.tbsData),
+			"pubkey_len", len(client.state.caPublicKey),
+		)
+		client.sendError("signature verification failed")
+		h.sessionManager.DeleteSession(client.state.sessionID)
+		logSerial := client.state.certSerial
+		h.logCertIssuance(client.userID, client.state.hostID, &logSerial, false, "signature verification failed")
+		return
+	}
+	slog.Info("FROST signature verified successfully",
+		"user_id", client.userID,
+		"session", client.state.sessionID,
+		"serial", client.state.certSerial,
+		"sig_first_8", fmt.Sprintf("%x", finalSig[:8]),
+		"sig_last_8", fmt.Sprintf("%x", finalSig[56:]),
+		"tbs_len", len(client.state.tbsData),
+		"tbs_first_8", fmt.Sprintf("%x", client.state.tbsData[:8]),
+	)
+
 	certBytes, err := BuildSignedCertificate(client.state.cert, finalSig, client.state.caPublicKey)
 	if err != nil {
 		client.sendError("failed to build certificate")
@@ -560,6 +633,32 @@ func (h *Handler) handleRound2(client *signingClient, msg *wsMessage) {
 		h.logCertIssuance(client.userID, client.state.hostID, &logSerial, false, "certificate build failed: "+err.Error())
 		return
 	}
+
+	// Debug: verify the built certificate can be parsed and signature matches
+	parsedPub, parseErr := ssh.ParsePublicKey(certBytes)
+	if parseErr != nil {
+		slog.Error("Failed to parse built certificate", "error", parseErr)
+	} else {
+		if parsedCert, ok := parsedPub.(*ssh.Certificate); ok {
+			slog.Info("Built certificate details",
+				"cert_type", parsedCert.Type(),
+				"serial", parsedCert.Serial,
+				"principals", parsedCert.ValidPrincipals,
+				"sig_format", parsedCert.Signature.Format,
+				"sig_len", len(parsedCert.Signature.Blob),
+				"sig_first_8", fmt.Sprintf("%x", parsedCert.Signature.Blob[:8]),
+			)
+		}
+	}
+
+	// Debug: log the exact base64 being sent
+	certBase64 := base64.StdEncoding.EncodeToString(certBytes)
+	slog.Info("Certificate being sent to client",
+		"cert_bytes_len", len(certBytes),
+		"cert_base64_len", len(certBase64),
+		"cert_first_32", fmt.Sprintf("%x", certBytes[:32]),
+		"cert_last_32", fmt.Sprintf("%x", certBytes[len(certBytes)-32:]),
+	)
 
 	resp := wsResponse{
 		Type:    "certificate",

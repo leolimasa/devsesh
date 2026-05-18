@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 import { SSHTerminal } from "./SSHTerminal"
 import type { Host } from "@/types/api"
+import type { ReactNode } from "react"
 
 // Mock xterm
 vi.mock("xterm", () => {
@@ -38,6 +39,9 @@ const mockRejectPassword = vi.fn()
 const mockOn = vi.fn()
 const mockOff = vi.fn()
 
+const mockResolveCertificate = vi.fn()
+const mockRejectCertificate = vi.fn()
+
 vi.mock("@/lib/ssh-client", () => {
   return {
     SSHClient: class MockSSHClient {
@@ -49,11 +53,26 @@ vi.mock("@/lib/ssh-client", () => {
       resize = mockResize
       resolvePassword = mockResolvePassword
       rejectPassword = mockRejectPassword
+      resolveCertificate = mockResolveCertificate
+      rejectCertificate = mockRejectCertificate
       on = mockOn
       off = mockOff
     },
   }
 })
+
+// Mock the FROST context to avoid worker initialization
+vi.mock("@/contexts/FROSTContext", () => ({
+  FROSTProvider: ({ children }: { children: ReactNode }) => children,
+  useFROST: () => ({
+    isActive: false,
+    remainingTime: 0,
+    client: null,
+    initWorker: vi.fn(),
+    requestCert: vi.fn().mockRejectedValue(new Error("Mock error")),
+    terminate: vi.fn(),
+  }),
+}))
 
 // Helper to get mock references
 const mockSSHClient = {

@@ -21,10 +21,12 @@ import { getSSHCASigningWebSocketURL, getToken, getSSHCAConfig } from './api'
 import { decrypt } from './crypto/aes'
 import { decodeBase64, encodeBase64 } from './crypto/encoding'
 import type { SSHCAConfig } from '@/types/api'
+import { ed25519 } from '@noble/curves/ed25519.js'
 
 interface WSRequest {
   type: 'request_cert' | 'round1' | 'round2'
   host_id?: number
+  user_public_key?: string // Base64-encoded Ed25519 public key for certificate
   session?: string
   payload?: string
 }
@@ -49,6 +51,8 @@ export class FROSTClient {
   private timeoutMs = 30 * 60 * 1000
   private pendingResolve: ((value: WorkerResponse) => void) | null = null
   private pendingReject: ((reason: Error) => void) | null = null
+  // Track in-progress certificate requests to prevent races
+  private certRequestPromise: Promise<CertificateResult> | null = null
 
   /**
    * Creates a new FROSTClient instance and spawns the web worker.
@@ -147,9 +151,17 @@ export class FROSTClient {
 
     const config = await getSSHCAConfig()
 
+    console.log('[FROSTClient] Encrypted share length:', encryptedShare.length)
+    console.log('[FROSTClient] Master key first 4 bytes:', Array.from(masterKey.slice(0, 4)).join(','))
+
     const nonce = encryptedShare.slice(0, 12)
     const ciphertext = encryptedShare.slice(12)
+    console.log('[FROSTClient] Nonce first 4 bytes:', Array.from(nonce.slice(0, 4)).join(','))
+    console.log('[FROSTClient] Ciphertext length:', ciphertext.length)
+
     const shareBytes = await decrypt(masterKey, nonce, ciphertext)
+    console.log('[FROSTClient] Decrypted share length:', shareBytes.length)
+    console.log('[FROSTClient] Decrypted share first 4 bytes:', Array.from(shareBytes.slice(0, 4)).join(','))
 
     return this.initWithConfig(config, shareBytes)
   }
@@ -206,8 +218,17 @@ export class FROSTClient {
    * @returns The certificate result with base64-encoded certificate and serial number
    */
   async requestCertificate(hostId: number): Promise<CertificateResult> {
+    console.log('[FROSTClient] requestCertificate called for host:', hostId, 'isInitialized:', this.isInitialized)
+
     if (!this.isInitialized || !this.worker) {
       throw new Error('FROST client not initialized')
+    }
+
+    // If there's already a certificate request in progress, return the same promise
+    // This handles React StrictMode double-mounting gracefully
+    if (this.certRequestPromise) {
+      console.log('[FROSTClient] Returning existing certificate request promise')
+      return this.certRequestPromise
     }
 
     const token = getToken()
@@ -217,7 +238,9 @@ export class FROSTClient {
 
     this.initTime = Date.now()
 
-    return new Promise<CertificateResult>((resolve, reject) => {
+    console.log('[FROSTClient] Creating new WebSocket connection for certificate request')
+
+    this.certRequestPromise = new Promise<CertificateResult>((resolve, reject) => {
       let ws: WebSocket | null = null
       let settled = false
 
@@ -258,6 +281,13 @@ export class FROSTClient {
         settle(() => reject(err))
       }
     })
+
+    // Clear the promise after it settles (success or failure)
+    this.certRequestPromise.finally(() => {
+      this.certRequestPromise = null
+    })
+
+    return this.certRequestPromise
   }
 
   /**
@@ -270,6 +300,8 @@ export class FROSTClient {
 
   /**
    * Performs the full FROST signing flow over WebSocket.
+   * Generates an ephemeral Ed25519 keypair for the certificate and returns
+   * both the signed certificate and the keypair for SSH authentication.
    */
   private async handleSigningFlow(
     ws: WebSocket,
@@ -297,11 +329,17 @@ export class FROSTClient {
       })
     }
 
+    // Generate ephemeral Ed25519 keypair for the certificate.
+    // The private key is used to sign SSH authentication challenges.
+    const userPrivateKey = ed25519.utils.randomSecretKey()
+    const userPublicKey = ed25519.getPublicKey(userPrivateKey)
+
     try {
-      // Step 1: Request certificate
+      // Step 1: Request certificate with our ephemeral public key
       ws.send(JSON.stringify({
         type: 'request_cert',
         host_id: hostId,
+        user_public_key: encodeBase64(userPublicKey),
       } as WSRequest))
 
       const sessionResp = await receiveWS()
@@ -358,9 +396,21 @@ export class FROSTClient {
         throw new Error(`Expected certificate, got ${certResp.type}`)
       }
 
+      // Debug: log certificate details
+      const certBase64 = certResp.payload!
+      const certBytes = decodeBase64(certBase64)
+      console.log('[FROSTClient] Certificate received:',
+        'base64_len:', certBase64.length,
+        'bytes_len:', certBytes.length,
+        'first_8:', Array.from(certBytes.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(''),
+        'last_8:', Array.from(certBytes.slice(-8)).map(b => b.toString(16).padStart(2, '0')).join(''),
+      )
+
       return {
         certificate: certResp.payload!,
         serial: certResp.serial ?? 0,
+        userPrivateKey: userPrivateKey,
+        userPublicKey: userPublicKey,
       }
     } finally {
       ws.close()

@@ -24,6 +24,7 @@ import {
 import { FROSTClient } from '@/lib/frost-client'
 import { getSSHCAConfig } from '@/lib/api'
 import { decodeBase64 } from '@/lib/crypto/encoding'
+import type { CertificateResult } from '@/types/sshca'
 
 interface FROSTContextType {
   client: FROSTClient | null
@@ -36,7 +37,7 @@ interface FROSTContextType {
    * @param masterKey - The master key derived from WebAuthn PRF output
    */
   initWorker: (masterKey: Uint8Array) => Promise<void>
-  requestCert: (hostId: number) => Promise<{ certificate: string; serial: number }>
+  requestCert: (hostId: number) => Promise<CertificateResult>
   terminate: () => Promise<void>
 }
 
@@ -74,19 +75,26 @@ export function FROSTProvider({ children }: { children: ReactNode }) {
    * [req.qogtvx] Requires master key derived from WebAuthn PRF to decrypt the share.
    */
   const initWorker = useCallback(async (masterKey: Uint8Array) => {
+    console.log('[FROSTContext] initWorker called, masterKey length:', masterKey.length)
+    console.log('[FROSTContext] masterKey first 4 bytes:', Array.from(masterKey.slice(0, 4)).join(','))
+
     if (!clientRef.current) {
       throw new Error('Client not initialized')
     }
 
     // Fetch the SSH CA config from the server (includes encrypted client share)
     const config = await getSSHCAConfig()
+    console.log('[FROSTContext] Got SSH CA config, client_share length:', config.client_share.length)
 
     // Decode the encrypted client share from base64
     // Format: nonce (12 bytes) || ciphertext
     const encryptedShare = decodeBase64(config.client_share)
+    console.log('[FROSTContext] Decoded encrypted share length:', encryptedShare.length)
+    console.log('[FROSTContext] Encrypted share first 4 bytes:', Array.from(encryptedShare.slice(0, 4)).join(','))
 
     // Initialize with encrypted share and master key - worker will decrypt
     await clientRef.current.initWithShare(encryptedShare, masterKey)
+    console.log('[FROSTContext] initWithShare completed')
     setIsActive(true)
   }, [])
 

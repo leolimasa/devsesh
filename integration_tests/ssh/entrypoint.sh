@@ -28,8 +28,12 @@ if [ -n "$CA_PUBLIC_KEY" ]; then
     /ca_setup.sh
 fi
 
-# Start SSH daemon
-/usr/sbin/sshd
+# Enable verbose logging for sshd
+sed -i 's/#LogLevel.*/LogLevel DEBUG3/' /etc/ssh/sshd_config
+echo "LogLevel DEBUG3" >> /etc/ssh/sshd_config
+
+# Start SSH daemon with debug logging
+/usr/sbin/sshd -E /tmp/sshd.log
 
 # Create tmux session for test user
 su - testuser -c "tmux new-session -d -s testsession"

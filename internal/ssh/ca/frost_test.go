@@ -752,8 +752,14 @@ func TestSignSSHCertificate(t *testing.T) {
 		t.Fatalf("GenerateKeyShares failed: %v", err)
 	}
 
-	// Create a TBS certificate
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	// Generate an ephemeral user key for the certificate
+	userPubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate user key: %v", err)
+	}
+
+	// Create a TBS certificate with the user's public key
+	cert, err := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}

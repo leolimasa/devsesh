@@ -80,25 +80,37 @@ func GenerateKeyShares() (KeyShares, error) {
 //   - ValidAfter/ValidBefore: validity window (default 60s, max 300s)
 //   - Extensions: permit-pty, permit-port-forwarding
 //
+// Parameters:
+//   - caPublicKey: the CA's public key (FROST group public key, 32 bytes)
+//   - userPublicKey: the user's ephemeral public key (32 bytes) - provided by the client
+//   - principal: the SSH principal(s) for this certificate
+//   - serial: monotonically increasing serial number
+//   - validSeconds: validity period in seconds (max 300)
+//
 // Returns the certificate struct ready for FROST threshold signing.
-func CreateTBSCertificate(publicKey []byte, principal string, serial uint64, validSeconds int) (*ssh.Certificate, error) {
+func CreateTBSCertificate(caPublicKey []byte, userPublicKey []byte, principal string, serial uint64, validSeconds int) (*ssh.Certificate, error) {
 	if validSeconds <= 0 {
 		validSeconds = 60
 	}
 
-	// Validate FROST public key is 32-byte Ed25519.
-	if len(publicKey) != ed25519.PublicKeySize {
-		return nil, errors.New("invalid public key length")
+	// Validate CA public key is 32-byte Ed25519.
+	if len(caPublicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("invalid CA public key length")
+	}
+
+	// Validate user public key is 32-byte Ed25519.
+	if len(userPublicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("invalid user public key length")
 	}
 
 	// Create CA public key in SSH wire format
-	// publicKey is the CA's public key (FROST group public key)
+	// caPublicKey is the CA's public key (FROST group public key)
 	caWireKey := ssh.Marshal(struct {
 		Name string
 		Key  []byte
 	}{
 		Name: "ssh-ed25519",
-		Key:  publicKey,
+		Key:  caPublicKey,
 	})
 
 	caPubKey, err := ssh.ParsePublicKey(caWireKey)
@@ -106,22 +118,16 @@ func CreateTBSCertificate(publicKey []byte, principal string, serial uint64, val
 		return nil, fmt.Errorf("failed to parse CA public key: %w", err)
 	}
 
-	// Generate a temporary user key pair for the certificate
-	// In production, this would be the user's actual public key
-	userPubKey, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate user key: %w", err)
-	}
-
+	// Create user public key in SSH wire format
 	userWireKey := ssh.Marshal(struct {
 		Name string
 		Key  []byte
 	}{
 		Name: "ssh-ed25519",
-		Key:  userPubKey,
+		Key:  userPublicKey,
 	})
 
-	userSShPubKey, err := ssh.ParsePublicKey(userWireKey)
+	userSSHPubKey, err := ssh.ParsePublicKey(userWireKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user public key: %w", err)
 	}
@@ -139,7 +145,7 @@ func CreateTBSCertificate(publicKey []byte, principal string, serial uint64, val
 
 	cert := &ssh.Certificate{
 		Nonce:           nonce,
-		Key:             userSShPubKey,
+		Key:             userSSHPubKey,
 		Serial:          serial,
 		CertType:        ssh.UserCert,
 		KeyId:           "devsesh",
@@ -156,6 +162,33 @@ func CreateTBSCertificate(publicKey []byte, principal string, serial uint64, val
 	}
 
 	return cert, nil
+}
+
+// FormatPublicKeyOpenSSH formats a raw Ed25519 public key as an OpenSSH authorized key string.
+// Returns a string like "ssh-ed25519 AAAA... CA".
+// This format is suitable for use in TrustedUserCAKeys files and for user download.
+// [req.23hk63]
+func FormatPublicKeyOpenSSH(publicKey []byte) (string, error) {
+	if len(publicKey) != ed25519.PublicKeySize {
+		return "", errors.New("invalid public key length")
+	}
+
+	// Create SSH wire format key
+	wireKey := ssh.Marshal(struct {
+		Name string
+		Key  []byte
+	}{
+		Name: "ssh-ed25519",
+		Key:  publicKey,
+	})
+
+	sshPubKey, err := ssh.ParsePublicKey(wireKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse public key: %w", err)
+	}
+
+	// MarshalAuthorizedKey returns "ssh-ed25519 AAAA...\n"
+	return string(ssh.MarshalAuthorizedKey(sshPubKey)), nil
 }
 
 // BuildSignedCertificate signs the cert with the AGGREGATE signature and returns

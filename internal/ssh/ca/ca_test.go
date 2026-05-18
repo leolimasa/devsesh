@@ -1,11 +1,19 @@
 package ca
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
+
+// generateTestUserKey generates a test Ed25519 public key for certificate tests.
+func generateTestUserKey() []byte {
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	return pubKey
+}
 
 func TestGenerateKeyShares(t *testing.T) {
 	shares, err := GenerateKeyShares()
@@ -64,7 +72,8 @@ func TestCreateTBSCertificate(t *testing.T) {
 		t.Fatalf("GenerateKeyShares failed: %v", err)
 	}
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	userPubKey := generateTestUserKey()
+	cert, err := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
@@ -82,19 +91,31 @@ func TestCreateTBSCertificate(t *testing.T) {
 	}
 }
 
-func TestCreateTBSCertificate_InvalidPublicKey(t *testing.T) {
+func TestCreateTBSCertificate_InvalidCAPublicKey(t *testing.T) {
 	invalidKey := make([]byte, 31)
+	userPubKey := generateTestUserKey()
 
-	_, err := CreateTBSCertificate(invalidKey, "testuser", 1, 60)
+	_, err := CreateTBSCertificate(invalidKey, userPubKey, "testuser", 1, 60)
 	if err == nil {
-		t.Error("expected error with invalid public key")
+		t.Error("expected error with invalid CA public key")
+	}
+}
+
+func TestCreateTBSCertificate_InvalidUserPublicKey(t *testing.T) {
+	shares, _ := GenerateKeyShares()
+	invalidUserKey := make([]byte, 31)
+
+	_, err := CreateTBSCertificate(shares.PublicKey, invalidUserKey, "testuser", 1, 60)
+	if err == nil {
+		t.Error("expected error with invalid user public key")
 	}
 }
 
 func TestCreateTBSCertificate_DefaultValidity(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey := generateTestUserKey()
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 0)
+	cert, err := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 0)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
@@ -109,8 +130,9 @@ func TestCreateTBSCertificate_DefaultValidity(t *testing.T) {
 
 func TestCreateTBSCertificate_CustomValidity(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey := generateTestUserKey()
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 300)
+	cert, err := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 300)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
@@ -122,9 +144,11 @@ func TestCreateTBSCertificate_CustomValidity(t *testing.T) {
 
 func TestCreateTBSCertificate_NonceUniqueness(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey1 := generateTestUserKey()
+	userPubKey2 := generateTestUserKey()
 
-	cert1, _ := CreateTBSCertificate(shares.PublicKey, "user1", 1, 60)
-	cert2, _ := CreateTBSCertificate(shares.PublicKey, "user2", 2, 60)
+	cert1, _ := CreateTBSCertificate(shares.PublicKey, userPubKey1, "user1", 1, 60)
+	cert2, _ := CreateTBSCertificate(shares.PublicKey, userPubKey2, "user2", 2, 60)
 
 	if string(cert1.Nonce) == string(cert2.Nonce) {
 		t.Error("nonces should be unique for different certificates")
@@ -133,8 +157,9 @@ func TestCreateTBSCertificate_NonceUniqueness(t *testing.T) {
 
 func TestCreateTBSCertificate_UserKeyIsEd25519(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey := generateTestUserKey()
 
-	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	cert, _ := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 
 	switch cert.Key.(type) {
 	case ssh.PublicKey:
@@ -149,8 +174,9 @@ func TestCreateTBSCertificate_UserKeyIsEd25519(t *testing.T) {
 
 func TestCreateTBSCertificate_CAKeyIsEd25519(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey := generateTestUserKey()
 
-	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	cert, _ := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 
 	if cert.SignatureKey == nil {
 		t.Error("signature key should not be nil")
@@ -164,9 +190,10 @@ func TestCreateTBSCertificate_CAKeyIsEd25519(t *testing.T) {
 
 func TestCreateTBSCertificate_ValidTimeIsReasonable(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey := generateTestUserKey()
 	beforeTest := time.Now().Unix()
 
-	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	cert, _ := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 
 	afterTest := time.Now().Unix()
 
@@ -185,8 +212,9 @@ func TestCreateTBSCertificate_ValidTimeIsReasonable(t *testing.T) {
 
 func TestCreateTBSCertificate_WithPrincipal(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey := generateTestUserKey()
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "devsesh-user", 42, 120)
+	cert, err := CreateTBSCertificate(shares.PublicKey, userPubKey, "devsesh-user", 42, 120)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
@@ -206,8 +234,9 @@ func TestCreateTBSCertificate_WithPrincipal(t *testing.T) {
 
 func TestCreateTBSCertificate_PermitPtyAndPortForwarding(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey := generateTestUserKey()
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	cert, err := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}
@@ -227,7 +256,8 @@ func TestCreateTBSCertificate_PermitPtyAndPortForwarding(t *testing.T) {
 
 func TestBuildSignedCertificate(t *testing.T) {
 	shares, _ := GenerateKeyShares()
-	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	userPubKey := generateTestUserKey()
+	cert, _ := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 
 	signature := make([]byte, 64)
 	for i := range signature {
@@ -261,7 +291,8 @@ func TestBuildSignedCertificate_NilCert(t *testing.T) {
 
 func TestBuildSignedCertificate_InvalidCAPublicKey(t *testing.T) {
 	shares, _ := GenerateKeyShares()
-	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	userPubKey := generateTestUserKey()
+	cert, _ := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 
 	_, err := BuildSignedCertificate(cert, []byte{1, 2, 3}, []byte{1})
 	if err == nil {
@@ -271,7 +302,8 @@ func TestBuildSignedCertificate_InvalidCAPublicKey(t *testing.T) {
 
 func TestBuildSignedCertificate_EmptySignature(t *testing.T) {
 	shares, _ := GenerateKeyShares()
-	cert, _ := CreateTBSCertificate(shares.PublicKey, "testuser", 1, 60)
+	userPubKey := generateTestUserKey()
+	cert, _ := CreateTBSCertificate(shares.PublicKey, userPubKey, "testuser", 1, 60)
 
 	certBlob, err := BuildSignedCertificate(cert, []byte{}, shares.PublicKey)
 	if err != nil {
@@ -285,8 +317,9 @@ func TestBuildSignedCertificate_EmptySignature(t *testing.T) {
 
 func TestFullCertificateCreationFlow(t *testing.T) {
 	shares, _ := GenerateKeyShares()
+	userPubKey := generateTestUserKey()
 
-	cert, err := CreateTBSCertificate(shares.PublicKey, "devsesh-user", 42, 120)
+	cert, err := CreateTBSCertificate(shares.PublicKey, userPubKey, "devsesh-user", 42, 120)
 	if err != nil {
 		t.Fatalf("CreateTBSCertificate failed: %v", err)
 	}

@@ -59,7 +59,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("POST /api/v1/auth/login/begin", auth.LoginBeginHandler(wa, database, cs))
 	mux.Handle("POST /api/v1/auth/login/finish", auth.LoginFinishHandler(wa, database, cfg, cs))
 	mux.Handle("POST /api/v1/auth/register/begin", auth.RegisterBeginHandler(wa, database, cfg, cs))
-	mux.Handle("POST /api/v1/auth/register/finish", auth.RegisterFinishHandler(wa, database, cs))
+	mux.Handle("POST /api/v1/auth/register/finish", auth.RegisterFinishHandler(wa, database, cfg, cs))
 
 	mux.Handle("POST /api/v1/auth/pair/start", auth.PairStartHandler(database, cfg))
 	mux.Handle("POST /api/v1/auth/pair/exchange", jwtMiddleware(http.HandlerFunc(auth.PairExchangeHandler(database))))

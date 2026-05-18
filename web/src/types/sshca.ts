@@ -65,6 +65,12 @@ export interface PartialSignature {
 }
 
 export interface CertificateResult {
+  /** Base64-encoded signed SSH certificate */
   certificate: string
+  /** Certificate serial number */
   serial: number
+  /** Ed25519 ephemeral private key (32 bytes seed) used to sign SSH auth challenges */
+  userPrivateKey: Uint8Array
+  /** Ed25519 ephemeral public key (32 bytes) that was certified */
+  userPublicKey: Uint8Array
 }

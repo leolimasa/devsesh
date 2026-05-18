@@ -22,8 +22,11 @@ func main() {
 	js.Global().Set("sshSetPasswordCallback", js.FuncOf(SetPasswordCallback))
 	js.Global().Set("sshSetOutputCallback", js.FuncOf(SetOutputCallback))
 	js.Global().Set("sshSetStatusCallback", js.FuncOf(SetStatusCallback))
+	js.Global().Set("sshSetCertificateCallback", js.FuncOf(SetCertificateCallback))
 	js.Global().Set("sshResolvePassword", js.FuncOf(ResolvePassword))
 	js.Global().Set("sshRejectPassword", js.FuncOf(RejectPassword))
+	js.Global().Set("sshResolveCertificate", js.FuncOf(ResolveCertificate))
+	js.Global().Set("sshRejectCertificate", js.FuncOf(RejectCertificate))
 
 	js.Global().Get("console").Call("log", "[SSH WASM] All functions registered, entering wait loop...")
 

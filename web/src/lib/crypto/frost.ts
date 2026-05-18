@@ -92,54 +92,56 @@ export function deserializeShare(data: Uint8Array): FROSTShare {
 }
 
 /**
- * Extracts the public key from a bytemare/frost PublicKeyShare.
- * Format: 1 byte group + 8 bytes ID + 32 bytes public key + ...
+ * Extracts the participant's public key from a bytemare/frost PublicKeyShare.
+ * Format determined empirically from bytemare/frost library output.
  */
 function extractVerifyingKey(publicKeyShare: Uint8Array): Uint8Array {
-  if (publicKeyShare.length < 1 + 8 + ELEMENT_SIZE) {
+  // Verifying share format (103 bytes total for Ed25519 2-of-2):
+  // - Bytes 0-6: header (group ID, participant ID, metadata) - 7 bytes
+  // - Bytes 7-38: participant's public key (32 bytes)
+  // - Bytes 39-70: group public key (32 bytes)
+  // - Bytes 71-102: second commitment (32 bytes)
+  const VERIFYING_KEY_OFFSET = 7
+
+  if (publicKeyShare.length < VERIFYING_KEY_OFFSET + ELEMENT_SIZE) {
     throw new Error(`Invalid public key share length: ${publicKeyShare.length}`)
   }
-  // Skip group ID (1 byte) and identifier (8 bytes), extract public key (32 bytes)
-  return publicKeyShare.slice(9, 9 + ELEMENT_SIZE)
+  return publicKeyShare.slice(VERIFYING_KEY_OFFSET, VERIFYING_KEY_OFFSET + ELEMENT_SIZE)
 }
 
 /**
  * Extracts commitment polynomial from verifying shares.
- * For 2-of-2, this is typically the group public key and threshold commitment.
+ * For 2-of-2, this includes the group public key and a second commitment point.
  */
 function extractCommitments(
   serverVerifyingShare: Uint8Array,
   _clientVerifyingShare: Uint8Array
 ): Uint8Array[] {
-  // The commitment polynomial is included after the public key in each share
-  // For a 2-of-2 threshold, we need 2 commitment points
-  // Extract from server share (commitments are shared between participants)
-  const commitmentStart = 1 + 8 + ELEMENT_SIZE
+  // Verifying share format (103 bytes total):
+  // - Bytes 0-6: header (7 bytes)
+  // - Bytes 7-38: participant's public key (32 bytes)
+  // - Bytes 39-70: group public key / first commitment (32 bytes)
+  // - Bytes 71-102: second commitment (32 bytes)
+  const GROUP_KEY_OFFSET = 39
+  const SECOND_COMMITMENT_OFFSET = 71
+
   const commitments: Uint8Array[] = []
 
-  if (serverVerifyingShare.length >= commitmentStart + ELEMENT_SIZE) {
+  if (serverVerifyingShare.length >= GROUP_KEY_OFFSET + ELEMENT_SIZE) {
     // First commitment (constant term = group public key)
-    commitments.push(serverVerifyingShare.slice(commitmentStart, commitmentStart + ELEMENT_SIZE))
+    commitments.push(serverVerifyingShare.slice(GROUP_KEY_OFFSET, GROUP_KEY_OFFSET + ELEMENT_SIZE))
 
-    if (serverVerifyingShare.length >= commitmentStart + 2 * ELEMENT_SIZE) {
+    if (serverVerifyingShare.length >= SECOND_COMMITMENT_OFFSET + ELEMENT_SIZE) {
       // Second commitment (linear coefficient for threshold)
-      commitments.push(serverVerifyingShare.slice(commitmentStart + ELEMENT_SIZE, commitmentStart + 2 * ELEMENT_SIZE))
+      commitments.push(serverVerifyingShare.slice(SECOND_COMMITMENT_OFFSET, SECOND_COMMITMENT_OFFSET + ELEMENT_SIZE))
     }
   }
 
   return commitments
 }
 
-/**
- * Reads a little-endian uint64 from bytes.
- */
-function readUint64LE(bytes: Uint8Array): bigint {
-  let result = 0n
-  for (let i = 7; i >= 0; i--) {
-    result = (result << 8n) | BigInt(bytes[i])
-  }
-  return result
-}
+// Note: readBigEndianInt was removed as the bytemare/frost encoding uses
+// fixed-position fields rather than variable-length encoding
 
 /**
  * Generates fresh nonces for FROST signing round 1.
@@ -164,15 +166,45 @@ export function generateNonces(
   }
   clientId: string
 } {
-  // Extract identifier from client share (bytes 1-9, little-endian uint64)
-  const clientIdBytes = clientShare.slice(1, 9)
-  const clientIdNum = readUint64LE(clientIdBytes)
+  // bytemare/frost KeyShare encoding format (determined empirically):
+  // - Byte 0: group ID (0x06 for Ed25519)
+  // - Byte 1: participant identifier (1 or 2 for 2-of-2)
+  // - Bytes 2+: other data (threshold info, public keys, commitments)
+  // - Secret scalar at a later offset (around byte 103 for 167-byte shares)
+  //
+  // The secret scalar position can be found by searching for the end of
+  // the public key material (which is 32 bytes) plus additional structure.
+
+  // Validate minimum length (167 bytes is the expected size for Ed25519 2-of-2)
+  if (clientShare.length < 100) {
+    throw new Error(`Invalid client share length: ${clientShare.length}`)
+  }
+
+  // Validate group identifier
+  if (clientShare[0] !== ED25519_GROUP_ID) {
+    throw new Error(`Invalid client share: group ID ${clientShare[0]}, expected ${ED25519_GROUP_ID}. Data may be corrupted or incorrectly decrypted.`)
+  }
+
+  // Read identifier directly from byte 1 (it's the participant ID, not a length)
+  const clientIdNum = clientShare[1]
+
+  // Validate identifier is a reasonable value (should be 1 or 2 for 2-of-2)
+  if (clientIdNum <= 0 || clientIdNum > 2) {
+    throw new Error(`Invalid client identifier: ${clientIdNum}. Expected 1 or 2 for 2-of-2 scheme.`)
+  }
 
   // Client identifier for FROST protocol
-  const clientId = ed25519_FROST.Identifier.fromNumber(Number(clientIdNum))
+  const clientId = ed25519_FROST.Identifier.fromNumber(clientIdNum)
 
-  // Extract secret share scalar (bytes 9-41)
-  const signingShare = clientShare.slice(9, 9 + SCALAR_SIZE)
+  // The secret scalar is at offset 103 for a 167-byte share (determined empirically)
+  // This is: group(1) + id(1) + other data(101) = 103
+  const expectedScalarOffset = 103
+
+  // Extract secret share scalar
+  const signingShare = clientShare.slice(expectedScalarOffset, expectedScalarOffset + SCALAR_SIZE)
+  if (signingShare.length < SCALAR_SIZE) {
+    throw new Error(`Invalid secret share: expected ${SCALAR_SIZE} bytes, got ${signingShare.length}`)
+  }
 
   // Create FROST secret in @noble/curves format
   const secret = {
@@ -344,15 +376,17 @@ export function computePartialSignature(
   message: Uint8Array,
   clientId: string
 ): Uint8Array {
-  // Extract identifier from client share (bytes 1-9, little-endian uint64)
-  const clientIdBytes = clientShare.slice(1, 9)
-  const clientIdNum = readUint64LE(clientIdBytes)
+  // bytemare/frost KeyShare encoding format (same as generateNonces)
+  // - Byte 0: group ID (0x06 for Ed25519)
+  // - Byte 1: participant identifier (1 or 2 for 2-of-2)
+  // - Secret scalar at offset 103 for 167-byte shares
 
   // Server is always participant 1, client is participant 2 in 2-of-2
   const serverId = ed25519_FROST.Identifier.fromNumber(1)
 
-  // Extract secret share scalar (bytes 9-41)
-  const signingShare = clientShare.slice(9, 9 + SCALAR_SIZE)
+  // Extract secret share scalar (at fixed offset 103)
+  const expectedScalarOffset = 103
+  const signingShare = clientShare.slice(expectedScalarOffset, expectedScalarOffset + SCALAR_SIZE)
 
   // Extract verifying shares (public keys) from the PublicKeyShare format
   const serverVerifyingKey = extractVerifyingKey(serverVerifyingShare)
@@ -396,8 +430,8 @@ export function computePartialSignature(
   // 2 bytes: signer ID (little-endian uint16)
   // 32 bytes: signature share scalar
 
-  // Use the numeric ID from the share
-  const signerId = Number(clientIdNum)
+  // Read the numeric ID from byte 1 (it's the participant ID directly)
+  const signerId = clientShare[1]
 
   const encoded = new Uint8Array(1 + 2 + SCALAR_SIZE)
   encoded[0] = ED25519_GROUP_ID

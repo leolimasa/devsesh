@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import RegisterPage from "@/pages/RegisterPage"
+import { AuthProvider } from "@/contexts/AuthContext"
 
 vi.mock("@simplewebauthn/browser", () => ({
   startRegistration: vi.fn().mockResolvedValue({ id: "cred-123" }),
@@ -10,14 +11,17 @@ vi.mock("@simplewebauthn/browser", () => ({
 
 vi.mock("@/lib/api", () => ({
   registerBegin: vi.fn().mockResolvedValue({ challenge: "abc123" }),
-  registerFinish: vi.fn().mockResolvedValue(undefined),
+  registerFinish: vi.fn().mockResolvedValue({}),
+  updateSSHCAClientShare: vi.fn().mockResolvedValue(undefined),
 }))
 
 function renderRegisterPage() {
   return render(
-    <MemoryRouter>
-      <RegisterPage />
-    </MemoryRouter>
+    <AuthProvider>
+      <MemoryRouter>
+        <RegisterPage />
+      </MemoryRouter>
+    </AuthProvider>
   )
 }
 

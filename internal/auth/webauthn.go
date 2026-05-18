@@ -301,7 +301,7 @@ func RegisterBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Co
 	}
 }
 
-func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeStore) http.HandlerFunc {
+func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Config, cs *ChallengeStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Email              string          `json:"email"`
@@ -389,6 +389,12 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 			return
 		}
 
+		slog.Info("SSH CA key shares generated",
+			"userId", user.ID,
+			"publicKey_hex", fmt.Sprintf("%x", keyShares.PublicKey),
+			"publicKey_len", len(keyShares.PublicKey),
+		)
+
 		caData := db.SSHCAData{
 			UserID:               user.ID,
 			PublicKey:            keyShares.PublicKey,
@@ -412,10 +418,19 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challeng
 
 		cs.Delete(req.Email)
 
+		// Generate JWT token for auto-login after registration
+		token, err := GenerateToken(cfg.JWTSecret, user.ID, 0, cfg.JWTExpiry)
+		if err != nil {
+			slog.Error("failed to generate token after registration", "error", err, "userId", user.ID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		if err := json.NewEncoder(w).Encode(map[string]string{
 			"client_share": base64.StdEncoding.EncodeToString(keyShares.ClientShare),
+			"token":        token,
 		}); err != nil {
 			slog.Error("failed to encode registration response", "error", err)
 		}

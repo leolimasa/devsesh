@@ -3,6 +3,7 @@ package ca
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -203,9 +204,14 @@ func TestHandler_PublicKeyHandler_Success(t *testing.T) {
 
 	userID := int64(1)
 	now := time.Now()
+	// Use a valid 32-byte Ed25519 public key (required for OpenSSH format)
+	validPublicKey := make([]byte, 32)
+	for i := range validPublicKey {
+		validPublicKey[i] = byte(i)
+	}
 	err := db.CreateSSHCA(database, db.SSHCAData{
 		UserID:               userID,
-		PublicKey:            []byte{1, 2, 3, 4},
+		PublicKey:            validPublicKey,
 		ServerShare:          []byte{5, 6, 7, 8},
 		ServerVerifyingShare: []byte{9, 10, 11, 12},
 		ClientVerifyingShare: []byte{13, 14, 15, 16},
@@ -241,6 +247,11 @@ func TestHandler_PublicKeyHandler_Success(t *testing.T) {
 
 	if len(resp["public_key"]) == 0 {
 		t.Error("public_key should not be empty")
+	}
+
+	// Verify the public key is in OpenSSH format
+	if !strings.HasPrefix(resp["public_key"], "ssh-ed25519 ") {
+		t.Errorf("public_key should be in OpenSSH format (ssh-ed25519), got: %s", resp["public_key"])
 	}
 }
 
@@ -493,7 +504,16 @@ func TestHandler_HostOwnershipValidation_RejectsNonOwner(t *testing.T) {
 		send:   make(chan []byte, 10),
 	}
 
-	msg := &wsMessage{Type: "request_cert", HostID: hostID}
+	// Generate a test user public key
+	testUserPubKey := make([]byte, 32)
+	for i := range testUserPubKey {
+		testUserPubKey[i] = byte(i)
+	}
+	msg := &wsMessage{
+		Type:          "request_cert",
+		HostID:        hostID,
+		UserPublicKey: base64.StdEncoding.EncodeToString(testUserPubKey),
+	}
 	handler.handleRequestCert(client, msg)
 
 	select {
@@ -641,7 +661,16 @@ func TestHandler_RetryAfterSessionFailure(t *testing.T) {
 		send:   make(chan []byte, 10),
 	}
 
-	msg := &wsMessage{Type: "request_cert", HostID: hostID}
+	// Generate a test user public key
+	testUserPubKey := make([]byte, 32)
+	for i := range testUserPubKey {
+		testUserPubKey[i] = byte(i)
+	}
+	msg := &wsMessage{
+		Type:          "request_cert",
+		HostID:        hostID,
+		UserPublicKey: base64.StdEncoding.EncodeToString(testUserPubKey),
+	}
 	handler.handleRequestCert(client, msg)
 
 	resp1 := <-client.send

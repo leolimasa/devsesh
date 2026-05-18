@@ -83,7 +83,12 @@ export async function registerBegin(email: string): Promise<unknown> {
   })
 }
 
-export async function registerFinish(email: string, credential: unknown, encryptedMasterKey?: string): Promise<void> {
+export interface RegisterFinishResponse {
+  client_share?: string // Base64-encoded FROST client share (returned for new users)
+  token?: string // JWT token for auto-login after registration
+}
+
+export async function registerFinish(email: string, credential: unknown, encryptedMasterKey?: string): Promise<RegisterFinishResponse> {
   const response = await fetch(`/api/v1/auth/register/finish`, {
     method: "POST",
     headers: {
@@ -96,6 +101,13 @@ export async function registerFinish(email: string, credential: unknown, encrypt
     const error = await response.text()
     throw new Error(error || "Registration failed")
   }
+
+  // Parse the response which may contain the client share
+  const text = await response.text()
+  if (!text) {
+    return {}
+  }
+  return JSON.parse(text)
 }
 
 export async function pairStart(email: string): Promise<{ code: string }> {

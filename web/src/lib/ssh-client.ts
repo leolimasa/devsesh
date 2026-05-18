@@ -10,8 +10,11 @@ declare global {
     sshSetPasswordCallback: (callback: () => void) => void
     sshSetOutputCallback: (callback: (data: string) => void) => void
     sshSetStatusCallback: (callback: (status: string, error?: string) => void) => void
+    sshSetCertificateCallback: (callback: () => void) => void
     sshResolvePassword: (password: string) => void
     sshRejectPassword: () => void
+    sshResolveCertificate: (certificate: string, privateKey: string) => void
+    sshRejectCertificate: () => void
   }
 }
 
@@ -131,6 +134,17 @@ export class SSHClient extends EventEmitter {
         console.error("[SSHClient] Error in status callback:", e)
       }
     })
+
+    window.sshSetCertificateCallback(() => {
+      try {
+        // Emit certificate-request event. The SSHTerminal component should handle this
+        // by checking the FROST worker status and either requesting a certificate
+        // or rejecting to fall back to password auth.
+        this.emit("certificate-request")
+      } catch (e) {
+        console.error("[SSHClient] Error in certificate callback:", e)
+      }
+    })
   }
 
   connect(hostId: number, user: string): void {
@@ -178,6 +192,25 @@ export class SSHClient extends EventEmitter {
 
   rejectPassword(): void {
     window.sshRejectPassword()
+  }
+
+  /**
+   * Provides a certificate and private key for SSH authentication.
+   * @param certificate - Base64-encoded SSH certificate (wire format)
+   * @param privateKey - Base64-encoded Ed25519 private key seed (32 bytes)
+   */
+  resolveCertificate(certificate: string, privateKey: string): void {
+    window.sshResolveCertificate(certificate, privateKey)
+  }
+
+  /**
+   * Rejects certificate authentication, causing the SSH client to fall back
+   * to password authentication.
+   */
+  rejectCertificate(): void {
+    const stack = new Error().stack
+    console.log('[SSHClient] rejectCertificate called from:', stack)
+    window.sshRejectCertificate()
   }
 
   getStatus(): ConnectionStatus {
