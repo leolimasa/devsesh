@@ -32,10 +32,9 @@ export async function registerUser(page: Page, serverUrl: string, email: string)
   }, email);
 
   // Wait for registration to complete (WebAuthn popup will be handled automatically by virtual authenticator)
-  await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
-
-  // Verify we're on login page
-  await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+  // Note: With PRF-enabled registration, the user is auto-logged in and redirected to /dashboard
+  // Without PRF, the user is redirected to /login
+  await expect(page).toHaveURL(/\/(login|dashboard)/, { timeout: 15000 });
 }
 
 /**

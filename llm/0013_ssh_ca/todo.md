@@ -16,7 +16,7 @@
 - 🟡 Phase 10: Frontend UI Components - IMPLEMENTED
 - 🟡 Phase 11: SSH Client Integration - IMPLEMENTED
 - 🟢 Phase 12: Docker Container CA Support - COMMITTED
-- 🔴 Phase 13: Integration Test - NOT STARTED
+- 🟢 Phase 13: Integration Test - IMPLEMENTED (✅ full E2E certificate auth test)
 - 🔴 Phase 14: Final Validation - NOT STARTED
 
 ---
@@ -403,23 +403,45 @@
 
 ## Phase 13: Integration Test
 
-- [ ] Create `integration_tests/tests/ssh-ca-e2e.spec.ts` [req.jc1drs]:
-  - [ ] Register new user with WebAuthn + PRF [req.ancud7]
-  - [ ] Verify CA public key created
-  - [ ] Verify encrypted client share stored
-  - [ ] Start SSH container with CA trust [req.vz2fg3] [req.17dfwk]
-  - [ ] Pass CA public key to container
-  - [ ] Verify flag file exists [req.cu1f0k]
-  - [ ] Create host with principal, no password [req.4whcli]
-  - [ ] Connect via web interface [req.twjlw7]
-  - [ ] WebAuthn PRF authentication
-  - [ ] FROST worker initialization
-  - [ ] Certificate signing
-  - [ ] Execute `cat FLAG_FILE` [req.xbft6g]
-  - [ ] Validate output matches expected content
+- [x] Create `integration_tests/helpers/ssh-container.ts`:
+  - [x] Shared helper for managing SSH test containers
+  - [x] `startSSHContainer()` - start container with optional CA public key
+  - [x] `stopSSHContainer()` - clean up container
+  - [x] `hasTmuxSession()` - verify tmux session exists
+  - [x] `readFlagFile()` - read flag file content from container
+  - [x] `verifyCAConfiguration()` - verify CA trust is configured
+- [x] Create `integration_tests/helpers/prf-auth.ts`:
+  - [x] PRF consistency script for virtual authenticator
+  - [x] `setupPRFAuthenticator()` - set up virtual authenticator with PRF
+  - [x] `registerUserWithPRF()` - register user with WebAuthn + PRF
+  - [x] `verifySSHCACreated()` - verify SSH CA records in database
+  - [x] `verifyClientShareExists()` - verify encrypted client share stored
+  - [x] `fetchCAPublicKey()` - fetch CA public key from server
+- [x] Create `integration_tests/tests/ssh-ca-e2e.spec.ts` [req.jc1drs]:
+  - [x] Register new user with WebAuthn + PRF [req.ancud7]
+  - [x] Verify CA public key created (in OpenSSH format) [req.23hk63]
+  - [x] Verify encrypted client share stored [req.qwdm15]
+  - [x] Start SSH container with CA trust [req.vz2fg3] [req.17dfwk]
+  - [x] Pass CA public key to container
+  - [x] Verify flag file exists [req.cu1f0k]
+  - [x] Verify CA public key installed in container
+  - [x] Create host with principal, NO PASSWORD [req.4whcli]
+  - [x] Connect via web interface using CERTIFICATE AUTH ONLY [req.twjlw7]
+  - [x] Execute `cat FLAG_FILE` and verify output matches expected content [req.xbft6g]
+- [x] Update `integration_tests/tests/ssh-e2e.spec.ts`:
+  - [x] Use shared SSH container helper
+  - [x] Handle WebAuthn certificate dialog (click "Use Password Instead")
 
 **Phase 13 Testing:**
-- [ ] Run integration test: `cd integration_tests && npx playwright test ssh-ca-e2e`
+- [x] Run SSH CA integration tests: `cd integration_tests && npx playwright test ssh-ca-e2e`
+  - [x] 5 tests pass:
+    - Complete certificate-based SSH connection workflow (full E2E with FROST)
+    - User registration creates SSH CA key shares
+    - CA public key endpoint returns valid OpenSSH key
+    - SSH container configured with CA trust accepts certificate auth
+    - SSH container has testsession tmux session
+- [x] Run existing SSH E2E tests: `cd integration_tests && npx playwright test ssh-e2e`
+  - [x] 9 tests pass (all existing SSH E2E tests work with certificate auth fallback)
 
 ---
 

@@ -1,40 +1,39 @@
 import { test, expect, Page } from '@playwright/test';
-import { startServer, stopServer } from '../helpers/server';
+import { startServer, stopServer, ServerInstance } from '../helpers/server';
 import { setupPairedCli } from '../helpers/pairing';
 import { spawnDevseshStart, killTmuxSession, waitForSessionInApi } from '../helpers/session';
+import {
+  startSSHContainer as startContainer,
+  stopSSHContainer as stopContainer,
+  SSHContainer,
+} from '../helpers/ssh-container';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
-let sshContainerId: string | null = null;
+// Container name unique to this test file
+const CONTAINER_NAME = 'devsesh-ssh-test-integration';
+
+// Track container for cleanup
+let sshContainer: SSHContainer | null = null;
 
 async function startSSHContainer(): Promise<number> {
-  const { execSync } = require('child_process');
-
-  try {
-    execSync('docker rm -f devsesh-ssh-test-integration', { stdio: 'ignore' });
-  } catch {}
-
-  const container = execSync('docker run -d -p 2222:22 --name devsesh-ssh-test-integration devsesh-ssh-test', { encoding: 'utf8' }).trim();
-  sshContainerId = container;
-
-  await new Promise(resolve => setTimeout(resolve, 3000));
-
-  return 2222;
+  sshContainer = await startContainer({
+    name: CONTAINER_NAME,
+    port: 2222,
+  });
+  return sshContainer.port;
 }
 
 async function stopSSHContainer(): Promise<void> {
-  if (sshContainerId) {
-    const { execSync } = require('child_process');
-    try {
-      execSync(`docker rm -f ${sshContainerId}`, { stdio: 'ignore' });
-    } catch {}
-    sshContainerId = null;
+  if (sshContainer) {
+    await stopContainer(sshContainer);
+    sshContainer = null;
   }
 }
 
 interface TestContext {
-  server: { url: string; process: any };
+  server: ServerInstance;
   token: string;
   hostId: number;
   sessionId: string;
@@ -149,6 +148,18 @@ async function connectAndAuthenticate(page: Page, password: string): Promise<boo
   console.log('Clicking Connect button...');
   await connectButton.click();
   await page.waitForTimeout(3000);
+
+  // Check if WebAuthn certificate dialog appears (SSH CA is enabled)
+  // If so, click "Use Password Instead" to skip certificate auth for password-based tests
+  const webAuthnDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")');
+  const usePasswordButton = page.locator('button:has-text("Use Password Instead")');
+  const isWebAuthnDialogVisible = await webAuthnDialog.isVisible().catch(() => false);
+
+  if (isWebAuthnDialogVisible) {
+    console.log('WebAuthn certificate dialog detected, clicking "Use Password Instead"...');
+    await usePasswordButton.click();
+    await page.waitForTimeout(2000);
+  }
 
   console.log('Looking for password dialog...');
   const passwordInput = page.locator('input[type="password"]');
@@ -274,6 +285,18 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       const connectButton = page.locator('button:has-text("Connect")');
       await connectButton.click();
       await page.waitForTimeout(3000);
+
+      // Check if WebAuthn certificate dialog appears (SSH CA is enabled)
+      // If so, click "Use Password Instead" to skip certificate auth
+      const webAuthnDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")');
+      const usePasswordButton = page.locator('button:has-text("Use Password Instead")');
+      const isWebAuthnDialogVisible = await webAuthnDialog.isVisible().catch(() => false);
+
+      if (isWebAuthnDialogVisible) {
+        console.log('WebAuthn certificate dialog detected, clicking "Use Password Instead"...');
+        await usePasswordButton.click();
+        await page.waitForTimeout(2000);
+      }
 
       console.log('Entering wrong password...');
       const passwordInput = page.locator('input[type="password"]');
