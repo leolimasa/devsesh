@@ -83,31 +83,16 @@ func IncrementCertSerial(db *sql.DB, userID int64) (int64, error) {
 	return newSerial, nil
 }
 
-func SaveClientShare(db *sql.DB, userID int64, encryptedShare []byte) error {
+// UpdateClientShare stores or updates the encrypted client share for a user.
+// Uses UPSERT (INSERT OR REPLACE) to handle both create and update cases.
+// This is called by the frontend after encrypting the client share with the master key.
+func UpdateClientShare(db *sql.DB, userID int64, encryptedShare []byte) error {
 	_, err := db.Exec(
-		"INSERT INTO ssh_ca_client_shares (user_id, encrypted_share, created_at) VALUES (?, ?, ?)",
+		"INSERT OR REPLACE INTO ssh_ca_client_shares (user_id, encrypted_share, created_at) VALUES (?, ?, ?)",
 		userID, encryptedShare, time.Now().UTC().Format(timeFormat),
 	)
 	if err != nil {
-		return fmt.Errorf("save client share: %w", err)
-	}
-	return nil
-}
-
-func UpdateClientShare(db *sql.DB, userID int64, encryptedShare []byte) error {
-	result, err := db.Exec(
-		"UPDATE ssh_ca_client_shares SET encrypted_share = ? WHERE user_id = ?",
-		encryptedShare, userID,
-	)
-	if err != nil {
 		return fmt.Errorf("update client share: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("get rows affected: %w", err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("no client share found for user")
 	}
 	return nil
 }

@@ -11,73 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { getSSHCAPublicKey } from '@/lib/api'
 import { decodeBase64 } from '@/lib/crypto/encoding'
-
-/**
- * Computes SHA256 fingerprint of an Ed25519 public key in OpenSSH format.
- * Returns the fingerprint in SHA256:base64 format matching ssh-keygen output.
- */
-async function computeFingerprint(publicKeyBytes: Uint8Array): Promise<string> {
-  // OpenSSH wire format for Ed25519 public key:
-  // 4 bytes: length of key type string (big-endian)
-  // key type string: "ssh-ed25519"
-  // 4 bytes: length of public key (big-endian)
-  // public key bytes (32 bytes for Ed25519)
-
-  const keyType = new TextEncoder().encode('ssh-ed25519')
-  const keyTypeLen = new Uint8Array(4)
-  new DataView(keyTypeLen.buffer).setUint32(0, keyType.length, false)
-
-  const keyLen = new Uint8Array(4)
-  new DataView(keyLen.buffer).setUint32(0, publicKeyBytes.length, false)
-
-  const wireFormat = new Uint8Array(
-    keyTypeLen.length + keyType.length + keyLen.length + publicKeyBytes.length
-  )
-  let offset = 0
-  wireFormat.set(keyTypeLen, offset)
-  offset += keyTypeLen.length
-  wireFormat.set(keyType, offset)
-  offset += keyType.length
-  wireFormat.set(keyLen, offset)
-  offset += keyLen.length
-  wireFormat.set(publicKeyBytes, offset)
-
-  const hashBuffer = await crypto.subtle.digest('SHA-256', wireFormat)
-  const hashArray = new Uint8Array(hashBuffer)
-
-  // Convert to base64 without padding (matching ssh-keygen format)
-  const base64 = btoa(String.fromCharCode(...hashArray)).replace(/=+$/, '')
-
-  return `SHA256:${base64}`
-}
-
-/**
- * Formats the public key in OpenSSH authorized_keys format.
- */
-function formatOpenSSHKey(publicKeyBytes: Uint8Array): string {
-  // OpenSSH wire format
-  const keyType = new TextEncoder().encode('ssh-ed25519')
-  const keyTypeLen = new Uint8Array(4)
-  new DataView(keyTypeLen.buffer).setUint32(0, keyType.length, false)
-
-  const keyLen = new Uint8Array(4)
-  new DataView(keyLen.buffer).setUint32(0, publicKeyBytes.length, false)
-
-  const wireFormat = new Uint8Array(
-    keyTypeLen.length + keyType.length + keyLen.length + publicKeyBytes.length
-  )
-  let offset = 0
-  wireFormat.set(keyTypeLen, offset)
-  offset += keyTypeLen.length
-  wireFormat.set(keyType, offset)
-  offset += keyType.length
-  wireFormat.set(keyLen, offset)
-  offset += keyLen.length
-  wireFormat.set(publicKeyBytes, offset)
-
-  const base64 = btoa(String.fromCharCode(...wireFormat))
-  return `ssh-ed25519 ${base64} devsesh-ca`
-}
+import { computeFingerprint, formatOpenSSHKey } from '@/lib/crypto/ssh'
 
 export function CAPublicKeyDownload() {
   const [publicKey, setPublicKey] = useState<Uint8Array | null>(null)

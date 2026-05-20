@@ -29,10 +29,11 @@ test.describe('Authentication - Registration', () => {
       await submitButton.click();
 
       // Wait for registration to complete (WebAuthn popup will be handled automatically by virtual authenticator)
-      await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+      // After registration, user is auto-logged in and redirected to dashboard
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
 
-      // Verify we're on login page
-      await expect(page.getByRole('heading', { name: 'Sign In' })).toBeVisible();
+      // Verify we're on dashboard page
+      await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible();
 
     } finally {
       await stopServer(server);

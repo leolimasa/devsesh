@@ -59,6 +59,26 @@ export interface FROSTCommitment {
   binding: Uint8Array
 }
 
+/**
+ * Nonce pair generated during round 1 of FROST signing.
+ * Must be kept secret and never reused.
+ */
+export interface FrostNonces {
+  hiding: Uint8Array
+  binding: Uint8Array
+}
+
+/**
+ * State maintained during a FROST signing session.
+ * Contains the nonces generated in round 1 for use in round 2.
+ */
+export interface FrostSigningState {
+  nonces: FrostNonces
+  commitment: Uint8Array
+  message: Uint8Array
+  clientId: string
+}
+
 export interface PartialSignature {
   challenge: Uint8Array
   response: Uint8Array

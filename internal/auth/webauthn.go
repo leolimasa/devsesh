@@ -410,11 +410,9 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.C
 			return
 		}
 
-		if err := db.SaveClientShare(database, user.ID, keyShares.ClientShare); err != nil {
-			slog.Error("failed to save client share", "error", err, "userId", user.ID)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
+		// NOTE: Client share is NOT stored here. It is returned to the frontend,
+		// which encrypts it with the master key and then calls PUT /api/v1/sshca/client-share
+		// to store the encrypted version. This ensures the unencrypted share never touches the database.
 
 		cs.Delete(req.Email)
 

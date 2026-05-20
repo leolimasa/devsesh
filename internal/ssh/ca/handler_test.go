@@ -290,9 +290,9 @@ func TestHandler_ClientShareHandler_Success(t *testing.T) {
 	database := openTestDB(t)
 
 	userID := int64(1)
-	err := db.SaveClientShare(database, userID, []byte{1, 2, 3, 4})
+	err := db.UpdateClientShare(database, userID, []byte{1, 2, 3, 4})
 	if err != nil {
-		t.Fatalf("save client share: %v", err)
+		t.Fatalf("update client share: %v", err)
 	}
 
 	cfg := config.SSHCAConfig{}

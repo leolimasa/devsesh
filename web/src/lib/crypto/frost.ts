@@ -4,144 +4,70 @@
  * Implements client-side FROST threshold signing using @noble/curves.
  * Compatible with the bytemare/frost Go library used on the server.
  *
- * Wire format for bytemare/frost compatibility:
- * - Commitment: 1 byte group + 8 bytes commitmentID + 2 bytes signerID + 32 bytes hiding + 32 bytes binding = 75 bytes
- * - SignatureShare: 1 byte group + 2 bytes signerID + 32 bytes share = 35 bytes
- * - PublicKeyShare: 1 byte group + 8 bytes ID + 32 bytes public key + commitment polynomial
- *
- * Note: Ed25519 group identifier in bytemare/frost is 0x06
+ * This module contains the core signing logic. Wire format encoding/decoding
+ * is delegated to frost-encoding.ts for separation of concerns.
  */
 
 import { ed25519_FROST, ed25519 } from '@noble/curves/ed25519.js'
-import type {
-  FROSTShare,
-  FROSTCommitment,
-} from '@/types/sshca'
+import type { FrostNonces, FrostSigningState } from '@/types/sshca'
+import {
+  ED25519_GROUP_ID,
+  SCALAR_SIZE,
+  extractVerifyingKey,
+  extractCommitments,
+  encodeCommitment,
+  buildCommitmentList,
+  encodeSignatureShare,
+} from './frost-encoding'
+import { zeroMemory } from './memory'
 
-// Ed25519 group identifier used by bytemare/frost
-const ED25519_GROUP_ID = 0x06
+// Re-export encoding functions for backward compatibility
+export {
+  ED25519_GROUP_ID,
+  SCALAR_SIZE,
+  ELEMENT_SIZE,
+  deserializeShare,
+  extractVerifyingKey,
+  extractCommitments,
+  decodeCommitment,
+  encodeCommitment,
+  decodeSignatureShare,
+  buildCommitmentList,
+} from './frost-encoding'
 
-// Size constants for Ed25519
-const SCALAR_SIZE = 32
-const ELEMENT_SIZE = 32
+// Re-export types
+export type { FrostNonces, FrostSigningState } from '@/types/sshca'
+
+// Re-export memory utilities
+export { zeroMemory } from './memory'
 
 /**
- * Nonce pair generated during round 1 of FROST signing.
- * Must be kept secret and never reused.
+ * Performs scalar multiplication with the Ed25519 base point.
+ * Returns the compressed point encoding.
  */
-export interface FrostNonces {
-  hiding: Uint8Array
-  binding: Uint8Array
+function scalarMultiplyBase(scalar: Uint8Array): Uint8Array {
+  // Ensure scalar is in correct format (32 bytes, little-endian)
+  if (scalar.length !== SCALAR_SIZE) {
+    throw new Error(`Invalid scalar length: ${scalar.length}`)
+  }
+
+  // Perform scalar multiplication with base point
+  const point = ed25519.Point.BASE.multiply(bytesToScalar(scalar))
+
+  // Return compressed encoding (32 bytes for Ed25519)
+  return point.toBytes()
 }
 
 /**
- * State maintained during a FROST signing session.
- * Contains the nonces generated in round 1 for use in round 2.
+ * Converts a little-endian byte array to a bigint scalar.
  */
-export interface FrostSigningState {
-  nonces: FrostNonces
-  commitment: Uint8Array
-  message: Uint8Array
-  clientId: string
+function bytesToScalar(bytes: Uint8Array): bigint {
+  let result = 0n
+  for (let i = bytes.length - 1; i >= 0; i--) {
+    result = (result << 8n) | BigInt(bytes[i])
+  }
+  return result
 }
-
-/**
- * Decodes a KeyShare from the bytemare/frost wire format.
- * Format: variable length encoding with identifier, secret, public key, and commitment.
- *
- * @param data - Encoded key share bytes
- * @returns Parsed FROSTShare structure
- */
-export function deserializeShare(data: Uint8Array): FROSTShare {
-  if (data.length < 1 + 8 + SCALAR_SIZE) {
-    throw new Error(`Invalid share length: ${data.length}`)
-  }
-
-  // Parse bytemare/frost KeyShare format
-  // First byte is group identifier
-  const groupId = data[0]
-  if (groupId !== ED25519_GROUP_ID) {
-    throw new Error(`Unexpected group identifier: ${groupId}, expected ${ED25519_GROUP_ID}`)
-  }
-
-  let offset = 1
-
-  // 8 bytes: identifier (little-endian uint64)
-  const identifierBytes = data.slice(offset, offset + 8)
-  offset += 8
-
-  // 32 bytes: secret share scalar
-  const secretShare = data.slice(offset, offset + SCALAR_SIZE)
-  offset += SCALAR_SIZE
-
-  // Extract the group public key (if present)
-  // The remaining data contains the public key and other metadata
-  const groupPublicKey = data.length >= offset + ELEMENT_SIZE
-    ? data.slice(offset, offset + ELEMENT_SIZE)
-    : new Uint8Array(ELEMENT_SIZE)
-
-  // For verifyingShare, we use the full data since it includes commitment info
-  const verifyingShare = data.slice(1) // Everything after group ID
-
-  return {
-    identifier: identifierBytes,
-    secretShare,
-    groupPublicKey,
-    verifyingShare,
-  }
-}
-
-/**
- * Extracts the participant's public key from a bytemare/frost PublicKeyShare.
- * Format determined empirically from bytemare/frost library output.
- */
-function extractVerifyingKey(publicKeyShare: Uint8Array): Uint8Array {
-  // Verifying share format (103 bytes total for Ed25519 2-of-2):
-  // - Bytes 0-6: header (group ID, participant ID, metadata) - 7 bytes
-  // - Bytes 7-38: participant's public key (32 bytes)
-  // - Bytes 39-70: group public key (32 bytes)
-  // - Bytes 71-102: second commitment (32 bytes)
-  const VERIFYING_KEY_OFFSET = 7
-
-  if (publicKeyShare.length < VERIFYING_KEY_OFFSET + ELEMENT_SIZE) {
-    throw new Error(`Invalid public key share length: ${publicKeyShare.length}`)
-  }
-  return publicKeyShare.slice(VERIFYING_KEY_OFFSET, VERIFYING_KEY_OFFSET + ELEMENT_SIZE)
-}
-
-/**
- * Extracts commitment polynomial from verifying shares.
- * For 2-of-2, this includes the group public key and a second commitment point.
- */
-function extractCommitments(
-  serverVerifyingShare: Uint8Array,
-  _clientVerifyingShare: Uint8Array
-): Uint8Array[] {
-  // Verifying share format (103 bytes total):
-  // - Bytes 0-6: header (7 bytes)
-  // - Bytes 7-38: participant's public key (32 bytes)
-  // - Bytes 39-70: group public key / first commitment (32 bytes)
-  // - Bytes 71-102: second commitment (32 bytes)
-  const GROUP_KEY_OFFSET = 39
-  const SECOND_COMMITMENT_OFFSET = 71
-
-  const commitments: Uint8Array[] = []
-
-  if (serverVerifyingShare.length >= GROUP_KEY_OFFSET + ELEMENT_SIZE) {
-    // First commitment (constant term = group public key)
-    commitments.push(serverVerifyingShare.slice(GROUP_KEY_OFFSET, GROUP_KEY_OFFSET + ELEMENT_SIZE))
-
-    if (serverVerifyingShare.length >= SECOND_COMMITMENT_OFFSET + ELEMENT_SIZE) {
-      // Second commitment (linear coefficient for threshold)
-      commitments.push(serverVerifyingShare.slice(SECOND_COMMITMENT_OFFSET, SECOND_COMMITMENT_OFFSET + ELEMENT_SIZE))
-    }
-  }
-
-  return commitments
-}
-
-// Note: readBigEndianInt was removed as the bytemare/frost encoding uses
-// fixed-position fields rather than variable-length encoding
 
 /**
  * Generates fresh nonces for FROST signing round 1.
@@ -171,9 +97,6 @@ export function generateNonces(
   // - Byte 1: participant identifier (1 or 2 for 2-of-2)
   // - Bytes 2+: other data (threshold info, public keys, commitments)
   // - Secret scalar at a later offset (around byte 103 for 167-byte shares)
-  //
-  // The secret scalar position can be found by searching for the end of
-  // the public key material (which is 32 bytes) plus additional structure.
 
   // Validate minimum length (167 bytes is the expected size for Ed25519 2-of-2)
   if (clientShare.length < 100) {
@@ -251,103 +174,10 @@ export function computeCommitment(
 ): Uint8Array {
   // Compute commitment points from nonces
   // For Ed25519: commitment = nonce * G (base point multiplication)
-
-  // The commitment format for bytemare/frost:
-  // 1 byte: group ID (0x06 for Ed25519)
-  // 8 bytes: commitment ID (little-endian uint64, usually 0 or session-specific)
-  // 2 bytes: signer ID (little-endian uint16)
-  // 32 bytes: hiding nonce commitment (point)
-  // 32 bytes: binding nonce commitment (point)
-
-  const commitment = new Uint8Array(1 + 8 + 2 + ELEMENT_SIZE + ELEMENT_SIZE)
-  let offset = 0
-
-  // Group ID
-  commitment[offset++] = ED25519_GROUP_ID
-
-  // Commitment ID (8 bytes, set to 0)
-  offset += 8 // Already zeroed
-
-  // Signer ID (2 bytes, little-endian)
-  commitment[offset++] = identifier & 0xff
-  commitment[offset++] = (identifier >> 8) & 0xff
-
-  // Compute hiding commitment point: hiding_nonce * G
   const hidingCommitment = scalarMultiplyBase(nonces.hiding)
-  commitment.set(hidingCommitment, offset)
-  offset += ELEMENT_SIZE
-
-  // Compute binding commitment point: binding_nonce * G
   const bindingCommitment = scalarMultiplyBase(nonces.binding)
-  commitment.set(bindingCommitment, offset)
 
-  return commitment
-}
-
-/**
- * Decodes a commitment from bytemare/frost wire format.
- *
- * @param encoded - The encoded commitment bytes
- * @returns Parsed commitment structure
- */
-export function decodeCommitment(encoded: Uint8Array): FROSTCommitment & { signerId: number } {
-  if (encoded.length < 1 + 8 + 2 + ELEMENT_SIZE + ELEMENT_SIZE) {
-    throw new Error(`Invalid commitment length: ${encoded.length}`)
-  }
-
-  // Verify group ID
-  if (encoded[0] !== ED25519_GROUP_ID) {
-    throw new Error(`Unexpected group ID: ${encoded[0]}`)
-  }
-
-  // Extract signer ID (little-endian uint16 at offset 9)
-  const signerId = encoded[9] | (encoded[10] << 8)
-
-  // Extract commitment points
-  const hiding = encoded.slice(11, 11 + ELEMENT_SIZE)
-  const binding = encoded.slice(11 + ELEMENT_SIZE, 11 + 2 * ELEMENT_SIZE)
-
-  return {
-    signerId,
-    hiding,
-    binding,
-  }
-}
-
-/**
- * Encodes a commitment to bytemare/frost wire format.
- *
- * @param signerId - The signer's identifier
- * @param hiding - Hiding nonce commitment point
- * @param binding - Binding nonce commitment point
- * @returns Encoded commitment bytes
- */
-export function encodeCommitment(
-  signerId: number,
-  hiding: Uint8Array,
-  binding: Uint8Array
-): Uint8Array {
-  const commitment = new Uint8Array(1 + 8 + 2 + ELEMENT_SIZE + ELEMENT_SIZE)
-  let offset = 0
-
-  // Group ID
-  commitment[offset++] = ED25519_GROUP_ID
-
-  // Commitment ID (8 bytes, zeroed)
-  offset += 8
-
-  // Signer ID (little-endian uint16)
-  commitment[offset++] = signerId & 0xff
-  commitment[offset++] = (signerId >> 8) & 0xff
-
-  // Hiding commitment
-  commitment.set(hiding, offset)
-  offset += ELEMENT_SIZE
-
-  // Binding commitment
-  commitment.set(binding, offset)
-
-  return commitment
+  return encodeCommitment(identifier, hidingCommitment, bindingCommitment)
 }
 
 /**
@@ -425,111 +255,10 @@ export function computePartialSignature(
   // Get the actual bytes (TRet values may be functions or direct values)
   const sigShareBytes = typeof sigShare === 'function' ? sigShare() : sigShare
 
-  // Encode in bytemare/frost format:
-  // 1 byte: group ID
-  // 2 bytes: signer ID (little-endian uint16)
-  // 32 bytes: signature share scalar
-
   // Read the numeric ID from byte 1 (it's the participant ID directly)
   const signerId = clientShare[1]
 
-  const encoded = new Uint8Array(1 + 2 + SCALAR_SIZE)
-  encoded[0] = ED25519_GROUP_ID
-  encoded[1] = signerId & 0xff
-  encoded[2] = (signerId >> 8) & 0xff
-  encoded.set(sigShareBytes as Uint8Array, 3)
-
-  return encoded
-}
-
-/**
- * Decodes a partial signature from bytemare/frost wire format.
- *
- * @param encoded - The encoded signature share bytes
- * @returns Signer ID and signature share scalar
- */
-export function decodeSignatureShare(encoded: Uint8Array): {
-  signerId: number
-  share: Uint8Array
-} {
-  if (encoded.length < 1 + 2 + SCALAR_SIZE) {
-    throw new Error(`Invalid signature share length: ${encoded.length}`)
-  }
-
-  if (encoded[0] !== ED25519_GROUP_ID) {
-    throw new Error(`Unexpected group ID: ${encoded[0]}`)
-  }
-
-  const signerId = encoded[1] | (encoded[2] << 8)
-  const share = encoded.slice(3, 3 + SCALAR_SIZE)
-
-  return { signerId, share }
-}
-
-/**
- * Performs scalar multiplication with the Ed25519 base point.
- * Returns the compressed point encoding.
- */
-function scalarMultiplyBase(scalar: Uint8Array): Uint8Array {
-  // Ensure scalar is in correct format (32 bytes, little-endian)
-  if (scalar.length !== SCALAR_SIZE) {
-    throw new Error(`Invalid scalar length: ${scalar.length}`)
-  }
-
-  // Perform scalar multiplication with base point
-  const point = ed25519.Point.BASE.multiply(bytesToScalar(scalar))
-
-  // Return compressed encoding (32 bytes for Ed25519)
-  return point.toBytes()
-}
-
-/**
- * Converts a little-endian byte array to a bigint scalar.
- */
-function bytesToScalar(bytes: Uint8Array): bigint {
-  let result = 0n
-  for (let i = bytes.length - 1; i >= 0; i--) {
-    result = (result << 8n) | BigInt(bytes[i])
-  }
-  return result
-}
-
-/**
- * Securely zeroes a byte array to clear sensitive data from memory.
- * [req.obmwbr]
- *
- * @param data - The byte array to zero
- */
-export function zeroMemory(data: Uint8Array): void {
-  data.fill(0)
-}
-
-/**
- * Converts commitment list from bytemare/frost format to @noble/curves format.
- *
- * @param serverCommitment - Server's encoded commitment
- * @param clientCommitment - Client's encoded commitment
- * @returns Commitment list for @noble/curves FROST
- */
-export function buildCommitmentList(
-  serverCommitment: Uint8Array,
-  clientCommitment: Uint8Array
-): Array<{
-  identifier: string
-  hiding: Uint8Array
-  binding: Uint8Array
-}> {
-  const serverDecoded = decodeCommitment(serverCommitment)
-  const clientDecoded = decodeCommitment(clientCommitment)
-
-  // Sort by signer ID (server=1, client=2)
-  const sorted = [serverDecoded, clientDecoded].sort((a, b) => a.signerId - b.signerId)
-
-  return sorted.map((c) => ({
-    identifier: ed25519_FROST.Identifier.fromNumber(c.signerId),
-    hiding: c.hiding,
-    binding: c.binding,
-  }))
+  return encodeSignatureShare(signerId, sigShareBytes as Uint8Array)
 }
 
 /**

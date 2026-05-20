@@ -19,10 +19,10 @@ test.describe('Authentication - Login', () => {
       await page.locator('input[type="email"]').fill(testEmail);
       await page.locator('button[type="submit"]').click();
 
-      // Wait for registration to complete and redirect to login
-      await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+      // Wait for registration to complete (user is auto-logged in and redirected to dashboard)
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
 
-      // Clear localStorage to simulate logout
+      // Clear localStorage and cookies to simulate logout
       await page.context().clearCookies();
       await page.evaluate(() => {
         localStorage.clear();
