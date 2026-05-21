@@ -51,6 +51,18 @@ export async function decrypt(
   return new Uint8Array(plaintext)
 }
 
+// Salt for HKDF key derivation in passkey enrollment flow
+const ENROLLMENT_HKDF_SALT = new TextEncoder().encode('devsesh-enrollment-v1')
+
+/**
+ * Derives a key from a shared secret using HKDF.
+ * Used in the SPAKE2 passkey enrollment flow to derive encryption keys.
+ *
+ * @param sharedSecret - The shared secret (e.g., from SPAKE2)
+ * @param info - Context-specific info string for domain separation
+ * @param length - Desired key length in bytes (default: 32)
+ * @returns Derived key bytes
+ */
 export async function deriveKey(
   sharedSecret: Uint8Array,
   info: string,
@@ -68,7 +80,7 @@ export async function deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: new Uint8Array(0),
+      salt: ENROLLMENT_HKDF_SALT,
       info: new TextEncoder().encode(info),
     },
     keyMaterial,

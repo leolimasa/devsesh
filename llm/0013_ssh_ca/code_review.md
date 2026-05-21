@@ -289,10 +289,13 @@ slog.Info("SSH CA key shares generated",
 While public keys are not secret, this pattern could accidentally be extended to log secrets.
 **Suggestion:** Use structured logging with explicit key material markers so they can be filtered in production.
 
-#### 4. Zero Salt in AES (Noted in ROADMAP.md) (HIGH)
-**Issue:** ROADMAP.md notes: "aes.ts has 0 byte salt?"
-This suggests the AES encryption may be using an empty salt, which weakens key derivation.
-**Suggestion:** Audit aes.ts to ensure proper salt usage.
+#### 4. Zero Salt in AES (Noted in ROADMAP.md) - ✅ FIXED
+~~**Issue:** ROADMAP.md notes: "aes.ts has 0 byte salt?"~~
+
+**Fix Applied:**
+- Added `ENROLLMENT_HKDF_SALT = 'devsesh-enrollment-v1'` constant
+- Updated `deriveKey()` to use proper salt instead of empty `Uint8Array(0)`
+- Now consistent with `prf.ts` which already uses proper salt for master key derivation
 
 ### Performance Implications
 
@@ -384,7 +387,7 @@ Add instrumentation for:
 
 ### HIGH Priority
 - [x] ~~HIGH: Fix potential race condition where client share is stored unencrypted before frontend encrypts it (webauthn.go)~~ ✅ FIXED
-- [ ] HIGH: Audit aes.ts for zero-byte salt issue noted in ROADMAP.md
+- [x] ~~HIGH: Audit aes.ts for zero-byte salt issue noted in ROADMAP.md~~ ✅ FIXED
 - [x] ~~HIGH: Add database transaction for registration flow (user + ssh_ca)~~ ✅ FIXED
 - [x] ~~HIGH: Remove `web/devsesh` binary from git (add to .gitignore)~~ ✅ FIXED
 
