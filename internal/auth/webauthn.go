@@ -350,16 +350,6 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.C
 			return
 		}
 
-		if user == nil {
-			id, err := db.CreateUser(database, req.Email)
-			if err != nil {
-				slog.Error("failed to create user", "error", err, "email", req.Email)
-				http.Error(w, "internal error", http.StatusInternalServerError)
-				return
-			}
-			user = &db.User{ID: id, Email: req.Email}
-		}
-
 		var encryptedMasterKey []byte
 		if req.EncryptedMasterKey != "" {
 			encryptedMasterKey, err = base64.StdEncoding.DecodeString(req.EncryptedMasterKey)
@@ -370,33 +360,21 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.C
 			}
 		}
 
+		// Generate SSH CA key shares before any database writes
+		keyShares, err := ca.GenerateKeyShares()
+		if err != nil {
+			slog.Error("failed to generate SSH CA key shares", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
 		dbCred := db.WebAuthnCredential{
 			ID:        string(credential.ID),
-			UserID:    user.ID,
 			PublicKey: credential.PublicKey,
 			SignCount: credential.Authenticator.SignCount,
 		}
-		if err := db.SaveCredentialWithMasterKey(database, dbCred, encryptedMasterKey); err != nil {
-			slog.Error("failed to save credential with master key", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		keyShares, err := ca.GenerateKeyShares()
-		if err != nil {
-			slog.Error("failed to generate SSH CA key shares", "error", err, "userId", user.ID)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		slog.Info("SSH CA key shares generated",
-			"userId", user.ID,
-			"publicKey_hex", fmt.Sprintf("%x", keyShares.PublicKey),
-			"publicKey_len", len(keyShares.PublicKey),
-		)
 
 		caData := db.SSHCAData{
-			UserID:               user.ID,
 			PublicKey:            keyShares.PublicKey,
 			ServerShare:          keyShares.ServerShare,
 			ServerVerifyingShare: keyShares.ServerVerifyingShare,
@@ -404,11 +382,37 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.C
 			CertSerial:           0,
 			CreatedAt:            time.Now().UTC(),
 		}
-		if err := db.CreateSSHCA(database, caData); err != nil {
-			slog.Error("failed to create SSH CA", "error", err, "userId", user.ID)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
+
+		// Use transactional registration to ensure atomicity
+		if user == nil {
+			// New user: create user + credential + SSH CA in one transaction
+			regData := db.RegistrationData{
+				Email:              req.Email,
+				Credential:         dbCred,
+				EncryptedMasterKey: encryptedMasterKey,
+				SSHCAData:          caData,
+			}
+			result, err := db.RegisterUserWithSSHCA(database, regData)
+			if err != nil {
+				slog.Error("failed to register user", "error", err, "email", req.Email)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			user = &db.User{ID: result.UserID, Email: req.Email}
+		} else {
+			// Existing user: add credential + SSH CA in one transaction
+			if err := db.AddCredentialToExistingUser(database, user.ID, dbCred, encryptedMasterKey, caData); err != nil {
+				slog.Error("failed to add credential to existing user", "error", err, "userId", user.ID)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
 		}
+
+		slog.Info("SSH CA key shares generated",
+			"userId", user.ID,
+			"publicKey_hex", fmt.Sprintf("%x", keyShares.PublicKey),
+			"publicKey_len", len(keyShares.PublicKey),
+		)
 
 		// NOTE: Client share is NOT stored here. It is returned to the frontend,
 		// which encrypts it with the master key and then calls PUT /api/v1/sshca/client-share

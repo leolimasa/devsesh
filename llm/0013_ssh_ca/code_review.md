@@ -354,14 +354,13 @@ const result = ed25519_FROST.commit(secret) as any
 **Issue:** If the worker terminates (due to timeout) while a signing operation is in progress, the request will fail.
 **Suggestion:** Add explicit handling in frost-client.ts to detect worker termination and provide a clear error.
 
-#### 3. Database Transaction for Registration
-**Issue:** Registration creates multiple database records (user, ssh_ca) without a transaction:
-```go
-db.CreateUser(database, req.Email)
-db.CreateSSHCA(database, caData)
-```
-Note: Client share is now stored separately after frontend encryption via PUT endpoint.
-**Suggestion:** Wrap user + ssh_ca creation in a transaction to ensure atomicity.
+#### 3. Database Transaction for Registration - ✅ FIXED
+~~**Issue:** Registration creates multiple database records without a transaction.~~
+
+**Fix Applied:**
+- Created `db.RegisterUserWithSSHCA()` for new user registration (user + credential + SSH CA in one transaction)
+- Created `db.AddCredentialToExistingUser()` for existing user credential addition
+- Both functions use `tx.Begin()` / `tx.Commit()` with rollback on error
 
 ### Suggestions for Improvement
 
@@ -386,7 +385,7 @@ Add instrumentation for:
 ### HIGH Priority
 - [x] ~~HIGH: Fix potential race condition where client share is stored unencrypted before frontend encrypts it (webauthn.go)~~ ✅ FIXED
 - [ ] HIGH: Audit aes.ts for zero-byte salt issue noted in ROADMAP.md
-- [ ] HIGH: Add database transaction for registration flow (user + ssh_ca + client_share)
+- [x] ~~HIGH: Add database transaction for registration flow (user + ssh_ca)~~ ✅ FIXED
 - [x] ~~HIGH: Remove `web/devsesh` binary from git (add to .gitignore)~~ ✅ FIXED
 
 ### MEDIUM Priority
