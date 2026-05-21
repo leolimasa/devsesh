@@ -1,342 +1,413 @@
-# Code Review: Phase 9 - FROST Client Library
+# SSH CA Implementation - Code Review
 
 ## Summary
-Implementation of the FROST client library (`frost-client.ts`), React context (`FROSTContext.tsx`), new `/api/v1/sshca/config` endpoint, and API helper functions for the frontend to interact with the FROST signing WebSocket protocol.
 
-**Review Status**: All HIGH priority issues have been fixed. The security requirement [req.qogtvx] for client share encryption is now supported via the new `PUT /api/v1/sshca/client-share` endpoint and updated `FROSTContext` that accepts a master key for decryption.
+This PR implements FROST-based threshold signature SSH certificates for devsesh, enabling passwordless SSH authentication using 2-of-2 Ed25519 threshold signatures. The implementation spans backend (Go), frontend (TypeScript/React), WASM SSH client, and integration tests.
 
 ## Requirements Coverage
 
-| Requirement | Status | Implementation |
-|-------------|--------|----------------|
-| [req.0xpudr] @noble/curves for FROST | Covered | `frost-client.ts` imports and uses via worker |
-| [req.qwdm15] Main thread isolation | Covered | Share only held in worker, never in main thread |
-| [req.qogtvx] WebAuthn PRF for unlock | **FIXED** | `initWithShare()` decrypts share with master key; `PUT /api/v1/sshca/client-share` endpoint allows frontend to save encrypted share |
-| [req.3j5hnq] Client-initiated cert request | Covered | `requestCertificate(hostId)` method |
-| [req.wdalb2] Server TBS creation | Covered | WebSocket flow receives TBS from server |
-| [req.5xcc6i] Round 1 commitment exchange | Covered | Worker round1 + WebSocket exchange |
-| [req.o3lf24] Round 2 partial signatures | Covered | Worker round2 + WebSocket exchange |
-| [req.dzym7r] Signature aggregation | Covered | Server aggregates (client sends partial) |
-| [req.jki5t0] Certificate return | Covered | WebSocket receives final certificate |
-| [req.35jehk] Worker status indicator | Covered | `isActive()`, `getRemainingTime()`, context polling |
-| [req.obmwbr] Memory zeroing | Covered | `terminate()` sends terminate to worker |
-| [req.v8k2fs] Verification shares | Covered | `/api/v1/sshca/config` returns both shares |
+| Requirement                                     | Status | Implementation                                 |
+|-------------------------------------------------|--------|------------------------------------------------|
+| [req.0xpudr] @noble/curves dependency           | ✅     | Added to web/package.json, used in frost.ts    |
+| [req.jap7ew] @noble/hashes dependency           | ✅     | Added to web/package.json                      |
+| [req.c02qrs] FROST Ed25519 (Go)                 | ✅     | bytemare/frost in internal/ssh/ca/             |
+| [req.1mujak] SSH certificate generation         | ✅     | golang.org/x/crypto/ssh in ca.go               |
+| [req.qwdm15] Main thread isolation              | ✅     | Worker holds share, main thread never accesses |
+| [req.gvq1jj] Memory-only share storage          | ✅     | Worker-local variable, no IndexedDB            |
+| [req.xxu1i4] Worker postMessage API             | ✅     | init, round1, round2, status, terminate        |
+| [req.obmwbr] Memory zeroing on terminate        | ✅     | zeroMemory() in frost.ts and frost-worker.ts   |
+| [req.2k5is9] 30-minute inactivity timeout       | ✅     | Configurable timeout in worker                 |
+| [req.o9pemq] JWT authentication                 | ✅     | RequireJWT middleware on all SSHCA routes      |
+| [req.hs8zrm] Host ownership validation          | ✅     | handleRequestCert validates host.UserID        |
+| [req.qogtvx] WebAuthn PRF requirement           | ✅     | SSHTerminal.tsx triggers WebAuthn dialog       |
+| [req.ey98nq] Fresh nonces                       | ✅     | generateNonces() creates new nonces each call  |
+| [req.tie4zq] 60-second session timeout          | ✅     | SessionManager with expiry                     |
+| [req.1i6osk] Single-use UUID sessions           | ✅     | UUID generation, deleted after use             |
+| [req.zp9nw1] Rate limiting                      | ✅     | RateLimiter (10/min default)                   |
+| [req.u72wa2] Configurable cert validity         | ✅     | SSHCAConfig.CertValiditySecs                   |
+| [req.xj6amw] Audit logging                      | ✅     | LogCertIssuance in cert_audit_log              |
+| [req.umkdzs] ssh-ed25519-cert-v01 format        | ✅     | CreateTBSCertificate output                    |
+| [req.zbf0si] Per-host principals                | ✅     | ssh_principal column in hosts                  |
+| [req.2x3a51] permit-pty, permit-port-forwarding | ✅     | Extensions set in CreateTBSCertificate         |
+| [req.56dvhi] Monotonic serial numbers           | ✅     | IncrementCertSerial atomic operation           |
+| [req.23hk63] CA public key download             | ✅     | PublicKeyHandler, CAPublicKeyDownload.tsx      |
+| [req.0lpwy4] CA fingerprint display             | ✅     | computeFingerprint in CAPublicKeyDownload.tsx  |
+| [req.35jehk] Worker status indicator            | ✅     | WorkerStatusIndicator.tsx                      |
+| [req.4oofln] WebAuthn prompt on inactive worker | ✅     | WebAuthnDialog.tsx in SSHTerminal              |
+| [req.w51l9k] SSH principal field in host form   | ✅     | HostForm.tsx updated                           |
+| [req.5kl1v5] WebSocket signing protocol         | ✅     | SigningWebSocketHandler                        |
+| [req.3j5hnq] Client-initiated cert request      | ✅     | "request_cert" message type                    |
+| [req.wdalb2] Server TBS data creation           | ✅     | handleRequestCert builds TBS                   |
+| [req.5xcc6i] Round 1 commitment exchange        | ✅     | handleRound1, clientRound1                     |
+| [req.o3lf24] Round 2 partial signatures         | ✅     | handleRound2, clientRound2                     |
+| [req.dzym7r] Signature aggregation              | ✅     | AggregateSignatures in frost.go                |
+| [req.jki5t0] Certificate return to client       | ✅     | "certificate" response type                    |
+| [req.3zw1de] Session abort on failure           | ✅     | cleanup() and DeleteSession                    |
+| [req.9e2ob6] Immediate retry support            | ✅     | New session on each request                    |
+| [req.v8k2fs] Verification shares storage        | ✅     | server_verifying_share, client_verifying_share |
+| [req.17dfwk] Docker CA acceptance               | ✅     | ca_setup.sh, entrypoint.sh updated             |
+| [req.cu1f0k] Flag file in container             | ✅     | FLAG_FILE created in entrypoint                |
+| [req.jc1drs] Integration test                   | ✅     | ssh-ca-e2e.spec.ts                             |
+| [req.ancud7] User registration creates CA       | ✅     | GenerateKeyShares in FinishRegistration        |
+| [req.vz2fg3] Container accepts CA auth          | ✅     | TrustedUserCAKeys configured                   |
+| [req.4whcli] Host without password              | ✅     | Test creates host with no password             |
+| [req.twjlw7] Web interface connection           | ✅     | SSHTerminal with certificate auth              |
+| [req.xbft6g] Flag file verification             | ✅     | cat FLAG_FILE in integration test              |
 
 ## Implementation Progress
 
-| Phase | Item | Status |
-|-------|------|--------|
-| Phase 9 | `web/src/lib/frost-client.ts` | ✅ Complete |
-| Phase 9 | `FROSTClient` class | ✅ Complete |
-| Phase 9 | `constructor()` - spawn worker | ✅ Complete |
-| Phase 9 | `initWithShare()` - decrypt and init | ✅ Complete |
-| Phase 9 | `initWithConfig()` - init with pre-fetched config | ✅ Complete |
-| Phase 9 | `requestCertificate()` - full signing flow | ✅ Complete |
-| Phase 9 | `isActive()` - status check | ✅ Complete |
-| Phase 9 | `getRemainingTime()` - countdown | ✅ Complete |
-| Phase 9 | `terminate()` - cleanup | ✅ Complete |
-| Phase 9 | `GET /api/v1/sshca/config` endpoint | ✅ Complete |
-| Phase 9 | `getSSHCAConfig()` API helper | ✅ Complete |
-| Phase 9 | `getSSHCASigningWebSocketURL()` helper | ✅ Complete |
-| Phase 9 | `web/src/contexts/FROSTContext.tsx` | ✅ Complete |
-| Phase 9 | `FROSTProvider` component | ✅ Complete |
-| Phase 9 | `useFROST()` hook | ✅ Complete |
+| Phase                                                | Status         | Notes                                                |
+|------------------------------------------------------|----------------|------------------------------------------------------|
+| Phase 1: Database Schema & Go Dependencies           | ✅ Committed   | Migrations, db functions                             |
+| Phase 2: FROST Key Generation & Certificate Building | ✅ Committed   | ca.go, ca_test.go                                    |
+| Phase 3: Session Management & Rate Limiting          | ✅ Committed   | Actor-based SessionManager                           |
+| Phase 3.5: Verification Shares                       | ✅ Committed   | KeyShares includes verifying shares                  |
+| Phase 4a: FROST Signing Protocol                     | ✅ Committed   | frost.go with full signing flow                      |
+| Phase 4b: WebSocket Handler & Routes                 | ✅ Committed   | handler.go with signing WebSocket                    |
+| Phase 5: User Registration Integration               | ✅ Committed   | webauthn.go generates CA on register                 |
+| Phase 6: Frontend TypeScript Dependencies & Types    | ✅ Implemented | @noble/curves, sshca.ts types                        |
+| Phase 7: FROST Crypto Library (Frontend)             | ✅ Implemented | frost.ts with full client signing                    |
+| Phase 8: FROST Web Worker                            | ✅ Implemented | frost-worker.ts with timeout                         |
+| Phase 9: FROST Client Library                        | ✅ Committed   | frost-client.ts, FROSTContext.tsx                    |
+| Phase 10: Frontend UI Components                     | ✅ Implemented | WorkerStatusIndicator, CAPublicKeyDownload, HostForm |
+| Phase 11: SSH Client Integration                     | ✅ Implemented | SSHTerminal with cert auth, WebAuthnDialog           |
+| Phase 12: Docker Container CA Support                | ✅ Committed   | ca_setup.sh, entrypoint.sh                           |
+| Phase 13: Integration Test                           | ✅ Implemented | ssh-ca-e2e.spec.ts (5 tests pass)                    |
+| Phase 14: Final Validation                           | ⏳ Not Started | All tests need to be run together                    |
 
 ## Todo Status
 
-### Completed in this PR:
-- [x] Create `web/src/lib/frost-client.ts`
-- [x] Add `GET /api/v1/sshca/config` endpoint
-- [x] Add `getSSHCAConfig()` and `getSSHCASigningWebSocketURL()` to api.ts
-- [x] Create `web/src/contexts/FROSTContext.tsx`
-- [x] Phase 9 marked as IMPLEMENTED in todo.md
-
-### Still Pending (Future Phases):
-- [ ] Phase 10: Frontend UI Components
-- [ ] Phase 11: SSH Client Integration
-- [ ] Phase 12: Docker Container CA Support
-- [ ] Phase 13: Integration Test
-- [ ] Phase 14: Final Validation
+Based on the diff, the todo.md file shows:
+- ✅ Phases 1-5, 9, 12-13 marked as committed
+- ✅ Phases 6-8, 10-11 marked as implemented
+- ⏳ Phase 14 (Final Validation) not started
 
 ## Unit Test Coverage
 
-| Requirement | Unit Test | Coverage |
-|-------------|-----------|----------|
-| [req.0xpudr] @noble/curves | `frost.test.ts` - signing flow tests | ✅ Covered |
-| [req.qwdm15] Main thread isolation | `frost-worker.test.ts` - worker isolation | ✅ Covered |
-| [req.gvq1jj] Memory-only storage | `frost-worker.test.ts` - init/terminate | ✅ Covered |
-| [req.xxu1i4] Worker postMessage API | `frost-worker.test.ts` - all message types | ✅ Covered |
-| [req.obmwbr] Memory zeroing | `frost-worker.test.ts` - terminate test | ✅ Covered |
-| [req.2k5is9] Inactivity timeout | `frost-worker.test.ts` - timeout tests | ✅ Covered |
-| [req.ey98nq] Fresh nonces | `frost.test.ts` - unique nonces test | ✅ Covered |
-| [req.5xcc6i] Round 1 commitment | `frost-worker.test.ts` - round1 tests | ✅ Covered |
-| [req.o3lf24] Round 2 partial sig | `frost-worker.test.ts` - round2 tests | ✅ Covered |
+| Requirement                      | Unit Test                                                | File                |
+|----------------------------------|----------------------------------------------------------|---------------------|
+| [req.c02qrs] FROST keygen        | ✅ TestGenerateKeyShares                                 | ca_test.go          |
+| [req.v8k2fs] Verification shares | ✅ TestGenerateKeyShares                                 | ca_test.go          |
+| [req.umkdzs] Certificate format  | ✅ TestCreateTBSCertificate                              | ca_test.go          |
+| [req.2x3a51] Extensions          | ✅ TestCreateTBSCertificate_PermitPtyAndPortForwarding   | ca_test.go          |
+| [req.56dvhi] Serial numbers      | ✅ TestCreateTBSCertificate (serial=42)                  | ca_test.go          |
+| [req.5xcc6i] Round 1             | ✅ TestServerRound1_ProducesValidCommitment              | frost_test.go       |
+| [req.o3lf24] Round 2             | ✅ TestServerRound2_ProducesValidPartialSignature        | frost_test.go       |
+| [req.dzym7r] Aggregation         | ✅ TestAggregateSignatures_ProducesValidEd25519Signature | frost_test.go       |
+| [req.ey98nq] Fresh nonces        | ✅ TestNonceUniqueness                                   | frost_test.go       |
+| [req.1i6osk] Session creation    | ✅ TestSessionManager_CreateSession                      | session_test.go     |
+| [req.tie4zq] Session expiry      | ✅ TestHandler_SessionExpiry                             | handler_test.go     |
+| [req.zp9nw1] Rate limiting       | ✅ TestRateLimiterWithHandler                            | handler_test.go     |
+| [req.hs8zrm] Host ownership      | ✅ TestHandler_HostOwnershipValidation_RejectsNonOwner   | handler_test.go     |
+| [req.xj6amw] Audit logging       | ✅ TestHandler_AuditLogging                              | handler_test.go     |
+| [req.9e2ob6] Retry support       | ✅ TestHandler_RetryAfterSessionFailure                  | handler_test.go     |
+| [req.3zw1de] Session cleanup     | ✅ TestHandler_SessionCleanupOnDelete                    | handler_test.go     |
+| [req.23hk63] Public key handler  | ✅ TestHandler_PublicKeyHandler_Success                  | handler_test.go     |
+| [req.0xpudr] @noble/curves       | ✅ frost.test.ts                                         | web/src/lib/crypto/ |
+| [req.xxu1i4] Worker API          | ✅ frost-worker.test.ts                                  | web/src/workers/    |
 
-**Requirements without unit tests:**
-- `frost-client.ts` - No direct unit tests (relies on worker tests + integration)
-- `FROSTContext.tsx` - No React component tests
-- `api.ts` new functions - No unit tests for `getSSHCAConfig()` or `getSSHCASigningWebSocketURL()`
-- `ConfigHandler()` in handler.go - No unit test for the new endpoint
+### Requirements Missing Unit Tests
+
+1. **[req.qwdm15]** Main thread isolation - No explicit test verifying main thread cannot access share
+2. **[req.gvq1jj]** Memory-only storage - No test verifying share isn't persisted to IndexedDB
+3. **[req.2k5is9]** 30-minute timeout - Worker tests use shorter timeout, need full timeout test
+4. **[req.o9pemq]** JWT authentication - No handler-level test for JWT requirement
+5. **[req.u72wa2]** Configurable validity - No test for max 5-minute limit enforcement
+6. **[req.0lpwy4]** CA fingerprint - No test for computeFingerprint() function
+7. **[req.35jehk]** Worker status indicator - No component tests for WorkerStatusIndicator
 
 ## Unit Test Quality Issues
 
-1. **`frost-worker.test.ts` duplicates worker implementation**: The test file contains a complete reimplementation of the worker logic in `createWorkerSimulator()`. This is necessary because Web Workers don't work in jsdom, but it means:
-   - Tests may pass while actual worker fails
-   - Logic changes need to be made in two places
-   - **Suggestion**: Add a note/comment explaining this limitation and consider extracting shared logic to a testable pure function module
+### 1. handler_test.go - Missing Error Cases
+**Issue:** Many handler tests verify happy paths but lack error case coverage.
+**Suggestion:** Add tests for:
+- Invalid base64 in user_public_key
+- Malformed WebSocket messages
+- Database errors during certificate issuance
 
-2. **`frost.test.ts` incomplete coverage of `clientRound1`/`clientRound2`**: The high-level functions `clientRound1()` and `clientRound2()` are not directly tested with realistic bytemare/frost format data.
-   - **Suggestion**: Add integration-style tests that use actual serialized share data from Go tests
+### 2. frost_test.go - Hardcoded Test Values
+**Issue:** Some tests use hardcoded byte arrays that may not reflect real-world data.
+**Suggestion:** Generate test data dynamically or use well-documented test vectors.
 
-3. **No tests for `FROSTClient` class**: The main client class that orchestrates worker + WebSocket is not tested.
-   - **Suggestion**: Add mocked tests for `FROSTClient` using vi.mock for Worker and WebSocket
+### 3. ca_test.go - Simplified Test Assertions
+**Issue:** Tests were simplified in the diff, removing some detailed assertions.
+**Suggestion:** Restore assertions for:
+- `cert.Key.Type() == "ssh-ed25519"`
+- `cert.SignatureKey.Type() == "ssh-ed25519"`
+- Verify signature key matches CA public key
 
-4. **No tests for `FROSTContext.tsx`**: React context/provider has no tests.
-   - **Suggestion**: Add React Testing Library tests for the context provider
+### 4. frost-worker.test.ts - Mock Worker Environment
+**Issue:** Tests run in Node.js, not a real worker environment.
+**Suggestion:** Consider using a worker polyfill or running subset of tests in browser environment.
+
+### 5. SSHTerminal.test.tsx - Incomplete Mock
+**Issue:** FROST context mock returns `vi.fn().mockRejectedValue` which may cause false positives.
+**Suggestion:** Add tests that exercise the actual certificate request flow with proper mocking.
 
 ## Integration Test Coverage
 
-| Requirement | Integration Test | Coverage |
-|-------------|------------------|----------|
-| [req.jc1drs] E2E integration test | Not implemented | ❌ Not covered |
-| [req.ancud7] User registration creates CA | Not implemented | ❌ Not covered |
-| [req.vz2fg3] Container accepts CA auth | Not implemented | ❌ Not covered |
-| [req.4whcli] Host without password | Not implemented | ❌ Not covered |
-| [req.twjlw7] Web interface connection | Not implemented | ❌ Not covered |
-| [req.xbft6g] Flag file verification | Not implemented | ❌ Not covered |
+| Requirement                           | Integration Test                                                   | File               |
+|---------------------------------------|--------------------------------------------------------------------|--------------------|
+| [req.jc1drs] E2E certificate auth     | ✅ complete certificate-based SSH connection workflow              | ssh-ca-e2e.spec.ts |
+| [req.ancud7] Registration creates CA  | ✅ user registration creates SSH CA key shares                     | ssh-ca-e2e.spec.ts |
+| [req.23hk63] CA public key endpoint   | ✅ CA public key endpoint returns valid OpenSSH key                | ssh-ca-e2e.spec.ts |
+| [req.vz2fg3] Container CA trust       | ✅ SSH container configured with CA trust accepts certificate auth | ssh-ca-e2e.spec.ts |
+| [req.17dfwk] Docker CA setup          | ✅ SSH container has testsession tmux session                      | ssh-ca-e2e.spec.ts |
+| [req.4whcli] Host without password    | ✅ via setupSSHCATestEnvironment (no ssh_password)                 | ssh-ca-e2e.spec.ts |
+| [req.twjlw7] Web interface connection | ✅ connectWithCertificateOnly                                      | ssh-ca-e2e.spec.ts |
+| [req.xbft6g] Flag file verification   | ✅ verifyFlagFileInTerminal                                        | ssh-ca-e2e.spec.ts |
+| [req.4oofln] WebAuthn prompt          | ✅ tested in connectWithCertificateOnly                            | ssh-ca-e2e.spec.ts |
+| [req.qogtvx] PRF requirement          | ✅ setupPRFAuthenticator, registerUserWithPRF                      | prf-auth.ts        |
 
-**All integration test requirements are scheduled for Phase 13.**
+### Requirements Missing Integration Tests
+
+1. **[req.zp9nw1]** Rate limiting - No test that issues 10+ certificates in a minute
+2. **[req.tie4zq]** 60-second session timeout - No test that waits for session expiry
+3. **[req.3zw1de]** Session abort on failure - No test for mid-protocol failure recovery
+4. **[req.obmwbr]** Memory zeroing - Cannot verify memory zeroing in integration test
+5. **[req.xj6amw]** Audit logging - No test verifying cert_audit_log entries
+6. **[req.0lpwy4]** CA fingerprint display - No visual test for fingerprint rendering
 
 ## Integration Test Quality Issues
 
-No integration tests exist yet for the FROST signing flow. This is expected as they are planned for Phase 13.
+### 1. prf-auth.ts - LocalStorage PRF Caching
+**Issue:** The PRF consistency script uses localStorage to cache PRF outputs between page navigations. This is a workaround for Chromium's virtual authenticator producing inconsistent PRF outputs.
+```typescript
+const PRF_CACHE_KEY = '__prf_output_cache__'
+localStorage.setItem(PRF_CACHE_KEY, JSON.stringify(cache))
+```
+**Suggestion:** Document this limitation clearly. Consider clearing the cache between test runs to avoid cross-test contamination.
+
+### 2. ssh-ca-e2e.spec.ts - Long Timeouts
+**Issue:** Many operations use long timeouts (20-60 seconds) which can mask performance regressions.
+**Suggestion:** Add performance assertions or use shorter timeouts with retry logic.
+
+### 3. ssh-container.ts - Shell Command Execution
+**Issue:** Uses `execSync` which can hang if Docker commands fail silently.
+```typescript
+execSync(`docker exec ${containerName} pgrep sshd`)
+```
+**Suggestion:** Add timeout to all execSync calls and better error handling.
+
+### 4. Test Isolation
+**Issue:** ssh-ca-e2e.spec.ts and ssh-e2e.spec.ts both use Docker containers. If run in parallel, they may conflict.
+**Suggestion:** Use unique container names per test file (already done) and ensure port allocations don't conflict.
 
 ## Code Organization Issues
 
-### 1. Duplicate `SSHCAConfig` interface in `api.ts`
-**File**: `web/src/types/api.ts`
-**Issue**: The `SSHCAConfig` interface is defined twice (lines 59-64 and lines 66-71).
-```typescript
-export interface SSHCAConfig {
-  public_key: string;
-  client_share: string;
-  server_verifying_share: string;
-  client_verifying_share: string;
-}
+### 1. Large Files - ✅ FIXED
+- ~~`internal/ssh/ca/handler.go` (744 lines)~~ → Split into:
+  - `handler.go` (~50 lines): Handler struct and constructor
+  - `http_handlers.go` (~160 lines): HTTP handlers
+  - `websocket.go` (~200 lines): WebSocket connection management
+  - `signing.go` (~360 lines): FROST signing protocol
+- ~~`web/src/lib/crypto/frost.ts` (622 lines)~~ → Split into:
+  - `frost-encoding.ts` (~230 lines): Wire format encoding/decoding
+  - `frost.ts` (~280 lines): Core FROST signing logic
+- `web/src/lib/frost-client.ts` (471 lines) - Consider extracting WebSocket communication
+- `web/src/components/SSHTerminal.tsx` - Component grew significantly with certificate auth logic
 
-export interface SSHCAConfig {  // DUPLICATE!
-  public_key: string;
-  client_share: string;
-  server_verifying_share: string;
-  client_verifying_share: string;
-}
-```
-**Suggestion**: Remove the duplicate definition.
+### 2. Duplicate Functionality
+- `encodeBase64`/`decodeBase64` in encoding.ts reimplements btoa/atob with Uint8Array support. Consider using a library or consolidating.
+- ROADMAP.md notes: "encoding.ts is reimplementing base64 encoding?"
 
-### 2. Missing newline at end of `api.ts`
-**File**: `web/src/types/api.ts`
-**Issue**: File doesn't end with a newline (minor style issue).
+### 3. Utility Functions That Should Be Shared - ✅ FIXED
+- ~~`zeroMemory()` duplicated~~ → Extracted to `web/src/lib/crypto/memory.ts`
+- ~~`computeFingerprint()` in CAPublicKeyDownload.tsx~~ → Moved to `web/src/lib/crypto/ssh.ts`
 
-### 3. Client share encryption - FIXED
-**Files fixed**: `internal/ssh/ca/handler.go`, `internal/db/sshca.go`, `web/src/lib/api.ts`, `web/src/contexts/FROSTContext.tsx`
+### 4. Folder Structure Deviation
+- `internal/ctxutil/` is a new package created to break import cycles. This is the correct approach but should be documented.
 
-**Solution implemented**:
-The encryption support has been added with a two-step approach:
-1. Registration returns raw client share to frontend (server doesn't have master key)
-2. Frontend encrypts with master key and calls `PUT /api/v1/sshca/client-share` to update
-3. Later, `GET /api/v1/sshca/config` returns the encrypted share
-4. `FROSTContext.initWorker(masterKey)` decrypts using `initWithShare()`
-
-**Changes made**:
-- Added `UpdateClientShare()` function in `internal/db/sshca.go`
-- Added `UpdateClientShareHandler()` for `PUT /api/v1/sshca/client-share` endpoint
-- Added route in `internal/server/server.go`
-- Added `updateSSHCAClientShare()` API function in `web/src/lib/api.ts`
-- Updated `FROSTContext.tsx` to accept `masterKey` parameter and use `initWithShare()`
-
-**Flow now supported**:
-1. Registration: Server stores raw share → returns raw share to client
-2. Frontend: Encrypts share with master key (from WebAuthn PRF) → calls PUT endpoint
-3. Later: Config endpoint returns encrypted share
-4. FROSTContext: Calls `initWorker(masterKey)` which decrypts and initializes worker
-
-### 4. Unused imports could be cleaner
-**File**: `web/src/lib/frost-client.ts`
-**Issue**: `decrypt` is imported but only used in `initWithShare()`, which has an alternative path via `initWithConfig()`.
-**Suggestion**: This is acceptable as both code paths are valid - `initWithShare()` will be needed once Phase 5 encryption is implemented.
+### 5. Binary Files Committed - ✅ FIXED
+- ~~`web/devsesh` binary file~~ → Removed from git, added to .gitignore
+- `web/public/sshclient.wasm` changed (expected)
 
 ## Code Review
 
 ### Potential Bugs or Issues
 
-#### 1. **HIGH**: Serial number always returns 0 in `CertificateResult`
-**File**: `web/src/lib/frost-client.ts:339`
+#### 1. SSHTerminal.tsx - State Race Condition (HIGH)
+**Issue:** After calling `initWorker()`, the code immediately calls `requestCert()` but `isActive` state may not be updated yet due to React's async state updates.
 ```typescript
-return {
-  certificate: certResp.payload!,
-  serial: 0,  // Always 0, should parse from response
-}
+await initWorker(masterKey)
+// isActive is still false here due to async state update
+const result = await requestCert(host.id)
 ```
-**Issue**: The serial number is hardcoded to 0 instead of being extracted from the server response.
-**Impact**: Certificate tracking/debugging will be impaired.
-**Suggestion**: Parse serial from server response or request it be included in the WebSocket certificate response.
+**Current Workaround:** The code requests the certificate directly after `initWorker` instead of checking `isActive`.
+**Suggestion:** This workaround is correct. Add a comment explaining why the direct call is necessary.
 
-#### 2. **HIGH**: `getRemainingTime()` tracks main thread time, not worker time
-**File**: `web/src/lib/frost-client.ts:355-361`
+#### 2. handler.go - TBS Data Calculation (MEDIUM)
+**Issue:** The TBS data calculation subtracts 4 bytes for the signature length field:
+```go
+certBytes := cert.Marshal()
+tbsData := certBytes[:len(certBytes)-4]
+```
+This relies on the internal structure of `ssh.Certificate.Marshal()`. If the SSH library changes, this could break.
+**Suggestion:** Add a test that verifies the TBS data format matches what the SSH library expects, or use `cert.bytesForSigning()` if accessible.
+
+#### 3. frost.ts - Hardcoded Scalar Offset (MEDIUM)
+**Issue:** The secret scalar offset is hardcoded:
 ```typescript
-getRemainingTime(): number {
-  if (!this.isActive() || this.initTime === null) {
-    return 0
-  }
-  const elapsed = Date.now() - this.initTime
-  return Math.max(0, this.timeoutMs - elapsed)
-}
+const expectedScalarOffset = 103
+const signingShare = clientShare.slice(expectedScalarOffset, expectedScalarOffset + SCALAR_SIZE)
 ```
-**Issue**: The client tracks its own `initTime` which is reset on each signing operation. However, the worker has its own independent timer. These can drift, and the worker may terminate before the client expects.
-**Suggestion**: Query worker status periodically via the `status` message type, or have worker send remaining time in responses.
+This assumes a specific bytemare/frost encoding that could change.
+**Suggestion:** Add validation that the extracted scalar is non-zero and within the Ed25519 scalar range.
 
-#### 3. **MEDIUM**: WebSocket error handling lacks detailed feedback
-**File**: `web/src/lib/frost-client.ts:228-229`
+#### 4. WebAuthnDialog.tsx - Auth Progress Tracking (LOW)
+**Issue:** Uses a ref to track auth progress to prevent onCancel from being called during authentication:
 ```typescript
-ws.onerror = () => {
-  reject(new Error('WebSocket error'))
-}
+const authInProgressRef = useRef(false)
 ```
-**Issue**: Generic error message provides no debugging information.
-**Suggestion**: Include event details or provide more specific error messages.
-
-#### 4. **MEDIUM**: No cleanup of WebSocket on signing flow errors
-**File**: `web/src/lib/frost-client.ts:248-341`
-**Issue**: If an error occurs mid-flow (e.g., during round1 or round2), the WebSocket may not be properly closed.
-**Suggestion**: Wrap the signing flow in try/finally to ensure `ws.close()` is called.
-
-#### 5. **LOW**: `initTime` reset on each signing step
-**File**: `web/src/lib/frost-client.ts:217, 297, 321`
-```typescript
-this.initTime = Date.now()  // Reset on requestCertificate
-// ...
-this.initTime = Date.now()  // Reset after round1
-// ...
-this.initTime = Date.now()  // Reset after round2
-```
-**Issue**: This resets the timeout tracker during signing, which is correct behavior (activity extends session), but it means `getRemainingTime()` doesn't reflect the actual worker timeout state.
-**Suggestion**: Document this behavior or sync with worker's actual state.
+This is a reasonable pattern but could be cleaner with a state machine.
+**Suggestion:** Consider using a state machine library or simplifying the dialog lifecycle.
 
 ### Security Concerns
 
-#### 1. **FIXED**: Client share encryption support added
-**Solution**: Added infrastructure to support encrypted client share storage and retrieval.
+#### 1. Client Share Stored Before Encryption - ✅ FIXED
+~~**Issue:** In `webauthn.go`, the client share was stored unencrypted before frontend encryption.~~
 
-**Changes made**:
-- Added `PUT /api/v1/sshca/client-share` endpoint to update share with encrypted version
-- Added `UpdateClientShare()` db function
-- Updated `FROSTContext` to accept master key and use `initWithShare()` for decryption
-- Added `updateSSHCAClientShare()` frontend API function
+**Fix Applied:**
+- Removed `db.SaveClientShare()` call from `RegisterFinishHandler` - unencrypted share is never stored
+- Changed `UpdateClientShare()` to use UPSERT (`INSERT OR REPLACE`) to create/update records
+- Flow now: Server returns plaintext share → Frontend encrypts → Frontend calls PUT → Server stores encrypted only
 
-**New security model** (when frontend implements encryption flow):
-- At rest: Encrypted with master key (derived from WebAuthn PRF)
-- In transit: Double-encrypted (master key + TLS)
-- Client-side: Requires WebAuthn PRF authentication to decrypt
-
-**Remaining work** (for frontend registration flow):
-The frontend registration code needs to be updated to:
-1. After receiving raw client share from registration response
-2. Encrypt it with master key
-3. Call `updateSSHCAClientShare()` to save encrypted version
-
-This is outside the scope of the current Phase 9 changes but the infrastructure is now in place.
-
-#### 2. **MEDIUM**: No validation of clientShare is null before returning
-**File**: `internal/ssh/ca/handler.go:174-180`
-```go
-clientShare, err := db.GetClientShare(h.db, userID)
-if err != nil {
-    // error handling
-}
-// No check for clientShare == nil before encoding
+#### 2. PRF Output Caching in LocalStorage (MEDIUM)
+**Issue:** Integration tests cache PRF outputs in localStorage:
+```typescript
+localStorage.setItem(PRF_CACHE_KEY, JSON.stringify(cache))
 ```
-**Issue**: If `GetClientShare` returns `(nil, nil)`, the response will include `"client_share": ""` which may cause client-side issues.
-**Suggestion**: Add nil check and return 404 if client share doesn't exist.
+This is test-only code, but if accidentally included in production, it would weaken security.
+**Suggestion:** Ensure this code is not bundled into production builds. Add a check or use a test-only module.
+
+#### 3. Debug Logging of Key Material (LOW)
+**Issue:** Several places log key material for debugging:
+```go
+slog.Info("SSH CA key shares generated",
+    "publicKey_hex", fmt.Sprintf("%x", keyShares.PublicKey),
+```
+While public keys are not secret, this pattern could accidentally be extended to log secrets.
+**Suggestion:** Use structured logging with explicit key material markers so they can be filtered in production.
+
+#### 4. Zero Salt in AES (Noted in ROADMAP.md) (HIGH)
+**Issue:** ROADMAP.md notes: "aes.ts has 0 byte salt?"
+This suggests the AES encryption may be using an empty salt, which weakens key derivation.
+**Suggestion:** Audit aes.ts to ensure proper salt usage.
 
 ### Performance Implications
 
-#### 1. **LOW**: FROSTContext polls every second
-**File**: `web/src/contexts/FROSTContext.tsx:51-55`
+#### 1. WebSocket Per Certificate Request
+**Issue:** Each certificate request opens a new WebSocket connection.
+**Suggestion:** For high-frequency usage, consider keeping the WebSocket open and multiplexing requests.
+
+#### 2. Worker Polling Every Second
+**Issue:** `FROSTContext.tsx` polls worker status every second:
 ```typescript
 intervalRef.current = setInterval(() => {
-  if (clientRef.current) {
     setIsActive(clientRef.current.isActive())
     setRemainingTime(clientRef.current.getRemainingTime())
-  }
 }, 1000)
 ```
-**Issue**: Polling every second causes unnecessary re-renders even when nothing changes.
-**Suggestion**: Use a callback-based approach where the worker notifies on state changes, or poll less frequently (e.g., every 5 seconds) when not actively signing.
+**Suggestion:** This is acceptable for now but could use requestAnimationFrame or only poll when the indicator is visible.
+
+#### 3. Multiple API Calls on SSH Connect
+**Issue:** When connecting, SSHTerminal.tsx makes multiple API calls:
+1. getMasterKey()
+2. loginBegin()
+3. getSSHCAConfig()
+4. WebSocket connection
+**Suggestion:** Consider batching some of these calls or pre-fetching config.
 
 ### Code Style Consistency
 
-#### 1. Field naming inconsistency
-**Issue**: Go uses `snake_case` in JSON (`server_verifying_share`) while TypeScript type uses the same. This is consistent but verbose.
-**Suggestion**: This is acceptable and consistent.
+#### 1. Error Message Casing
+**Issue:** Some error messages use lowercase, some use sentence case:
+```go
+client.sendError("host_id is required")  // lowercase
+client.sendError("SSH CA not configured")  // Title Case
+```
+**Suggestion:** Standardize on lowercase error messages for consistency.
 
-#### 2. Missing JSDoc on some functions
-**File**: `web/src/contexts/FROSTContext.tsx`
-**Issue**: Functions like `initWorker`, `requestCert`, `terminate` lack JSDoc comments.
-**Suggestion**: Add documentation for public API.
+#### 2. Logging Levels
+**Issue:** Mix of slog.Info, slog.Debug, slog.Error without clear guidelines:
+```go
+slog.Info("FROST signature verified successfully", ...)
+slog.Debug("round 1 completed", ...)
+```
+**Suggestion:** Use Debug for protocol details, Info for significant events, Error for failures.
+
+#### 3. TypeScript Any Usage
+**Issue:** Several places use `any` type:
+```typescript
+const result = ed25519_FROST.commit(secret) as any
+```
+**Suggestion:** Define proper types for the @noble/curves FROST API responses.
 
 ### Missing Edge Cases or Error Handling
 
-#### 1. Worker restart not supported
-**File**: `web/src/lib/frost-client.ts`
-**Issue**: If the worker terminates (timeout or manual), there's no way to restart it without creating a new `FROSTClient` instance.
-**Suggestion**: Add a `restart()` method or automatically respawn worker on `initWithShare()`.
+#### 1. WebSocket Reconnection
+**Issue:** If the WebSocket closes mid-signing, the promise may hang.
+**Current Fix:** The diff shows `onclose` handler was added.
+**Suggestion:** Verify the handler properly rejects pending promises.
 
-#### 2. No handling for WebSocket close during signing
-**Issue**: If the WebSocket closes unexpectedly during the signing flow, the promise may hang.
-**Suggestion**: Add `onclose` handler that rejects the promise.
+#### 2. Worker Termination During Signing
+**Issue:** If the worker terminates (due to timeout) while a signing operation is in progress, the request will fail.
+**Suggestion:** Add explicit handling in frost-client.ts to detect worker termination and provide a clear error.
 
-#### 3. Race condition in concurrent certificate requests
-**File**: `web/src/lib/frost-client.ts:207-235`
-**Issue**: If `requestCertificate()` is called twice concurrently, both will try to use the same worker state.
-**Suggestion**: Add a mutex/lock or queue mechanism, or reject concurrent requests.
+#### 3. Database Transaction for Registration
+**Issue:** Registration creates multiple database records (user, ssh_ca) without a transaction:
+```go
+db.CreateUser(database, req.Email)
+db.CreateSSHCA(database, caData)
+```
+Note: Client share is now stored separately after frontend encryption via PUT endpoint.
+**Suggestion:** Wrap user + ssh_ca creation in a transaction to ensure atomicity.
 
 ### Suggestions for Improvement
 
-1. **Add TypeScript strict null checks handling** for optional fields in `WSResponse`
-2. **Consider using AbortController** for cancellable signing operations
-3. **Add retry logic** for transient WebSocket failures
-4. **Emit events** from FROSTClient for status changes instead of polling
+#### 1. Add Health Check for FROST Worker
+Create a lightweight "ping" message to verify the worker is responsive without performing cryptographic operations.
+
+#### 2. ~~Certificate Caching~~ (Not needed)
+~~For hosts where multiple connections are made quickly, consider caching valid certificates.~~
+**Reconsidered:** The worker already holds the decrypted share for 30 minutes, so generating new certificates is fast (just a WebSocket round-trip). Fresh certificates per connection is better for security (unique serials, audit trail).
+
+#### 3. Better Error Messages for Users
+Current errors like "failed to compute server partial signature" are technical. Add user-friendly alternatives.
+
+#### 4. Metrics/Telemetry
+Add instrumentation for:
+- Certificate issuance latency
+- Worker initialization time
+- Authentication method used (certificate vs password)
 
 ## Code Review TODO
 
-### HIGH Priority - ALL FIXED
-- [x] **HIGH**: Fix duplicate `SSHCAConfig` interface in `web/src/types/api.ts`
-- [x] **HIGH**: Fix serial number always returning 0 in `CertificateResult` (added `serial` field to wsResponse, parsed in client)
-- [x] **HIGH**: Add nil check for clientShare in `ConfigHandler`
-- [x] **HIGH**: Add `onclose` handler in WebSocket signing flow to prevent hanging promises
-- [x] **HIGH**: Implement client share encryption support [req.qogtvx]
-  - Added `PUT /api/v1/sshca/client-share` endpoint for frontend to save encrypted share
-  - Added `UpdateClientShare()` db function and `UpdateClientShareHandler()` handler
-  - Added `updateSSHCAClientShare()` API function in frontend
-  - Modified `FROSTContext.tsx`: Now accepts master key parameter and uses `initWithShare()` for decryption
-  - Frontend registration flow can now encrypt share with master key and save via PUT endpoint
+### HIGH Priority
+- [x] ~~HIGH: Fix potential race condition where client share is stored unencrypted before frontend encrypts it (webauthn.go)~~ ✅ FIXED
+- [ ] HIGH: Audit aes.ts for zero-byte salt issue noted in ROADMAP.md
+- [ ] HIGH: Add database transaction for registration flow (user + ssh_ca + client_share)
+- [x] ~~HIGH: Remove `web/devsesh` binary from git (add to .gitignore)~~ ✅ FIXED
 
 ### MEDIUM Priority
-- [ ] **MEDIUM**: Improve WebSocket error handling with detailed messages
-- [ ] **MEDIUM**: Add try/finally for WebSocket cleanup in signing flow
-- [ ] **MEDIUM**: Add unit tests for `FROSTClient` class
-- [ ] **MEDIUM**: Add React tests for `FROSTContext.tsx`
-- [ ] **MEDIUM**: Add unit test for `ConfigHandler()` endpoint
+- [ ] MEDIUM: Add validation for extracted scalar in frost.ts (non-zero, within range)
+- [ ] MEDIUM: Add integration test for rate limiting (10+ certs in 1 minute)
+- [ ] MEDIUM: Add integration test verifying cert_audit_log entries
+- [ ] MEDIUM: Document TBS data calculation in handler.go with reference to SSH spec
+- [x] ~~MEDIUM: Split handler.go into smaller files (http handlers, websocket, signing)~~ ✅ FIXED
+- [ ] MEDIUM: Add proper TypeScript types for @noble/curves FROST API (remove `as any`)
+- [x] ~~MEDIUM: Extract zeroMemory() to shared utility (currently duplicated)~~ ✅ FIXED
 
 ### LOW Priority
-- [ ] **LOW**: Sync `getRemainingTime()` with actual worker state via status messages
-- [ ] **LOW**: Reduce polling frequency in FROSTContext when not actively signing
-- [ ] **LOW**: Add JSDoc to FROSTContext functions
-- [ ] **LOW**: Add worker restart capability
-- [ ] **LOW**: Add mutex for concurrent certificate request protection
+- [ ] LOW: Standardize error message casing (lowercase recommended)
+- [ ] LOW: Add comment explaining direct requestCert call after initWorker in SSHTerminal.tsx
+- [ ] LOW: Add component tests for WorkerStatusIndicator
+- [ ] LOW: Add unit test for computeFingerprint() function
+- [ ] LOW: Consider state machine for WebAuthnDialog lifecycle
 
 ### FUTURE
-- [ ] **FUTURE**: Consider event-based status updates instead of polling
-- [ ] **FUTURE**: Add AbortController support for cancellable operations
-- [ ] **FUTURE**: Add retry logic for transient failures
-- [ ] **FUTURE**: Integration tests (Phase 13)
+- [x] ~~FUTURE: Implement certificate caching~~ - Not needed; worker already holds decrypted share
+- [ ] FUTURE: Add metrics/telemetry for certificate issuance
+- [ ] FUTURE: Consider WebSocket connection pooling
+- [ ] FUTURE: Add user-friendly error messages with technical details in logs
+- [ ] FUTURE: Run Phase 14 final validation with all tests
