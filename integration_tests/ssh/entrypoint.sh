@@ -34,6 +34,7 @@ echo "LogLevel DEBUG3" >> /etc/ssh/sshd_config
 
 # Start SSH daemon with debug logging
 /usr/sbin/sshd -E /tmp/sshd.log
+chmod 644 /tmp/sshd.log
 
 # Create tmux session for test user
 su - testuser -c "tmux new-session -d -s testsession"

@@ -40,6 +40,7 @@ var (
 	executing                bool
 	sshHost                  string
 	sshPort                  int
+	lastCertPrincipals       []string
 )
 
 func updateStatus(status string, errorMsg ...string) {
@@ -102,6 +103,9 @@ func parseCertificateAndKey(certStr string, privateKeyStr string) (ssh.Signer, e
 	if !ok {
 		return nil, fmt.Errorf("key is not a certificate")
 	}
+
+	// Store the principals for use in error messages
+	lastCertPrincipals = cert.ValidPrincipals
 
 	// Debug: log parsed certificate details including signature and signature key
 	if cert.Signature != nil && len(cert.Signature.Blob) >= 8 {
@@ -245,7 +249,11 @@ func Connect(this js.Value, args []js.Value) interface{} {
 				// - Certificate principal doesn't match AuthorizedPrincipalsFile or allowed users
 				// - Certificate has expired (valid_after/valid_before)
 				// - Certificate type mismatch (user cert vs host cert)
-				msg := fmt.Sprintf("SSH certificate authentication failed. The server rejected the certificate and is falling back to password authentication.\n\nHost: %s:%d\n\nTo debug, check the SSH server logs (usually /var/log/auth.log or journalctl -u sshd) for the specific rejection reason.", sshHost, sshPort)
+				principals := strings.Join(lastCertPrincipals, ", ")
+				if principals == "" {
+					principals = "(none)"
+				}
+				msg := fmt.Sprintf("SSH certificate authentication failed. The server rejected the certificate and is falling back to password authentication.\n\nHost: %s:%d\nCertificate principals: %s\n\nTo debug, check the SSH server logs (usually /var/log/auth.log or journalctl -u sshd) for the specific rejection reason.", sshHost, sshPort, principals)
 				js.Global().Get("console").Call("warn", "[SSH WASM] Certificate auth rejected:", msg)
 				// Notify JavaScript that certificate auth failed
 				if !certAuthFailedCallback.IsNull() && !certAuthFailedCallback.IsUndefined() {

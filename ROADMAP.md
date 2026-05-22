@@ -3,21 +3,22 @@
 * [x] Simple SSH authentication
 * [x] Fix no ping
 * [x] Add multi passkey (create single use code to add another passkey)
-* [ ] SSH auth with CA using threshold signatures
+* [x] SSH auth with CA using threshold signatures
+* [ ] Fix "command attach-session: too many arguments" when connecting. Suspect integration tests are NOT catting FLAG_FILE
 * [ ] Looks like there are several endpoints that require session owner and do not have the middleware
 * [ ] Deploy to VM with HTTPS support + tailscale
 
 # Mvp
 
 * [ ] Join dashboard and session details in single screen
-* [ ] Fix editing yaml file actually updates the metadata (needs integration test)
-* [ ] File browser
-* [ ] File editor with Monaco
-* [ ] Git diff browser
 * [ ] Notify (pushover) when session is idle
 
 # Polishing
 
+* [ ] Fix editing yaml file actually updates the metadata (needs integration test)
+* [ ] File browser
+* [ ] File editor with Monaco
+* [ ] Git diff browser
 * [ ] Fix SSH trust on first use (if the target machine ssh key changes, the app won't say anythjing)
 * [ ] Have the CA also sign host certificates
 * [ ] Add support for CORS for all calls. Cors is sprinkled through the code. Need to centralize.
