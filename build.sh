@@ -15,7 +15,9 @@ mkdir -p "$BUILD_DIR"
 
 echo "Building WASM SSH client..."
 
-GOOS=js GOARCH=wasm ./build_wasm.sh "$BUILD_DIR"
+# build_wasm.sh outputs directly to web/public/sshclient.wasm
+# so Vite includes it in the build automatically
+GOOS=js GOARCH=wasm ./build_wasm.sh
 
 echo "Building web client..."
 cd web

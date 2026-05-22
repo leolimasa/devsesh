@@ -12,15 +12,15 @@ export interface DevseshProcess {
 
 /**
  * Get the path to the devsesh binary.
- * Uses DEVSESH_BINARY_PATH env var if set, otherwise resolves relative to project root.
+ * Uses DEVSESH_BINARY_PATH env var if set, otherwise resolves to build/devsesh.
  */
 export function getBinaryPath(): string {
   if (process.env.DEVSESH_BINARY_PATH) {
     return process.env.DEVSESH_BINARY_PATH;
   }
 
-  // Resolve relative to project root (integration_tests/../devsesh)
-  return path.resolve(__dirname, '..', '..', 'devsesh');
+  // Resolve relative to project root (integration_tests/../build/devsesh)
+  return path.resolve(__dirname, '..', '..', 'build', 'devsesh');
 }
 
 /**
@@ -33,7 +33,7 @@ export function spawnDevsesh(args: string[], env: Record<string, string> = {}): 
   const binaryPath = getBinaryPath();
 
   if (!fs.existsSync(binaryPath)) {
-    throw new Error(`devsesh binary not found at ${binaryPath}. Set DEVSESH_BINARY_PATH or build the binary first.`);
+    throw new Error(`devsesh binary not found at ${binaryPath}. Use build.sh to build the binary.`);
   }
 
   const spawnEnv = {
@@ -82,7 +82,7 @@ export function spawnDevseshWithPty(args: string[], env: Record<string, string> 
   const binaryPath = getBinaryPath();
 
   if (!fs.existsSync(binaryPath)) {
-    throw new Error(`devsesh binary not found at ${binaryPath}. Set DEVSESH_BINARY_PATH or build the binary first.`);
+    throw new Error(`devsesh binary not found at ${binaryPath}. Use build.sh to build the binary.`);
   }
 
   const spawnEnv = {

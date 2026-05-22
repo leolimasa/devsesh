@@ -47,16 +47,31 @@ else
 fi
 echo ""
 
-# Check if devsesh binary exists
-echo "Checking devsesh binary..."
+# Check if build artifacts exist (binary and web assets)
+echo "Checking build artifacts..."
 export DEVSESH_BINARY_PATH="$PROJECT_ROOT/build/devsesh"
+DEVSESH_WEB_PATH="$PROJECT_ROOT/build/web"
+DEVSESH_WASM_PATH="$PROJECT_ROOT/build/web/sshclient.wasm"
+
 if [ ! -f "$DEVSESH_BINARY_PATH" ]; then
-    echo "devsesh binary not found, building..."
-    cd "$PROJECT_ROOT"
-    ./build.sh
-else
-    echo "✓ devsesh binary found"
+    echo "Error: devsesh binary not found at $DEVSESH_BINARY_PATH"
+    echo "Use build.sh to build the binary."
+    exit 1
 fi
+
+if [ ! -d "$DEVSESH_WEB_PATH" ]; then
+    echo "Error: web assets not found at $DEVSESH_WEB_PATH"
+    echo "Use build.sh to build the binary."
+    exit 1
+fi
+
+if [ ! -f "$DEVSESH_WASM_PATH" ]; then
+    echo "Error: WASM module not found at $DEVSESH_WASM_PATH"
+    echo "Use build.sh to build the binary."
+    exit 1
+fi
+
+echo "✓ All build artifacts found"
 echo ""
 
 # Build Docker container for SSH integration tests
