@@ -12,6 +12,7 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-failure',
+    acceptDownloads: true,
   },
   projects: [
     {

@@ -34,31 +34,46 @@ export function WebAuthnDialog({
   error = null,
 }: WebAuthnDialogProps) {
   const [localError, setLocalError] = useState<string | null>(null)
-  // Use a ref to track auth success immediately (not subject to async state updates)
+  // Use a ref to track auth in progress - prevents dialog from closing during WebAuthn
   const authInProgressRef = useRef(false)
+  // Track whether we successfully completed auth (to allow dialog to close)
+  const authSucceededRef = useRef(false)
 
   const handleAuthenticate = async () => {
     setLocalError(null)
     // Mark that we're starting auth - this prevents onCancel from being called
     // when the dialog closes during the auth process
     authInProgressRef.current = true
+    authSucceededRef.current = false
     try {
       await onAuthenticate()
-      // Auth completed successfully - the dialog will close but we shouldn't call onCancel
+      // Auth completed successfully - mark it so dialog can close
+      authSucceededRef.current = true
     } catch (err) {
-      authInProgressRef.current = false
       setLocalError(err instanceof Error ? err.message : "Authentication failed")
+    } finally {
+      authInProgressRef.current = false
     }
   }
 
   // Handle dialog close - only call onCancel if auth is not in progress
+  // and auth didn't succeed
   const handleOpenChange = (open: boolean) => {
-    if (!open && !authInProgressRef.current) {
-      onCancel()
+    // Don't allow closing during authentication
+    if (!open && authInProgressRef.current) {
+      console.log('[WebAuthnDialog] Prevented close during authentication')
+      return
     }
-    // Reset when dialog closes
+    // If auth succeeded, allow close without calling onCancel
+    if (!open && authSucceededRef.current) {
+      console.log('[WebAuthnDialog] Closed after successful auth')
+      authSucceededRef.current = false
+      return
+    }
+    // User is closing dialog without successful auth - call onCancel
     if (!open) {
-      authInProgressRef.current = false
+      console.log('[WebAuthnDialog] Closed by user, calling onCancel')
+      onCancel()
     }
   }
 

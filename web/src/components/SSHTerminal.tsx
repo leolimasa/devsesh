@@ -48,6 +48,7 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
   const [webAuthnAuthenticating, setWebAuthnAuthenticating] = useState(false)
   const [webAuthnError, setWebAuthnError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [certAuthError, setCertAuthError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const { isActive, initWorker, requestCert } = useFROST()
@@ -190,10 +191,8 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
     } catch (err) {
       console.error("[SSHTerminal] WebAuthn auth failed:", err)
       setWebAuthnError(err instanceof Error ? err.message : "Authentication failed")
-      // Reject certificate to fall back to password auth
-      if (sshClientRef.current) {
-        sshClientRef.current.rejectCertificate()
-      }
+      // Don't reject certificate here - let user retry by clicking "Authenticate" again
+      // Certificate will only be rejected when user explicitly clicks "Use Password Instead"
     } finally {
       setWebAuthnAuthenticating(false)
     }
@@ -313,6 +312,12 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
       handleCertificateRequestRef.current()
     })
 
+    // Handle certificate auth failure - when server rejects the certificate
+    client.on("certificate-auth-failed", (reason: string) => {
+      console.error("[SSHTerminal] Certificate auth failed:", reason)
+      setCertAuthError(reason)
+    })
+
     client.init()
       .then(() => {
         setLoading(false)
@@ -415,6 +420,29 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
           </button>
         )}
       </div>
+      {certAuthError && (
+        <div className="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 p-4 m-2">
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              <span className="text-yellow-500">⚠️</span>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                Certificate Authentication Failed
+              </p>
+              <pre className="mt-2 text-xs text-yellow-700 dark:text-yellow-300 whitespace-pre-wrap font-mono">
+                {certAuthError}
+              </pre>
+              <button
+                onClick={() => setCertAuthError(null)}
+                className="mt-2 text-xs text-yellow-600 dark:text-yellow-400 underline hover:no-underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {loading && (
         <div className="flex items-center justify-center h-full">
           <span>Loading SSH client...</span>

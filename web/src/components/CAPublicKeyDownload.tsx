@@ -10,11 +10,38 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { getSSHCAPublicKey } from '@/lib/api'
-import { decodeBase64 } from '@/lib/crypto/encoding'
-import { computeFingerprint, formatOpenSSHKey } from '@/lib/crypto/ssh'
+import { sha256 } from '@noble/hashes/sha2.js'
+
+/**
+ * Compute SSH fingerprint from OpenSSH format public key.
+ * The fingerprint is SHA256 hash of the wire-format key (the base64 part).
+ */
+function computeFingerprint(openSSHKey: string): string {
+  // OpenSSH format: "ssh-ed25519 <base64> <comment>"
+  const parts = openSSHKey.split(' ')
+  if (parts.length < 2) {
+    return 'Invalid key format'
+  }
+
+  // Decode the base64 wire format
+  const wireFormat = atob(parts[1])
+  const wireBytes = new Uint8Array(wireFormat.length)
+  for (let i = 0; i < wireFormat.length; i++) {
+    wireBytes[i] = wireFormat.charCodeAt(i)
+  }
+
+  // Hash it
+  const hash = sha256(wireBytes)
+
+  // Format as SHA256:base64 (without padding)
+  const base64Hash = btoa(String.fromCharCode(...hash))
+    .replace(/=+$/, '')
+
+  return `SHA256:${base64Hash}`
+}
 
 export function CAPublicKeyDownload() {
-  const [publicKey, setPublicKey] = useState<Uint8Array | null>(null)
+  const [publicKey, setPublicKey] = useState<string>('')
   const [fingerprint, setFingerprint] = useState<string>('')
   const [error, setError] = useState<string>('')
   const [isLoading, setIsLoading] = useState(true)
@@ -23,11 +50,9 @@ export function CAPublicKeyDownload() {
     async function loadPublicKey() {
       try {
         const response = await getSSHCAPublicKey()
-        const keyBytes = decodeBase64(response.public_key)
-        setPublicKey(keyBytes)
-
-        const fp = await computeFingerprint(keyBytes)
-        setFingerprint(fp)
+        // The API returns the key already in OpenSSH format
+        setPublicKey(response.public_key)
+        setFingerprint(computeFingerprint(response.public_key))
       } catch (err) {
         if (err instanceof Error && err.message.includes('404')) {
           setError('SSH CA not configured. Register with a passkey that supports PRF.')
@@ -45,8 +70,7 @@ export function CAPublicKeyDownload() {
   const handleDownload = () => {
     if (!publicKey) return
 
-    const content = formatOpenSSHKey(publicKey)
-    const blob = new Blob([content], { type: 'text/plain' })
+    const blob = new Blob([publicKey], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
 
     const link = document.createElement('a')

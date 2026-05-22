@@ -577,4 +577,63 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
       if (container) await stopSSHContainer(container)
     }
   })
+
+  // Test: Dashboard "Download CA Key" button downloads valid OpenSSH key [req.23hk63]
+  test('dashboard Download CA Key button downloads valid OpenSSH key', async ({ page, context }) => {
+    const server = await startServer()
+
+    // Capture browser console for debugging
+    const consoleLogs: string[] = []
+    page.on('console', msg => {
+      consoleLogs.push(`[${msg.type()}] ${msg.text()}`)
+    })
+
+    try {
+      // Set up and register user with PRF
+      await setupPRFAuthenticator(context, page)
+      const email = `sshca-download-${Date.now()}@example.com`
+      const { token } = await registerUserWithPRF(page, server.url, email)
+
+      // After registration, we should be on dashboard
+      await expect(page).toHaveURL(/\/dashboard/)
+      console.log('[SSH CA] On dashboard after registration')
+
+      // Find the "Download CA Key" button
+      const downloadButton = page.locator('button:has-text("Download CA Key")')
+      await expect(downloadButton).toBeVisible({ timeout: 5000 })
+
+      // Use Promise.all to start listening for download before the click
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 10000 }),
+        downloadButton.click(),
+      ])
+      console.log('[SSH CA] Download started:', download.suggestedFilename())
+
+      // Verify filename
+      expect(download.suggestedFilename()).toBe('devsesh-ca.pub')
+
+      // Save and read the downloaded file
+      const downloadPath = await download.path()
+      if (!downloadPath) {
+        throw new Error('Download path is null')
+      }
+
+      const content = fs.readFileSync(downloadPath, 'utf-8')
+      console.log('[SSH CA] Downloaded content:', content.substring(0, 60) + '...')
+
+      // Verify it's a valid OpenSSH Ed25519 public key
+      // Format: "ssh-ed25519 <base64>\n" (comment is optional)
+      expect(content).toMatch(/^ssh-ed25519\s+[A-Za-z0-9+/=]+\s*$/)
+      console.log('[SSH CA] ✓ Downloaded key is valid OpenSSH format')
+
+    } catch (error) {
+      // Print browser console logs on failure
+      console.log('\n=== BROWSER CONSOLE LOGS ===')
+      consoleLogs.forEach(log => console.log(log))
+      console.log('=== END BROWSER LOGS ===\n')
+      throw error
+    } finally {
+      await stopServer(server)
+    }
+  })
 })

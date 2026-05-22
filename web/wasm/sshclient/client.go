@@ -22,23 +22,24 @@ type certData struct {
 }
 
 var (
-	currentClient       *ssh.Client
-	currentSession      *ssh.Session
-	currentTransport    *WSTransport
-	currentStdin        chan []byte
-	passwordCallback    js.Value
-	outputCallback      js.Value
-	statusCallback      js.Value
-	certificateCallback js.Value
-	passwordResolver    chan string
-	passwordRejecter    chan struct{}
-	certResolver        chan certData
-	certRejecter        chan struct{}
-	mu                  sync.Mutex
-	connected           bool
-	executing           bool
-	sshHost             string
-	sshPort             int
+	currentClient            *ssh.Client
+	currentSession           *ssh.Session
+	currentTransport         *WSTransport
+	currentStdin             chan []byte
+	passwordCallback         js.Value
+	outputCallback           js.Value
+	statusCallback           js.Value
+	certificateCallback      js.Value
+	certAuthFailedCallback   js.Value
+	passwordResolver         chan string
+	passwordRejecter         chan struct{}
+	certResolver             chan certData
+	certRejecter             chan struct{}
+	mu                       sync.Mutex
+	connected                bool
+	executing                bool
+	sshHost                  string
+	sshPort                  int
 )
 
 func updateStatus(status string, errorMsg ...string) {
@@ -233,7 +234,25 @@ func Connect(this js.Value, args []js.Value) interface{} {
 		}
 
 		// Password callback as fallback (or primary if no certificate)
+		// Track whether we added certificate auth
+		hadCertAuth := len(authMethods) > 0
 		authMethods = append(authMethods, ssh.PasswordCallback(func() (string, error) {
+			// If we had certificate auth, this means it was rejected by the server
+			if hadCertAuth {
+				// SSH protocol doesn't expose the specific rejection reason during auth method fallback.
+				// Common reasons for certificate rejection:
+				// - CA public key not in TrustedUserCAKeys
+				// - Certificate principal doesn't match AuthorizedPrincipalsFile or allowed users
+				// - Certificate has expired (valid_after/valid_before)
+				// - Certificate type mismatch (user cert vs host cert)
+				msg := fmt.Sprintf("SSH certificate authentication failed. The server rejected the certificate and is falling back to password authentication.\n\nHost: %s:%d\n\nTo debug, check the SSH server logs (usually /var/log/auth.log or journalctl -u sshd) for the specific rejection reason.", sshHost, sshPort)
+				js.Global().Get("console").Call("warn", "[SSH WASM] Certificate auth rejected:", msg)
+				// Notify JavaScript that certificate auth failed
+				if !certAuthFailedCallback.IsNull() && !certAuthFailedCallback.IsUndefined() {
+					certAuthFailedCallback.Invoke(msg)
+				}
+			}
+
 			passwordResolver = make(chan string, 1)
 			passwordRejecter = make(chan struct{}, 1)
 
@@ -565,6 +584,14 @@ func RejectPassword(this js.Value, args []js.Value) interface{} {
 // base64-encoded certificate, or sshRejectCertificate to skip certificate auth.
 func SetCertificateCallback(this js.Value, args []js.Value) interface{} {
 	certificateCallback = args[0]
+	return nil
+}
+
+// SetCertAuthFailedCallback sets the callback function that will be invoked when
+// certificate authentication is rejected by the server. This allows the UI to
+// display an error message before falling back to password authentication.
+func SetCertAuthFailedCallback(this js.Value, args []js.Value) interface{} {
+	certAuthFailedCallback = args[0]
 	return nil
 }
 

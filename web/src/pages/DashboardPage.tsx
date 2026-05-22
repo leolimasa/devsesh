@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { listSessions, deleteStaleSessions } from "@/lib/api"
+import { listSessions, deleteStaleSessions, getSSHCAPublicKey } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useAuth } from "@/contexts/AuthContext"
 import type { Session } from "@/types/api"
@@ -108,6 +108,31 @@ export default function DashboardPage() {
     }
   }
 
+  const handleDownloadCAKey = async () => {
+    try {
+      const response = await getSSHCAPublicKey()
+      // The API returns the public key already in OpenSSH format (ssh-ed25519 AAAA...)
+      const content = response.public_key
+
+      const blob = new Blob([content], { type: "text/plain" })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "devsesh-ca.pub"
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("404")) {
+        alert("SSH CA not configured. Register with a passkey that supports PRF.")
+      } else {
+        console.error("Failed to download CA key:", err)
+        alert("Failed to download CA key")
+      }
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen p-4">
@@ -128,6 +153,9 @@ export default function DashboardPage() {
           <div className="flex gap-2">
             <Button variant="outline" asChild>
               <Link to="/hosts">Hosts</Link>
+            </Button>
+            <Button variant="outline" onClick={handleDownloadCAKey}>
+              Download CA Key
             </Button>
             <Button variant="outline" onClick={handleDeleteStale}>
               Remove Stale Sessions

@@ -23,6 +23,7 @@ func main() {
 	js.Global().Set("sshSetOutputCallback", js.FuncOf(SetOutputCallback))
 	js.Global().Set("sshSetStatusCallback", js.FuncOf(SetStatusCallback))
 	js.Global().Set("sshSetCertificateCallback", js.FuncOf(SetCertificateCallback))
+	js.Global().Set("sshSetCertAuthFailedCallback", js.FuncOf(SetCertAuthFailedCallback))
 	js.Global().Set("sshResolvePassword", js.FuncOf(ResolvePassword))
 	js.Global().Set("sshRejectPassword", js.FuncOf(RejectPassword))
 	js.Global().Set("sshResolveCertificate", js.FuncOf(ResolveCertificate))

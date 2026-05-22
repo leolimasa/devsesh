@@ -11,6 +11,7 @@ declare global {
     sshSetOutputCallback: (callback: (data: string) => void) => void
     sshSetStatusCallback: (callback: (status: string, error?: string) => void) => void
     sshSetCertificateCallback: (callback: () => void) => void
+    sshSetCertAuthFailedCallback: (callback: (reason: string) => void) => void
     sshResolvePassword: (password: string) => void
     sshRejectPassword: () => void
     sshResolveCertificate: (certificate: string, privateKey: string) => void
@@ -143,6 +144,15 @@ export class SSHClient extends EventEmitter {
         this.emit("certificate-request")
       } catch (e) {
         console.error("[SSHClient] Error in certificate callback:", e)
+      }
+    })
+
+    window.sshSetCertAuthFailedCallback((reason: string) => {
+      try {
+        // Emit certificate-auth-failed event when the server rejects certificate auth
+        this.emit("certificate-auth-failed", reason)
+      } catch (e) {
+        console.error("[SSHClient] Error in cert auth failed callback:", e)
       }
     })
   }
