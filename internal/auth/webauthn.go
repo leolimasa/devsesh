@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -192,6 +193,17 @@ func LoginBeginHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *ChallengeSto
 	}
 }
 
+// webauthnErrDetail surfaces the debug info that *protocol.Error hides behind
+// its generic Error() string ("Parse error for Assertion"), plus the wrapped
+// cause. Without this, the actual reason a parse fails is invisible in logs.
+func webauthnErrDetail(err error) string {
+	var pe *protocol.Error
+	if errors.As(err, &pe) {
+		return fmt.Sprintf("details=%q devinfo=%q cause=%v", pe.Details, pe.DevInfo, pe.Err)
+	}
+	return err.Error()
+}
+
 func LoginFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Config, cs *ChallengeStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -234,7 +246,10 @@ func LoginFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.Conf
 		// Parse the credential from the JSON
 		parsedResponse, err := protocol.ParseCredentialRequestResponseBody(bytes.NewReader(req.Credential))
 		if err != nil {
-			slog.Error("failed to parse credential request response", "error", err)
+			slog.Error("failed to parse credential request response",
+				"error", err,
+				"detail", webauthnErrDetail(err),
+				"raw_credential", string(req.Credential))
 			http.Error(w, "invalid credential", http.StatusBadRequest)
 			return
 		}
@@ -527,7 +542,10 @@ func AuthFinishWithJWTHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Chall
 
 		parsedResponse, err := protocol.ParseCredentialRequestResponseBody(bytes.NewReader(req.Credential))
 		if err != nil {
-			slog.Error("failed to parse credential request response", "error", err)
+			slog.Error("failed to parse credential request response",
+				"error", err,
+				"detail", webauthnErrDetail(err),
+				"raw_credential", string(req.Credential))
 			http.Error(w, "invalid credential", http.StatusBadRequest)
 			return
 		}
