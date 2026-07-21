@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { checkUsersExist, loginBegin, loginFinish } from "@/lib/api"
+import { encodeBase64URL } from "@/lib/crypto/prf"
 import { useAuth } from "@/contexts/AuthContext"
 
 export default function LoginPage() {
@@ -43,6 +44,17 @@ export default function LoginPage() {
     try {
       const response = await loginBegin(email) as { publicKey: PublicKeyCredentialRequestOptionsJSON }
       const credential = await startAuthentication(response.publicKey)
+
+      // @simplewebauthn/browser v9 returns userHandle as a UTF-8 string, but the
+      // server (go-webauthn) expects it base64url-encoded and rejects the whole
+      // assertion otherwise ("illegal base64 data"). Discoverable credentials
+      // (e.g. iOS passkeys) always include a userHandle, so re-encode it.
+      if (credential.response.userHandle) {
+        credential.response.userHandle = encodeBase64URL(
+          new TextEncoder().encode(credential.response.userHandle)
+        )
+      }
+
       const result = await loginFinish(email, credential)
 
       login(result.token, { id: 0, email, token: result.token })
