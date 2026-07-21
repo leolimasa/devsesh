@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { getToken, getMasterKey, getEnrollmentWebSocketURL } from "@/lib/api"
 import { spake2Init, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
-import { deriveMasterKeyFromPrf, decodeBase64, decodeBase64URL, encodeBase64, parseEncryptedMasterKey, getPrfSalt } from "@/lib/crypto/prf"
+import { deriveMasterKeyFromPrf, decodeBase64, decodeBase64URL, encodeBase64, encodeBase64URL, parseEncryptedMasterKey, getPrfSalt } from "@/lib/crypto/prf"
 
 type Status = "idle" | "authenticating" | "connecting" | "handshaking" | "transferring" | "success" | "error"
 
@@ -129,9 +129,12 @@ export default function AddPasskeyPage() {
       const credential = assertion as PublicKeyCredential
       const response = credential.response as AuthenticatorAssertionResponse
       
+      // The server (go-webauthn) expects userHandle base64url-encoded. Encode the
+      // raw handle bytes directly; UTF-8 decoding here would send an unparseable
+      // value for discoverable credentials (e.g. iOS passkeys used as Machine A).
       let userHandleStr: string | null = null
       if (response.userHandle) {
-        userHandleStr = new TextDecoder("utf-8").decode(response.userHandle)
+        userHandleStr = encodeBase64URL(new Uint8Array(response.userHandle))
       }
       
       const credJSON = {

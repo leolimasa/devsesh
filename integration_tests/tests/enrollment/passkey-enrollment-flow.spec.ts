@@ -116,7 +116,15 @@ test.describe('Passkey Enrollment Flow', () => {
       
       // Try clicking with force and waiting for network
       await linkButton.click({ force: true });
-      
+
+      // Machine B now waits for an explicit user gesture before running the
+      // WebAuthn ceremony (transient-activation fix for Safari/iOS): after the
+      // handshake + master-key transfer it shows a "Create Passkey" button.
+      // Assert that gesture step exists and drive it.
+      const createPasskeyButton = machineBPage.getByRole('button', { name: 'Create Passkey' });
+      await expect(createPasskeyButton).toBeVisible({ timeout: 15000 });
+      await createPasskeyButton.click();
+
       // Wait a bit and check for responses
       await machineAPage.waitForTimeout(3000);
       
