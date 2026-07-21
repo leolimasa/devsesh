@@ -77,6 +77,18 @@ export default function RegisterPasskeyPage() {
       const ws = new WebSocket(wsURL)
       wsRef.current = ws
 
+      // Best-effort relay of a failure to the peer (Machine A) so it doesn't
+      // hang waiting for a confirmation that will never arrive.
+      const sendPeerError = (message: string) => {
+        try {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "error", message }))
+          }
+        } catch {
+          // best effort only
+        }
+      }
+
       const { state, message: spake2Msg } = await spake2InitB(enrollmentCode)
 
       ws.onopen = () => {
@@ -293,16 +305,20 @@ export default function RegisterPasskeyPage() {
                   }, 2000)
                 } catch (err) {
                   console.error("Registration error:", err)
-                  setError("Failed to complete registration")
+                  const message = err instanceof Error ? err.message : "Failed to complete registration"
+                  setError(message)
                   setStatus("error")
+                  sendPeerError(message)
                 }
               }
             }
           }
         } catch (err) {
           console.error("Failed to process message:", err)
-          setError("Failed to process message")
+          const message = err instanceof Error ? err.message : "Failed to process message"
+          setError(message)
           setStatus("error")
+          sendPeerError(message)
         }
       }
 

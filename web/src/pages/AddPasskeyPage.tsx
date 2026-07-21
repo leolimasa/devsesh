@@ -189,6 +189,18 @@ export default function AddPasskeyPage() {
       const ws = new WebSocket(wsURL)
       wsRef.current = ws
 
+      // Best-effort relay of a failure to the peer (Machine B) so it doesn't
+      // hang waiting for a payload that will never arrive.
+      const sendPeerError = (message: string) => {
+        try {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "error", message }))
+          }
+        } catch {
+          // best effort only
+        }
+      }
+
       ws.onopen = () => {
         updateStatus("handshaking")
       }
@@ -196,6 +208,15 @@ export default function AddPasskeyPage() {
       ws.onmessage = async (event) => {
         try {
           const msg = JSON.parse(event.data)
+
+          if (msg.type === "error") {
+            // The other device reported a failure (e.g. its authenticator
+            // rejected the WebAuthn ceremony). Surface it instead of hanging.
+            setError(msg.message || "The other device reported an error")
+            updateStatus("error")
+            ws.close()
+            return
+          }
 
           if (msg.type === "spake2_b") {
             const otherMsg = decodeMessage(msg.message)
@@ -239,8 +260,10 @@ export default function AddPasskeyPage() {
               }))
             } catch (err) {
               console.error("Failed to transfer master key:", err)
-              setError("Failed to transfer master key")
+              const message = err instanceof Error ? err.message : "Failed to transfer master key"
+              setError(message)
               updateStatus("error")
+              sendPeerError(message)
               ws.close()
             }
           } else if (msg.type === "encrypted_payload") {
