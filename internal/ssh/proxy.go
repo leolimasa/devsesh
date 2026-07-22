@@ -20,24 +20,46 @@ type ControlMessage struct {
 	Port    int    `json:"port,omitempty"`
 }
 
+const (
+	// An interactive terminal is legitimately idle for long stretches (the user is
+	// reading, the remote shell produces no output). We must NOT tear the session
+	// down on idle. Instead we keep it alive with WebSocket ping/pong: the server
+	// pings every pingPeriod, the browser auto-replies with a pong, and each pong
+	// pushes the read deadline forward. A truly dead client stops ponging and is
+	// dropped within pongWait.
+	defaultPongWait     = 90 * time.Second
+	defaultPingPeriod   = 30 * time.Second
+	defaultWriteTimeout = 10 * time.Second
+)
+
 type TCPProxy struct {
-	ws    *websocket.Conn
-	tcp   net.Conn
-	done  chan struct{}
-	mu    sync.Mutex
+	ws      *websocket.Conn
+	tcp     net.Conn
+	done    chan struct{}
+	mu      sync.Mutex
+	writeMu sync.Mutex // serializes all writes to ws (gorilla forbids concurrent writes)
+
+	// Keepalive timings; overridable in tests.
+	pongWait     time.Duration
+	pingPeriod   time.Duration
+	writeTimeout time.Duration
 }
 
 func NewTCPProxy(ws *websocket.Conn, tcp net.Conn) *TCPProxy {
 	return &TCPProxy{
-		ws:   ws,
-		tcp:  tcp,
-		done: make(chan struct{}),
+		ws:           ws,
+		tcp:          tcp,
+		done:         make(chan struct{}),
+		pongWait:     defaultPongWait,
+		pingPeriod:   defaultPingPeriod,
+		writeTimeout: defaultWriteTimeout,
 	}
 }
 
 func (p *TCPProxy) Run() error {
 	go p.proxyWebSocketToTCP()
 	go p.proxyTCPToWebSocket()
+	go p.pingLoop()
 
 	<-p.done
 	return nil
@@ -45,6 +67,15 @@ func (p *TCPProxy) Run() error {
 
 func (p *TCPProxy) proxyWebSocketToTCP() {
 	buf := make([]byte, 4096)
+
+	// Keep the connection alive while idle by extending the read deadline on every
+	// pong (see pingLoop). Without this, an idle terminal is killed after pongWait.
+	p.ws.SetReadDeadline(time.Now().Add(p.pongWait))
+	p.ws.SetPongHandler(func(string) error {
+		p.ws.SetReadDeadline(time.Now().Add(p.pongWait))
+		return nil
+	})
+
 	for {
 		select {
 		case <-p.done:
@@ -53,7 +84,6 @@ func (p *TCPProxy) proxyWebSocketToTCP() {
 		default:
 		}
 
-		p.ws.SetReadDeadline(time.Now().Add(30 * time.Second))
 		msgType, reader, err := p.ws.NextReader()
 		if err != nil {
 			slog.Debug("WebSocketToTCP read error", "error", err)
@@ -100,7 +130,9 @@ func (p *TCPProxy) proxyTCPToWebSocket() {
 		default:
 		}
 
-		p.tcp.SetReadDeadline(time.Now().Add(30 * time.Second))
+		// No read deadline here: an interactive remote shell is legitimately idle
+		// for long stretches. A dead upstream surfaces as a read error, and
+		// cleanup() closes p.tcp to unblock this read when the other side goes away.
 		n, err := p.tcp.Read(buf)
 		if err != nil {
 			slog.Debug("TCPToWebSocket read error", "error", err)
@@ -110,11 +142,38 @@ func (p *TCPProxy) proxyTCPToWebSocket() {
 
 		slog.Debug("TCPToWebSocket forwarding", "bytes", n)
 
+		p.writeMu.Lock()
+		p.ws.SetWriteDeadline(time.Now().Add(p.writeTimeout))
 		err = p.ws.WriteMessage(websocket.BinaryMessage, buf[:n])
+		p.writeMu.Unlock()
 		if err != nil {
 			slog.Debug("TCPToWebSocket write error", "error", err)
 			p.cleanup()
 			return
+		}
+	}
+}
+
+// pingLoop keeps the WebSocket alive during idle periods. The browser answers
+// each ping with a pong, which the pong handler uses to push the read deadline
+// forward; a client that stops responding is dropped within pongWait.
+func (p *TCPProxy) pingLoop() {
+	ticker := time.NewTicker(p.pingPeriod)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.done:
+			return
+		case <-ticker.C:
+			p.writeMu.Lock()
+			p.ws.SetWriteDeadline(time.Now().Add(p.writeTimeout))
+			err := p.ws.WriteMessage(websocket.PingMessage, nil)
+			p.writeMu.Unlock()
+			if err != nil {
+				slog.Debug("ping write error", "error", err)
+				p.cleanup()
+				return
+			}
 		}
 	}
 }
@@ -143,6 +202,9 @@ func (p *TCPProxy) sendControlMessage(msg ControlMessage) error {
 	if err != nil {
 		return err
 	}
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	p.ws.SetWriteDeadline(time.Now().Add(p.writeTimeout))
 	return p.ws.WriteMessage(websocket.TextMessage, data)
 }
 
