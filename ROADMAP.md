@@ -4,9 +4,13 @@
 * [x] Fix no ping
 * [x] Add multi passkey (create single use code to add another passkey)
 * [x] SSH auth with CA using threshold signatures
-* [ ] Fix "command attach-session: too many arguments" when connecting. Suspect integration tests are NOT catting FLAG_FILE
+* [x] Fix "command attach-session: too many arguments" when connecting. Suspect integration tests are NOT catting FLAG_FILE
+* [x] Deploy to VM with HTTPS support + tailscale
+* [ ] Make it mobile friendly
+* [ ] When terminal grows screen gets covered up
+* [ ] Session is being marked as inactive even when there is output
+* [ ] Looks like pings are not being sent
 * [ ] Looks like there are several endpoints that require session owner and do not have the middleware
-* [ ] Deploy to VM with HTTPS support + tailscale
 
 # Mvp
 
@@ -15,6 +19,7 @@
 
 # Polishing
 
+* [ ] Terminal auto-connect when opening screen
 * [ ] Fix editing yaml file actually updates the metadata (needs integration test)
 * [ ] File browser
 * [ ] File editor with Monaco
