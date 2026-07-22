@@ -215,10 +215,12 @@ func EnrollmentCompleteHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Chal
 		}
 
 		dbCred := db.WebAuthnCredential{
-			ID:        string(credential.ID),
-			UserID:    userID,
-			PublicKey: credential.PublicKey,
-			SignCount: credential.Authenticator.SignCount,
+			ID:             string(credential.ID),
+			UserID:         userID,
+			PublicKey:      credential.PublicKey,
+			SignCount:      credential.Authenticator.SignCount,
+			BackupEligible: credential.Flags.BackupEligible,
+			BackupState:    credential.Flags.BackupState,
 		}
 
 		if err := db.SaveCredentialWithMasterKey(database, dbCred, encryptedMasterKey); err != nil {

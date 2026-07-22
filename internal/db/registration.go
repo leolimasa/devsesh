@@ -45,8 +45,8 @@ func RegisterUserWithSSHCA(db *sql.DB, data RegistrationData) (*RegistrationResu
 
 	// Save WebAuthn credential with master key
 	_, err = tx.Exec(
-		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count, encrypted_master_key) VALUES (?, ?, ?, ?, ?)",
-		data.Credential.ID, userID, data.Credential.PublicKey, data.Credential.SignCount, data.EncryptedMasterKey,
+		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count, encrypted_master_key, backup_eligible, backup_state) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		data.Credential.ID, userID, data.Credential.PublicKey, data.Credential.SignCount, data.EncryptedMasterKey, data.Credential.BackupEligible, data.Credential.BackupState,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("save credential: %w", err)
@@ -85,8 +85,8 @@ func AddCredentialToExistingUser(db *sql.DB, userID int64, cred WebAuthnCredenti
 
 	// Save WebAuthn credential with master key
 	_, err = tx.Exec(
-		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count, encrypted_master_key) VALUES (?, ?, ?, ?, ?)",
-		cred.ID, userID, cred.PublicKey, cred.SignCount, encryptedMasterKey,
+		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count, encrypted_master_key, backup_eligible, backup_state) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		cred.ID, userID, cred.PublicKey, cred.SignCount, encryptedMasterKey, cred.BackupEligible, cred.BackupState,
 	)
 	if err != nil {
 		return fmt.Errorf("save credential: %w", err)

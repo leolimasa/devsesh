@@ -126,6 +126,12 @@ func (u *webauthnUser) WebAuthnCredentials() []webauthn.Credential {
 			ID:              []byte(c.ID),
 			AttestationType: "",
 			PublicKey:       c.PublicKey,
+			// Restore the backup flags so login validation can verify the
+			// Backup Eligible flag matches what was seen at registration.
+			Flags: webauthn.CredentialFlags{
+				BackupEligible: c.BackupEligible,
+				BackupState:    c.BackupState,
+			},
 			Authenticator: webauthn.Authenticator{
 				AAGUID:    nil,
 				SignCount: c.SignCount,
@@ -384,9 +390,11 @@ func RegisterFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cfg config.C
 		}
 
 		dbCred := db.WebAuthnCredential{
-			ID:        string(credential.ID),
-			PublicKey: credential.PublicKey,
-			SignCount: credential.Authenticator.SignCount,
+			ID:             string(credential.ID),
+			PublicKey:      credential.PublicKey,
+			SignCount:      credential.Authenticator.SignCount,
+			BackupEligible: credential.Flags.BackupEligible,
+			BackupState:    credential.Flags.BackupState,
 		}
 
 		caData := db.SSHCAData{
@@ -706,10 +714,12 @@ func AddPasskeyFinishHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Challe
 		}
 
 		dbCred := db.WebAuthnCredential{
-			ID:        string(credential.ID),
-			UserID:    userID,
-			PublicKey: credential.PublicKey,
-			SignCount: credential.Authenticator.SignCount,
+			ID:             string(credential.ID),
+			UserID:         userID,
+			PublicKey:      credential.PublicKey,
+			SignCount:      credential.Authenticator.SignCount,
+			BackupEligible: credential.Flags.BackupEligible,
+			BackupState:    credential.Flags.BackupState,
 		}
 		if err := db.SaveCredential(database, dbCred); err != nil {
 			slog.Error("failed to save credential", "error", err)

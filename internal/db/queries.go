@@ -40,6 +40,8 @@ type WebAuthnCredential struct {
 	SignCount          uint32
 	CreatedAt          time.Time
 	EncryptedMasterKey []byte
+	BackupEligible     bool
+	BackupState        bool
 }
 
 type PasskeyEnrollment struct {
@@ -131,8 +133,8 @@ func CountUsers(db *sql.DB) (int, error) {
 
 func SaveCredential(db *sql.DB, cred WebAuthnCredential) error {
 	_, err := db.Exec(
-		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count) VALUES (?, ?, ?, ?)",
-		cred.ID, cred.UserID, cred.PublicKey, cred.SignCount,
+		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count, backup_eligible, backup_state) VALUES (?, ?, ?, ?, ?, ?)",
+		cred.ID, cred.UserID, cred.PublicKey, cred.SignCount, cred.BackupEligible, cred.BackupState,
 	)
 	if err != nil {
 		return fmt.Errorf("save credential: %w", err)
@@ -142,7 +144,7 @@ func SaveCredential(db *sql.DB, cred WebAuthnCredential) error {
 
 func GetCredentialsByUserID(db *sql.DB, userID int64) ([]WebAuthnCredential, error) {
 	rows, err := db.Query(
-		"SELECT id, user_id, public_key, sign_count, created_at, encrypted_master_key FROM webauthn_credentials WHERE user_id = ?",
+		"SELECT id, user_id, public_key, sign_count, created_at, encrypted_master_key, backup_eligible, backup_state FROM webauthn_credentials WHERE user_id = ?",
 		userID,
 	)
 	if err != nil {
@@ -154,7 +156,7 @@ func GetCredentialsByUserID(db *sql.DB, userID int64) ([]WebAuthnCredential, err
 	for rows.Next() {
 		var c WebAuthnCredential
 		var createdAt string
-		if err := rows.Scan(&c.ID, &c.UserID, &c.PublicKey, &c.SignCount, &createdAt, &c.EncryptedMasterKey); err != nil {
+		if err := rows.Scan(&c.ID, &c.UserID, &c.PublicKey, &c.SignCount, &createdAt, &c.EncryptedMasterKey, &c.BackupEligible, &c.BackupState); err != nil {
 			return nil, fmt.Errorf("scan credential: %w", err)
 		}
 		c.CreatedAt, _ = parseTime(createdAt)
@@ -539,8 +541,8 @@ func CompleteEnrollment(db *sql.DB, code string) error {
 
 func SaveCredentialWithMasterKey(db *sql.DB, cred WebAuthnCredential, encryptedMasterKey []byte) error {
 	_, err := db.Exec(
-		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count, encrypted_master_key) VALUES (?, ?, ?, ?, ?)",
-		cred.ID, cred.UserID, cred.PublicKey, cred.SignCount, encryptedMasterKey,
+		"INSERT INTO webauthn_credentials (id, user_id, public_key, sign_count, encrypted_master_key, backup_eligible, backup_state) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		cred.ID, cred.UserID, cred.PublicKey, cred.SignCount, encryptedMasterKey, cred.BackupEligible, cred.BackupState,
 	)
 	if err != nil {
 		return fmt.Errorf("save credential with master key: %w", err)
