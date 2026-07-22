@@ -1,4 +1,4 @@
-# Minimul usage
+# MVP
 
 * [x] Simple SSH authentication
 * [x] Fix no ping
@@ -6,15 +6,16 @@
 * [x] SSH auth with CA using threshold signatures
 * [x] Fix "command attach-session: too many arguments" when connecting. Suspect integration tests are NOT catting FLAG_FILE
 * [x] Deploy to VM with HTTPS support + tailscale
+* [x] Find a way to deploy without needing to have secrets unlocked
+* [x] Make it available on the command line, and test a new session on mobile
+* [ ] Fix remote command exited without exit status or exit signal
 * [ ] Make it mobile friendly
+	* [ ] session details need to be under a haburger
+	* [ ] 
 * [ ] When terminal grows screen gets covered up
 * [ ] Session is being marked as inactive even when there is output
 * [ ] Looks like pings are not being sent
 * [ ] Looks like there are several endpoints that require session owner and do not have the middleware
-
-# Mvp
-
-* [ ] Join dashboard and session details in single screen
 * [ ] Notify (pushover) when session is idle
 
 # Polishing
