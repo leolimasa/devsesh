@@ -11,6 +11,15 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+  SheetClose,
+} from "@/components/ui/sheet"
+import { Menu } from "lucide-react"
 import { listSessions, deleteStaleSessions, getSSHCAPublicKey } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useAuth } from "@/contexts/AuthContext"
@@ -133,6 +142,14 @@ export default function DashboardPage() {
     }
   }
 
+  const actions: { label: string; to?: string; onClick?: () => void }[] = [
+    { label: "Hosts", to: "/hosts" },
+    { label: "Download CA Key", onClick: handleDownloadCAKey },
+    { label: "Remove Stale Sessions", onClick: handleDeleteStale },
+    { label: "Logout", onClick: logout },
+    { label: "Add Passkey", to: "/passkeys/add" },
+  ]
+
   if (loading) {
     return (
       <div className="min-h-screen p-4">
@@ -148,25 +165,56 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen p-4">
       <div className="max-w-6xl mx-auto space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex flex-row justify-between items-center gap-4">
           <h1 className="text-2xl font-bold">Sessions</h1>
-          <div className="flex gap-2">
-            <Button variant="outline" asChild>
-              <Link to="/hosts">Hosts</Link>
-            </Button>
-            <Button variant="outline" onClick={handleDownloadCAKey}>
-              Download CA Key
-            </Button>
-            <Button variant="outline" onClick={handleDeleteStale}>
-              Remove Stale Sessions
-            </Button>
-            <Button variant="outline" onClick={logout}>
-              Logout
-            </Button>
-            <Button variant="outline" asChild>
-              <Link to="/passkeys/add">Add Passkey</Link>
-            </Button>
+
+          {/* Desktop: inline action buttons */}
+          <div className="hidden sm:flex flex-wrap gap-2">
+            {actions.map((action) =>
+              action.to ? (
+                <Button key={action.label} variant="outline" asChild>
+                  <Link to={action.to}>{action.label}</Link>
+                </Button>
+              ) : (
+                <Button key={action.label} variant="outline" onClick={action.onClick}>
+                  {action.label}
+                </Button>
+              )
+            )}
           </div>
+
+          {/* Mobile: hamburger side menu */}
+          <Sheet>
+            <SheetTrigger asChild className="sm:hidden">
+              <Button variant="outline" size="icon" aria-label="Open menu">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right">
+              <SheetHeader>
+                <SheetTitle>Menu</SheetTitle>
+              </SheetHeader>
+              <div className="mt-6 flex flex-col gap-2">
+                {actions.map((action) => (
+                  <SheetClose asChild key={action.label}>
+                    {action.to ? (
+                      <Button variant="outline" className="w-full justify-start" asChild>
+                        <Link to={action.to}>{action.label}</Link>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={action.onClick}
+                      >
+                        {action.label}
+                      </Button>
+                    )}
+                  </SheetClose>
+                ))}
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
 
         {sessions.length === 0 ? (
