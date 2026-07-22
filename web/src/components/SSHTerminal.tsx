@@ -24,8 +24,9 @@ import { useFROST } from "@/contexts/FROSTContext"
 import type { Host } from "@/types/api"
 import { getMasterKey } from "@/lib/api"
 import { loginBegin } from "@/lib/api"
+import { clientLog } from "@/lib/api"
 import { deriveMasterKeyFromPrf, getPrfSalt, parseEncryptedMasterKey, decodeBase64 } from "@/lib/crypto/prf"
-import { decodeBase64URL } from "@/lib/crypto/encoding"
+import { decodeBase64URL, encodeBase64URL } from "@/lib/crypto/encoding"
 import { decrypt } from "@/lib/crypto/aes"
 import { encodeBase64 } from "@/lib/crypto/encoding"
 
@@ -57,10 +58,25 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
   // This avoids the useEffect re-running when the callback changes
   const handleCertificateRequestRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
-  // Handle WebAuthn authentication to unlock FROST worker
+  // Handle WebAuthn authentication to unlock FROST worker.
+  //
+  // Ordering matters: we run the WebAuthn ceremony FIRST, then fetch the master
+  // key keyed by the credential that actually authenticated. Each passkey wraps
+  // the master key with its own PRF output, so fetching a fixed blob up front
+  // (the old behaviour) only decrypts on the one device whose passkey the server
+  // happened to return — every other passkey failed decryption with
+  // OperationError ("operation failed for an operation-specific reason").
+  // [req.4oofln]
   const handleWebAuthnAuth = useCallback(async () => {
     setWebAuthnAuthenticating(true)
     setWebAuthnError(null)
+
+    // Diagnostics shipped to the server journal on failure (iOS has no devtools).
+    let stage = "init"
+    const diag: Record<string, unknown> = {
+      hasPublicKeyCredential: typeof window !== "undefined" && "PublicKeyCredential" in window,
+      ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
+    }
 
     try {
       // Get the user's email from localStorage
@@ -70,19 +86,15 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
       }
       const user = JSON.parse(userStr)
 
-      // Get encrypted master key from server
-      const { encrypted_master_key } = await getMasterKey()
-      const encryptedData = decodeBase64(encrypted_master_key)
-      const { data: encryptedPayload } = parseEncryptedMasterKey(new Uint8Array(encryptedData))
-
-      // Start WebAuthn authentication with PRF to get master key
+      // PRF salt for master-key derivation
       const prfSalt = getPrfSalt()
       const prfSaltBuffer = prfSalt.buffer.slice(
         prfSalt.byteOffset,
         prfSalt.byteOffset + prfSalt.byteLength
       )
 
-      // Get WebAuthn options from server (returns JSON with base64-encoded values)
+      // Get WebAuthn options from server (returns JSON with base64url-encoded values)
+      stage = "login-begin"
       const options = await loginBegin(user.email) as {
         publicKey: {
           challenge: string
@@ -97,25 +109,12 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
         }
       }
 
-      // Convert base64url-encoded values to ArrayBuffer (WebAuthn uses base64url encoding)
       const challengeBuffer = decodeBase64URL(options.publicKey.challenge)
-
-      // Debug: log credential IDs being used
-      console.log('[SSHTerminal] allowCredentials from server:', options.publicKey.allowCredentials?.map(c => c.id))
-
-      const allowCredentials = options.publicKey.allowCredentials?.map((cred) => {
-        const decoded = decodeBase64URL(cred.id)
-        console.log('[SSHTerminal] Decoded credential ID, length:', decoded.length)
-        return {
-          id: decoded,
-          type: cred.type,
-          transports: cred.transports,
-        }
-      })
-
-      // Build PublicKeyCredentialRequestOptions with ArrayBuffer values and PRF extension
-      console.log('[SSHTerminal] PRF get() rpId:', options.publicKey.rpId)
-      console.log('[SSHTerminal] PRF salt length:', prfSalt.length)
+      const allowCredentials = options.publicKey.allowCredentials?.map((cred) => ({
+        id: decodeBase64URL(cred.id),
+        type: cred.type,
+        transports: cred.transports,
+      }))
 
       const publicKeyOptions: PublicKeyCredentialRequestOptions = {
         challenge: challengeBuffer,
@@ -131,8 +130,12 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
           }
         } as AuthenticationExtensionsClientInputs
       }
+      diag.rpId = options.publicKey.rpId
+      diag.allowCredentialsCount = allowCredentials?.length ?? 0
+      diag.origin = typeof window !== "undefined" ? window.location.origin : ""
 
       // Authenticate with WebAuthn
+      stage = "webauthn-get"
       console.log('[SSHTerminal] Calling get() for PRF output...')
       const credential = await navigator.credentials.get({ publicKey: publicKeyOptions }) as PublicKeyCredential
       console.log('[SSHTerminal] PRF get() completed')
@@ -141,29 +144,36 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
       }
 
       // Extract PRF results
+      stage = "prf-extract"
       const extResults = credential.getClientExtensionResults() as {
         prf?: { results?: { first?: ArrayBuffer } }
       }
+      diag.prfEnabled = !!(extResults as { prf?: { enabled?: boolean } })?.prf?.enabled
+      diag.prfHasResults = !!extResults?.prf?.results?.first
 
       if (!extResults?.prf?.results?.first) {
         throw new Error("WebAuthn PRF extension required but not available")
       }
 
       const prfOutput = new Uint8Array(extResults.prf.results.first)
-      console.log('[SSHTerminal] PRF output first 4 bytes:', Array.from(prfOutput.slice(0, 4)).join(','))
 
-      // Derive master key from PRF output
+      // Fetch the master key wrapped for THIS specific credential. The credential
+      // id identifies which passkey's PRF-wrapped blob to return.
+      stage = "fetch-master-key"
+      const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
+      diag.credentialIdLen = credential.rawId.byteLength
+      const { encrypted_master_key } = await getMasterKey(credentialId)
+      const { data: encryptedPayload } = parseEncryptedMasterKey(new Uint8Array(decodeBase64(encrypted_master_key)))
+
+      // Derive the wrapping key from the PRF output and decrypt the master key.
+      stage = "derive-decrypt"
       const prfKey = await deriveMasterKeyFromPrf(prfOutput)
-      console.log('[SSHTerminal] Derived prfKey first 4 bytes:', Array.from(prfKey.slice(0, 4)).join(','))
-
-      // Decrypt the master key
       const nonce = encryptedPayload.slice(0, 12)
       const ciphertext = encryptedPayload.slice(12)
-      console.log('[SSHTerminal] Encrypted master key nonce first 4 bytes:', Array.from(nonce.slice(0, 4)).join(','))
       const masterKey = await decrypt(prfKey, nonce, ciphertext)
-      console.log('[SSHTerminal] Decrypted masterKey first 4 bytes:', Array.from(masterKey.slice(0, 4)).join(','))
 
       // Initialize the FROST worker with the master key
+      stage = "init-worker"
       console.log('[SSHTerminal] Calling initWorker with masterKey length:', masterKey.length)
       await initWorker(masterKey)
       console.log('[SSHTerminal] initWorker completed, continuing with certificate request...')
@@ -171,11 +181,11 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
       // Request certificate directly here instead of going through handleCertificateRequest
       // because React state updates are async and isActive won't be updated yet
       const client = sshClientRef.current
-      console.log('[SSHTerminal] Got client ref:', client ? 'yes' : 'no')
       if (!client) {
         throw new Error("SSH client not available")
       }
 
+      stage = "request-cert"
       console.log('[SSHTerminal] FROST initialized, requesting certificate for host:', host.id)
       const result = await requestCert(host.id)
       console.log('[SSHTerminal] Certificate received, serial:', result.serial)
@@ -190,9 +200,23 @@ export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProp
 
     } catch (err) {
       console.error("[SSHTerminal] WebAuthn auth failed:", err)
-      setWebAuthnError(err instanceof Error ? err.message : "Authentication failed")
-      // Don't reject certificate here - let user retry by clicking "Authenticate" again
-      // Certificate will only be rejected when user explicitly clicks "Use Password Instead"
+      // Surface the DOMException name (e.g. NotAllowedError / OperationError) so a
+      // failure on a device without devtools is still diagnosable from the dialog.
+      const e = err as { name?: string; message?: string; stack?: string }
+      const name = e?.name ? `${e.name}: ` : ""
+      setWebAuthnError(err instanceof Error ? `${name}${err.message}` : "Authentication failed")
+      // Ship the real error to the server journal — iOS Safari has no devtools, so
+      // this is the only way to see the actual exception behind a failed unlock.
+      clientLog({
+        event: "ssh-unlock-error",
+        stage,
+        errorName: e?.name ?? null,
+        errorMessage: e?.message ?? String(err),
+        errorStack: e?.stack ?? null,
+        ...diag,
+      })
+      // Don't reject certificate here - let user retry by clicking "Authenticate" again.
+      // Certificate will only be rejected when user explicitly clicks "Use Password Instead".
     } finally {
       setWebAuthnAuthenticating(false)
     }

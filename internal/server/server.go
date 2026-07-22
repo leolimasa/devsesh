@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"database/sql"
+	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"path"
 	"strconv"
@@ -55,6 +57,15 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	jwtMiddleware := RequireJWT(cfg.JWTSecret)
 
 	mux.Handle("GET /api/v1/auth/status", auth.AuthStatusHandler(database))
+
+	// Debug endpoint: the frontend POSTs client-side errors here (e.g. iOS Safari
+	// WebAuthn failures that are otherwise invisible without devtools) so they
+	// land in the server journal. Unauthenticated and best-effort by design.
+	mux.HandleFunc("POST /api/v1/client-log", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+		slog.Warn("client log", "ua", r.Header.Get("User-Agent"), "body", string(body))
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	mux.Handle("POST /api/v1/auth/login/begin", auth.LoginBeginHandler(wa, database, cs))
 	mux.Handle("POST /api/v1/auth/login/finish", auth.LoginFinishHandler(wa, database, cfg, cs))

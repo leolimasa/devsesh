@@ -52,6 +52,22 @@ export async function checkUsersExist(): Promise<AuthStatus> {
   return fetchApi<AuthStatus>("/auth/status")
 }
 
+// Best-effort debug logging: ships client-side diagnostics (e.g. iOS Safari
+// WebAuthn errors that can't be seen without devtools) to the server journal.
+// Never throws — failures here must not mask the original error.
+export async function clientLog(data: Record<string, unknown>): Promise<void> {
+  try {
+    await fetch("/api/v1/client-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      keepalive: true,
+    })
+  } catch {
+    // ignore
+  }
+}
+
 export async function loginBegin(email: string): Promise<unknown> {
   return fetchApi<unknown>("/auth/login/begin", {
     method: "POST",
@@ -193,8 +209,13 @@ export async function enrollmentComplete(
   })
 }
 
-export async function getMasterKey(): Promise<{ encrypted_master_key: string }> {
-  return fetchApi<{ encrypted_master_key: string }>("/auth/master-key")
+// Fetch the encrypted master key. Pass the base64url-encoded credential id of the
+// passkey that just authenticated: each passkey wraps the master key with its own
+// PRF output, so the server must return that specific credential's blob (omitting
+// it falls back to the first credential, which only decrypts on one device).
+export async function getMasterKey(credentialId?: string): Promise<{ encrypted_master_key: string }> {
+  const query = credentialId ? `?credential_id=${encodeURIComponent(credentialId)}` : ""
+  return fetchApi<{ encrypted_master_key: string }>(`/auth/master-key${query}`)
 }
 
 export function getEnrollmentWebSocketURL(code: string, token?: string): string {

@@ -238,7 +238,11 @@ export default function AddPasskeyPage() {
             updateStatus("transferring")
 
             try {
-              const masterKeyResp = await getMasterKey()
+              // Fetch the master key wrapped for THIS credential — each passkey
+              // wraps it with its own PRF output, so a fixed blob only decrypts on
+              // one device. credential.rawId identifies the authenticating passkey.
+              const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
+              const masterKeyResp = await getMasterKey(credentialId)
               const encryptedMasterKeyBytes = decodeBase64(masterKeyResp.encrypted_master_key)
               
               // Master key MUST be encrypted with PRF

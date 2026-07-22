@@ -253,12 +253,43 @@ func GetMasterKeyHandler(database *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		cred, err := db.GetFirstCredentialWithMasterKey(database, userID)
-		if err != nil {
-			slog.Error("failed to get credential with master key", "error", err, "userId", userID)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
+		// Each passkey wraps the master key with its OWN PRF output and stores its
+		// own blob. We must return the blob for the credential that actually
+		// authenticated — returning any other credential's blob makes AES-GCM
+		// decryption fail with OperationError on every device except the one whose
+		// passkey happens to match the legacy "first credential" fallback. The
+		// client passes ?credential_id=<base64url(rawId)> from the assertion.
+		var cred *db.WebAuthnCredential
+		var err error
+		if credIDParam := r.URL.Query().Get("credential_id"); credIDParam != "" {
+			raw, decErr := base64.RawURLEncoding.DecodeString(credIDParam)
+			if decErr != nil {
+				// Tolerate padded / standard-alphabet input as well.
+				raw, decErr = base64.StdEncoding.DecodeString(credIDParam)
+			}
+			if decErr != nil {
+				http.Error(w, "invalid credential_id", http.StatusBadRequest)
+				return
+			}
+			cred, err = db.GetCredentialWithMasterKey(database, string(raw))
+			if err != nil {
+				slog.Error("failed to get credential with master key", "error", err, "userId", userID)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			// Never hand back a credential belonging to a different user.
+			if cred != nil && cred.UserID != userID {
+				cred = nil
+			}
+		} else {
+			cred, err = db.GetFirstCredentialWithMasterKey(database, userID)
+			if err != nil {
+				slog.Error("failed to get credential with master key", "error", err, "userId", userID)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
 		}
+
 		if cred == nil || cred.EncryptedMasterKey == nil {
 			http.Error(w, "no encrypted master key found", http.StatusNotFound)
 			return
