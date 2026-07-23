@@ -62,15 +62,16 @@ type PairingCode struct {
 }
 
 type Session struct {
-	ID         string     `json:"id"`
-	UserID     int64      `json:"user_id"`
-	HostID     int64      `json:"host_id"`
-	Host       *Host      `json:"host,omitempty"`
-	Name       string     `json:"name"`
-	StartedAt  time.Time  `json:"started_at"`
-	LastPingAt *time.Time `json:"last_ping_at"`
-	EndedAt    *time.Time `json:"ended_at"`
-	Metadata   *string    `json:"metadata"`
+	ID             string     `json:"id"`
+	UserID         int64      `json:"user_id"`
+	HostID         int64      `json:"host_id"`
+	Host           *Host      `json:"host,omitempty"`
+	Name           string     `json:"name"`
+	StartedAt      time.Time  `json:"started_at"`
+	LastPingAt     *time.Time `json:"last_ping_at"`
+	LastActivityAt *time.Time `json:"last_activity_at"`
+	EndedAt        *time.Time `json:"ended_at"`
+	Metadata       *string    `json:"metadata"`
 }
 
 func GetConfigValue(db *sql.DB, key string) (string, error) {
@@ -236,9 +237,14 @@ func CreateSession(db *sql.DB, s Session) error {
 		formatted := s.LastPingAt.UTC().Format(timeFormat)
 		lastPingAt = &formatted
 	}
+	var lastActivityAt *string
+	if s.LastActivityAt != nil {
+		formatted := s.LastActivityAt.UTC().Format(timeFormat)
+		lastActivityAt = &formatted
+	}
 	_, err := db.Exec(
-		"INSERT INTO sessions (id, user_id, host_id, name, started_at, last_ping_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		s.ID, s.UserID, s.HostID, s.Name, s.StartedAt.UTC().Format(timeFormat), lastPingAt, s.Metadata,
+		"INSERT INTO sessions (id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		s.ID, s.UserID, s.HostID, s.Name, s.StartedAt.UTC().Format(timeFormat), lastPingAt, lastActivityAt, s.Metadata,
 	)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
@@ -253,6 +259,17 @@ func UpdateSessionPing(db *sql.DB, id string, t time.Time) error {
 	)
 	if err != nil {
 		return fmt.Errorf("update session ping: %w", err)
+	}
+	return nil
+}
+
+func UpdateSessionActivity(db *sql.DB, id string, t time.Time) error {
+	_, err := db.Exec(
+		"UPDATE sessions SET last_activity_at = ? WHERE id = ?",
+		t.UTC().Format(timeFormat), id,
+	)
+	if err != nil {
+		return fmt.Errorf("update session activity: %w", err)
 	}
 	return nil
 }
@@ -281,7 +298,7 @@ func UpdateSessionMeta(db *sql.DB, id, metadata string) error {
 
 func GetSessionsByUserID(db *sql.DB, userID int64) ([]Session, error) {
 	rows, err := db.Query(
-		"SELECT id, user_id, host_id, name, started_at, last_ping_at, ended_at, metadata FROM sessions WHERE user_id = ? ORDER BY started_at DESC",
+		"SELECT id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, ended_at, metadata FROM sessions WHERE user_id = ? ORDER BY started_at DESC",
 		userID,
 	)
 	if err != nil {
@@ -293,14 +310,18 @@ func GetSessionsByUserID(db *sql.DB, userID int64) ([]Session, error) {
 	for rows.Next() {
 		var s Session
 		var startedAt string
-		var lastPingAt, endedAt, metadata sql.NullString
-		if err := rows.Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &endedAt, &metadata); err != nil {
+		var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
+		if err := rows.Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata); err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}
 		s.StartedAt, _ = parseTime(startedAt)
 		if lastPingAt.Valid {
 			t, _ := parseTime(lastPingAt.String)
 			s.LastPingAt = &t
+		}
+		if lastActivityAt.Valid {
+			t, _ := parseTime(lastActivityAt.String)
+			s.LastActivityAt = &t
 		}
 		if endedAt.Valid {
 			t, _ := parseTime(endedAt.String)
@@ -318,19 +339,19 @@ func GetSession(db *sql.DB, id string) (*Session, error) {
 	var s Session
 	var h Host
 	var startedAt string
-	var lastPingAt, endedAt, metadata sql.NullString
+	var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
 	var hostID, hostUserID sql.NullInt64
 	var hostLabel, hostHostname, hostSSHUser, hostSSHPrincipal sql.NullString
 	var hostSSHPort sql.NullInt64
 	var hostCreatedAt, hostUpdatedAt sql.NullString
 	err := db.QueryRow(`
-		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.ended_at, s.metadata,
+		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata,
 		       h.id, h.label, h.hostname, h.ssh_user, h.ssh_port, h.ssh_principal, h.user_id, h.created_at, h.updated_at
 		FROM sessions s
 		LEFT JOIN hosts h ON s.host_id = h.id
 		WHERE s.id = ?`,
 		id,
-	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &endedAt, &metadata,
+	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata,
 		&hostID, &hostLabel, &hostHostname, &hostSSHUser, &hostSSHPort, &hostSSHPrincipal, &hostUserID, &hostCreatedAt, &hostUpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -342,6 +363,10 @@ func GetSession(db *sql.DB, id string) (*Session, error) {
 	if lastPingAt.Valid {
 		t, _ := parseTime(lastPingAt.String)
 		s.LastPingAt = &t
+	}
+	if lastActivityAt.Valid {
+		t, _ := parseTime(lastActivityAt.String)
+		s.LastActivityAt = &t
 	}
 	if endedAt.Valid {
 		t, _ := parseTime(endedAt.String)
@@ -692,7 +717,7 @@ func GetFirstCredentialWithMasterKey(db *sql.DB, userID int64) (*WebAuthnCredent
 
 func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 	rows, err := db.Query(`
-		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.ended_at, s.metadata,
+		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata,
 		       h.id, h.label, h.hostname, h.ssh_user, h.ssh_port, h.ssh_principal, h.user_id, h.created_at, h.updated_at
 		FROM sessions s
 		LEFT JOIN hosts h ON s.host_id = h.id
@@ -714,10 +739,10 @@ func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 		var hostSSHPort sql.NullInt64
 		var hostCreatedAt, hostUpdatedAt sql.NullString
 		var startedAt string
-		var lastPingAt, endedAt, metadata sql.NullString
+		var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
 
 		if err := rows.Scan(
-			&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &endedAt, &metadata,
+			&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata,
 			&hostID, &hostLabel, &hostHostname, &hostSSHUser, &hostSSHPort, &hostSSHPrincipal, &hostUserID, &hostCreatedAt, &hostUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan session with host: %w", err)
@@ -726,6 +751,10 @@ func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 		if lastPingAt.Valid {
 			t, _ := parseTime(lastPingAt.String)
 			s.LastPingAt = &t
+		}
+		if lastActivityAt.Valid {
+			t, _ := parseTime(lastActivityAt.String)
+			s.LastActivityAt = &t
 		}
 		if endedAt.Valid {
 			t, _ := parseTime(endedAt.String)

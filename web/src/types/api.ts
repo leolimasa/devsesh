@@ -18,12 +18,13 @@ export interface Session {
   name: string;
   started_at: string;
   last_ping_at: string | null;
+  last_activity_at: string | null;
   ended_at: string | null;
   metadata: string | null;
 }
 
 export interface SessionUpdate {
-  event: "start" | "ping" | "end" | "meta";
+  event: "start" | "ping" | "activity" | "end" | "meta";
   session_id: string;
   session: Session;
 }

@@ -1,5 +1,16 @@
 # Todo: Ping / Activity Overhaul
 
+## Project Status
+
+- 🟢 **Phase 1:** Foundation — Utils + Database
+- 🟢 **Phase 2:** Server handlers + routes
+- 🟢 **Phase 3:** Client library
+- 🟢 **Phase 4:** CLI integration
+- 🟢 **Phase 5:** Frontend
+- 🟢 **Phase 6:** Documentation
+- 🟢 **Phase 7:** Integration tests
+- 🟢 **Phase 8:** Final verification
+
 ## Phase dependency plan
 
 ```

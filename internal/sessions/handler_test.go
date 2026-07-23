@@ -133,6 +133,9 @@ func TestStartHandler(t *testing.T) {
 	if s.HostID != hostID {
 		t.Errorf("expected hostID %d, got %d", hostID, s.HostID)
 	}
+	if s.LastActivityAt == nil {
+		t.Error("expected last_activity_at to be seeded on creation")
+	}
 }
 
 func TestPingHandler(t *testing.T) {
@@ -150,6 +153,14 @@ func TestPingHandler(t *testing.T) {
 	}
 	db.CreateSession(dbConn, s)
 
+	// Subscribe a fake client to verify the broadcast.
+	sendCh := make(chan []byte, 64)
+	hub.mu.Lock()
+	hub.clients[userID] = map[*client]bool{
+		{send: sendCh, userID: userID}: true,
+	}
+	hub.mu.Unlock()
+
 	handler := PingHandler(dbConn, hub)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/ping-session/ping", nil)
@@ -165,6 +176,77 @@ func TestPingHandler(t *testing.T) {
 	updated, _ := db.GetSession(dbConn, "ping-session")
 	if updated.LastPingAt == nil {
 		t.Error("expected last_ping_at to be set")
+	}
+
+	// Verify the broadcast
+	select {
+	case msg := <-sendCh:
+		var u SessionUpdate
+		json.Unmarshal(msg, &u)
+		if u.Event != "ping" {
+			t.Errorf("expected broadcast event 'ping', got '%s'", u.Event)
+		}
+		if u.SessionID != "ping-session" {
+			t.Errorf("expected broadcast session_id 'ping-session', got '%s'", u.SessionID)
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for ping broadcast")
+	}
+}
+
+func TestActivityHandler(t *testing.T) {
+	dbConn := setupTestDB(t)
+	hub := NewHub()
+	userID := int64(1)
+
+	now := time.Now()
+	s := db.Session{
+		ID:        "activity-session",
+		UserID:    userID,
+		HostID:    1,
+		Name:      "Activity Test",
+		StartedAt: now,
+	}
+	db.CreateSession(dbConn, s)
+
+	// Subscribe a fake client to verify the broadcast.
+	sendCh := make(chan []byte, 64)
+	hub.mu.Lock()
+	hub.clients[userID] = map[*client]bool{
+		{send: sendCh, userID: userID}: true,
+	}
+	hub.mu.Unlock()
+
+	handler := ActivityHandler(dbConn, hub)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/activity-session/activity", nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxutil.ContextKeySession, &s))
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	updated, _ := db.GetSession(dbConn, "activity-session")
+	if updated.LastActivityAt == nil {
+		t.Error("expected last_activity_at to be set")
+	}
+
+	// Verify the broadcast
+	select {
+	case msg := <-sendCh:
+		var u SessionUpdate
+		json.Unmarshal(msg, &u)
+		if u.Event != "activity" {
+			t.Errorf("expected broadcast event 'activity', got '%s'", u.Event)
+		}
+		if u.SessionID != "activity-session" {
+			t.Errorf("expected broadcast session_id 'activity-session', got '%s'", u.SessionID)
+		}
+	case <-time.After(time.Second):
+		t.Error("timeout waiting for activity broadcast")
 	}
 }
 

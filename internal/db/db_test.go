@@ -31,8 +31,8 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first migration run: %v", err)
 	}
-	if len(applied) != 18 {
-		t.Errorf("expected 18 migrations applied, got %d", len(applied))
+	if len(applied) != 19 {
+		t.Errorf("expected 19 migrations applied, got %d", len(applied))
 	}
 
 	applied, err = RunMigrations(db)
@@ -261,5 +261,89 @@ func TestDeleteExpiredPairingCodes(t *testing.T) {
 	pc, _ = GetPairingCode(db, "VALID1")
 	if pc == nil {
 		t.Error("expected valid pairing code to still exist")
+	}
+}
+
+func TestUpdateSessionActivity(t *testing.T) {
+	db := openTestDB(t)
+	_, _ = RunMigrations(db)
+
+	userID, _ := CreateUser(db, "activity@example.com")
+	now := time.Now()
+
+	s := Session{
+		ID:        "activity-session",
+		UserID:    userID,
+		HostID:    1,
+		Name:      "Activity Test",
+		StartedAt: now,
+	}
+	if err := CreateSession(db, s); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	activityTime := now.Add(10 * time.Second)
+	if err := UpdateSessionActivity(db, "activity-session", activityTime); err != nil {
+		t.Fatalf("update session activity: %v", err)
+	}
+
+	got, _ := GetSession(db, "activity-session")
+	if got == nil {
+		t.Fatal("expected session")
+	}
+	if got.LastActivityAt == nil {
+		t.Fatal("expected last_activity_at to be set")
+	}
+	expected := activityTime.UTC().Truncate(time.Second)
+	if !got.LastActivityAt.Equal(expected) {
+		t.Errorf("expected last_activity_at %v, got %v", expected, got.LastActivityAt)
+	}
+}
+
+func TestSessionActivityRoundTrip(t *testing.T) {
+	db := openTestDB(t)
+	_, _ = RunMigrations(db)
+
+	userID, _ := CreateUser(db, "roundtrip@example.com")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	s := Session{
+		ID:             "roundtrip-session",
+		UserID:         userID,
+		HostID:         1,
+		Name:           "Round-trip Test",
+		StartedAt:      now,
+		LastPingAt:     &now,
+		LastActivityAt: &now,
+	}
+	if err := CreateSession(db, s); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	got, _ := GetSession(db, "roundtrip-session")
+	if got == nil {
+		t.Fatal("expected session")
+	}
+	if got.LastActivityAt == nil {
+		t.Fatal("expected last_activity_at to be set")
+	}
+	if !got.LastActivityAt.Equal(now) {
+		t.Errorf("expected last_activity_at to round-trip, got %v", got.LastActivityAt)
+	}
+
+	sessions, _ := GetSessionsByUserID(db, userID)
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	if sessions[0].LastActivityAt == nil {
+		t.Fatal("expected last_activity_at in list query")
+	}
+
+	sessionsWithHost, _ := GetSessionsWithHostByUserID(db, userID)
+	if len(sessionsWithHost) != 1 {
+		t.Fatalf("expected 1 session with host, got %d", len(sessionsWithHost))
+	}
+	if sessionsWithHost[0].LastActivityAt == nil {
+		t.Fatal("expected last_activity_at in session-with-host query")
 	}
 }

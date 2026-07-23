@@ -83,13 +83,14 @@ func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 
 		now := time.Now()
 		s := db.Session{
-			ID:         sessionID,
-			UserID:     userID,
-			HostID:     hostID,
-			Name:       name,
-			StartedAt:  startTime,
-			LastPingAt: &now,
-			Metadata:   &metaStr,
+			ID:             sessionID,
+			UserID:         userID,
+			HostID:         hostID,
+			Name:           name,
+			StartedAt:      startTime,
+			LastPingAt:     &now,
+			LastActivityAt: &now,
+			Metadata:       &metaStr,
 		}
 
 		if err := db.CreateSession(database, s); err != nil {
@@ -126,6 +127,32 @@ func PingHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		session.LastPingAt = &now
 		hub.Broadcast(session.UserID, SessionUpdate{
 			Event:     "ping",
+			SessionID: session.ID,
+			Session:   *session,
+		})
+
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func ActivityHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, ok := SessionFromContext(r.Context())
+		if !ok {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+
+		now := time.Now()
+		if err := db.UpdateSessionActivity(database, session.ID, now); err != nil {
+			slog.Error("failed to update session activity", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		session.LastActivityAt = &now
+		hub.Broadcast(session.UserID, SessionUpdate{
+			Event:     "activity",
 			SessionID: session.ID,
 			Session:   *session,
 		})

@@ -58,16 +58,17 @@ Device pairing codes used to link hosts to user accounts.
 
 Terminal sessions connecting users to hosts.
 
-| Column       | Type     | Constraints                        |
-|--------------|----------|------------------------------------|
-| id           | TEXT     | PRIMARY KEY                        |
-| user_id      | INTEGER  | NOT NULL, FOREIGN KEY -> users(id) |
-| host_id      | INTEGER  | FOREIGN KEY -> hosts(id)           |
-| name         | TEXT     | NOT NULL                           |
-| started_at   | DATETIME | NOT NULL                           |
-| last_ping_at | DATETIME |                                    |
-| ended_at     | DATETIME |                                    |
-| metadata     | TEXT     |                                    |
+| Column           | Type     | Constraints                        |
+|------------------|----------|------------------------------------|
+| id               | TEXT     | PRIMARY KEY                        |
+| user_id          | INTEGER  | NOT NULL, FOREIGN KEY -> users(id) |
+| host_id          | INTEGER  | FOREIGN KEY -> hosts(id)           |
+| name             | TEXT     | NOT NULL                           |
+| started_at       | DATETIME | NOT NULL                           |
+| last_ping_at     | DATETIME |                                    |
+| last_activity_at | DATETIME |                                    |
+| ended_at         | DATETIME |                                    |
+| metadata         | TEXT     |                                    |
 
 ## hosts
 

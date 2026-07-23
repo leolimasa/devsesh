@@ -23,7 +23,8 @@ When a session starts, the CLI:
 3. Notifies the server via `POST /api/v1/sessions/{id}/start`
 
 While the session runs, the CLI:
-- **Pings the server** when there's output from the tmux session (debounced)
+- **Pings the server** every 5 seconds to signal liveness (drives `last_ping_at`, used for stale session cleanup)
+- **Sends activity events** when there's output from the tmux session (throttled to at most 1/sec, drives `last_activity_at`, used for the Active indicator)
 - **Watches the session file** for changes and syncs metadata to the server
 - **Notifies the server** when the session ends
 

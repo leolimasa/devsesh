@@ -8,7 +8,7 @@ Ideal for monitoring AI agents and long running processes across machines.
 
 - **Session Tracking** - Automatically track tmux sessions with metadata like project name, branch, and working directory
 - **Passkey Authentication** - Secure WebAuthn/FIDO2 passkey-based login
-- **Idle detection** - Automatically detect when sessions are idle (no stdout/stderr output)
+- **Idle detection** - Automatically detect when sessions are idle (no terminal output for 5 seconds)
 - **Real-time Updates** - Live session updates via WebSocket
 - **Machine Pairing** - Easily pair CLI clients with the web interface
 - **SSH Integration** - Connect to sessions remotely via SSH

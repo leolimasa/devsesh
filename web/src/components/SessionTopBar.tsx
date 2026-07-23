@@ -69,7 +69,9 @@ export function SessionTopBar({
 
     let count = 0
     for (const pill of pills) {
-      if (pill.getBoundingClientRect().right <= availRight) {
+      // Allow a sub-pixel tolerance so a pill sitting exactly on the boundary
+      // isn't wrongly excluded by fractional getBoundingClientRect rounding.
+      if (pill.getBoundingClientRect().right <= availRight + 0.5) {
         count++
       } else {
         break
@@ -80,9 +82,22 @@ export function SessionTopBar({
 
   useEffect(() => {
     measureOverflow()
+
+    // Re-measure once web fonts are ready. Color-emoji glyphs commonly load
+    // after first paint and reflow a pill wider than its fallback width; the
+    // initial measurement is against the fallback, so without this a wider
+    // emoji pill silently overflows the clipped region (no "+N", just gone).
+    if (typeof document !== "undefined" && document.fonts?.ready) {
+      document.fonts.ready.then(measureOverflow).catch(() => {})
+    }
+
     if (typeof ResizeObserver === "undefined") return
     const obs = new ResizeObserver(measureOverflow)
     if (regionRef.current) obs.observe(regionRef.current)
+    // Observe the hidden measure row too: a glyph reflow (e.g. emoji font
+    // finishing loading) changes its content width even when the region's own
+    // box stays the same size — which a region-only observer would miss.
+    if (measureRef.current) obs.observe(measureRef.current)
     return () => obs.disconnect()
   }, [measureOverflow, pinnedKeys])
 

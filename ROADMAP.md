@@ -8,20 +8,30 @@
 * [x] Deploy to VM with HTTPS support + tailscale
 * [x] Find a way to deploy without needing to have secrets unlocked
 * [x] Make it available on the command line, and test a new session on mobile
-* [ ] Fix remote command exited without exit status or exit signal
-* [ ] Make it mobile friendly
-	* [ ] session details need to be under a haburger
-	* [ ] 
-* [ ] When terminal grows screen gets covered up
+* [x] Fix remote command exited without exit status or exit signal
+* [x] Make it mobile friendly
+	* [x] session details need to be under a haburger
+* [x] When terminal grows screen gets covered up
 * [ ] Session is being marked as inactive even when there is output
+* [ ] Switching session doesn't resize terminal contents (needs a manual window resize)
 * [ ] Looks like pings are not being sent
+* [ ] Add button to delete existing session
+* [ ] Cursor doesn't show in normal mode when in neovim
+* [ ] Bar to change session when in detailed view
+* [ ] Need to constant unlock SSH
 * [ ] Looks like there are several endpoints that require session owner and do not have the middleware
+* [ ] Support for copy and paste from terminal
 * [ ] Notify (pushover) when session is idle
 
 # Polishing
 
-* [ ] Terminal auto-connect when opening screen
+* [x] Terminal auto-connect when opening screen
+* [x] Keyboard shortcuts
 * [ ] Fix editing yaml file actually updates the metadata (needs integration test)
+* [ ] Display metadata "status" field face up
+* [ ] Display metadata as a formatted tree in the details panel
+* [ ] Details panel font size is not consistent with rest of the app
+* [ ] Sign in without e-mail (can i match a passkey to a user?)
 * [ ] File browser
 * [ ] File editor with Monaco
 * [ ] Git diff browser
@@ -31,7 +41,6 @@
 * [ ] Add SXG to sign JS bundle
 * [ ] New session button
 * [ ] SSH/command payload
-* [ ] Keyboard shortcuts
 * [ ] Sign the javascript bundle so that clients can verify it was not tampered with
 * [ ] Add built in rate limits for endpoints
 * [ ] Convert mutexes to actor model

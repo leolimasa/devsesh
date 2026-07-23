@@ -91,6 +91,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	os.Setenv("DEVSESH_SESSION_NAME", sessionName)
 
 	signalCtx, cancelSignal := context.WithCancel(ctx)
+	defer cancelSignal()
 
 	var wg sync.WaitGroup
 
@@ -115,17 +116,36 @@ func runStart(cmd *cobra.Command, args []string) error {
 		sessionLogger.Logger().Error("failed to watch session file", "error", err)
 	}
 
-	onOutput := func() {
-		if err := apiClient.PingSession(sessionID); err != nil {
-			sessionLogger.Logger().Error("failed to ping session", "error", err)
+	onActivity := func() {
+		if err := apiClient.SendActivity(sessionID); err != nil {
+			sessionLogger.Logger().Error("failed to send activity", "error", err)
 		}
 	}
+
+	// Start ping heartbeat goroutine: sends a ping every 5 seconds for as
+	// long as the tmux process is alive. Stops when signalCtx is cancelled.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-signalCtx.Done():
+				return
+			case <-ticker.C:
+				if err := apiClient.PingSession(sessionID); err != nil {
+					sessionLogger.Logger().Error("failed to ping session", "error", err)
+				}
+			}
+		}
+	}()
 
 	tmuxCmd, err := client.StartSession(signalCtx, &wg, sessionName, map[string]string{
 		"DEVSESH_SESSION_ID":   sessionID,
 		"DEVSESH_SESSION_FILE": sessionFile,
 		"DEVSESH_SESSION_NAME": sessionName,
-	}, onOutput)
+	}, onActivity)
 	if err != nil {
 		sessionLogger.Logger().Error("failed to start tmux session", "error", err)
 		return fmt.Errorf("failed to start tmux session: %w", err)

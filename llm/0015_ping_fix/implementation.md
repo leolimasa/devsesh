@@ -41,9 +41,12 @@ struct change needed; the existing `Event string` field simply gains two valid
 values (`"ping"` already exists, `"activity"` is new). [req.dwt6ud]
 
 **New `util.Throttle`** (`internal/util/debounce.go`, added alongside
-the existing `Debouncer`) — a leading+trailing throttle implemented with the
-actor model (a single goroutine owning all state via channels, no mutex), used
-to satisfy the "throttle to max 1/sec but never discard" rule. [req.ugzh7u] [req.quoywx]
+the existing `Debouncer`) — a leading+trailing throttle implemented as a
+polling actor (single goroutine with an `atomic.Bool` flag, polled at
+`interval/10`). This guarantees at most one callback invocation per
+interval while never silently dropping a mid-window change: pending
+activity is detected on the next poll and fired at the interval
+boundary. [req.ugzh7u] [req.quoywx]
 
 ### TypeScript
 
@@ -58,28 +61,33 @@ to satisfy the "throttle to max 1/sec but never discard" rule. [req.ugzh7u] [req
 
 ### `internal/util/debounce.go` (modified — new `Throttle` added)
 
-A leading+trailing throttle so the client can throttle `activity` messages to
-1/sec without ever dropping a change that happened mid-window. Added next to the
-existing `Debouncer` (whose reset-on-every-call semantics are kept for the file
-watcher); the new type is what the output monitor uses. [req.ugzh7u] [req.quoywx]
+A polling-based leading+trailing throttle so the client can throttle `activity`
+messages to 1/sec without ever dropping a change that happened mid-window.
+Added next to the existing `Debouncer` (whose reset-on-every-call semantics are
+kept for the file watcher); the new type is what the output monitor
+uses. [req.ugzh7u] [req.quoywx]
 
 - `NewThrottle(interval time.Duration, fn func()) *Throttle` —
-  starts an actor goroutine and returns the handle.
-- `Call()` — non-blocking; signals the actor that a change occurred.
-- `Stop()` — flushes any pending trailing call and shuts the actor down.
+  starts a polling actor goroutine and returns the handle.
+- `Call()` — non-blocking; sets an `atomic.Bool` flag that the actor
+  polls every `interval/10` (min 5ms).
+- `Stop()` — flushes any pending call and shuts the actor down.
 
-Actor behavior (single goroutine owns `lastFired` and `pending`):
-- On a `Call` when `now - lastFired >= interval`: invoke `fn` immediately
-  (leading edge), set `lastFired = now`.
-- On a `Call` inside the window: set `pending = true` and ensure a timer is
-  armed to fire at `lastFired + interval`.
-- When the timer fires with `pending`: invoke `fn`, reset `lastFired`, clear
-  `pending`. This guarantees a change that occurred between two edges of the
-  window still produces exactly one trailing message. [req.quoywx]
+Actor behavior (single goroutine polls the pending flag):
+- On each poll tick, if `now - lastFired >= interval` and the pending
+  flag is set, invoke `fn` immediately (leading edge), clear the flag,
+  and set `lastFired = now`.
+- If the flag is still set at a subsequent poll tick (because
+  `Call()` was invoked during the interval), invoke `fn` at the first
+  poll after the interval boundary (trailing edge). This guarantees a
+  change that occurred between two edges of the window still produces
+  exactly one trailing message. [req.quoywx]
 
-This mirrors the existing actor-model `RateLimiter` style. The plain `Debouncer`
-is unsuitable for output monitoring because it resets its timer on every write
-and would starve during continuous output, violating req.quoywx.
+The polling design avoids the non-deterministic message dropping of Go's
+`select { case ch <- msg: default: }` pattern (which can randomly choose
+the default branch even when the channel has room) and keeps the actor
+simple. The tradeoff is a bounded idle wakeup rate (at most
+`1/(interval/10)` Hz) and a leading-edge delay of at most `interval/10`.
 
 ### `internal/client/tmux.go` (modified)
 

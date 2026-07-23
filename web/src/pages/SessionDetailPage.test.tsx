@@ -111,6 +111,7 @@ describe("SessionDetailPage", () => {
       name: "Test Session",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: "2024-01-01T00:04:00Z",
+      last_activity_at: null,
       ended_at: null,
       metadata: JSON.stringify({ project: "my-project", branch: "main" }),
       host: {
@@ -149,6 +150,7 @@ describe("SessionDetailPage", () => {
       name: "Test Session",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: "2024-01-01T00:04:00Z",
+      last_activity_at: null,
       ended_at: null,
       metadata: null,
       host: {
@@ -183,6 +185,7 @@ describe("SessionDetailPage", () => {
       name: "Test",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: null,
+      last_activity_at: null,
       ended_at: null,
       metadata: null,
     }
@@ -206,6 +209,7 @@ describe("SessionDetailPage", () => {
       name: "Test",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: null,
+      last_activity_at: null,
       ended_at: null,
       metadata: null,
     }
@@ -226,6 +230,7 @@ describe("SessionDetailPage", () => {
       name: "Test",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: null,
+      last_activity_at: null,
       ended_at: null,
       metadata: null,
     }
@@ -249,6 +254,7 @@ describe("SessionDetailPage", () => {
       name: "Test",
       started_at: now.toISOString(),
       last_ping_at: now.toISOString(),
+      last_activity_at: now.toISOString(),
       ended_at: null,
       metadata: null,
       host: {
@@ -282,6 +288,7 @@ describe("SessionDetailPage", () => {
       name: "Test",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: null,
+      last_activity_at: null,
       ended_at: null,
       metadata: null,
       host: {
@@ -313,6 +320,7 @@ describe("SessionDetailPage", () => {
       name: "Ended Session",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: "2024-01-01T00:30:00Z",
+      last_activity_at: null,
       ended_at: "2024-01-01T01:00:00Z",
       metadata: null,
       host: {
@@ -345,6 +353,7 @@ describe("SessionDetailPage", () => {
       name: "Stale Session",
       started_at: "2024-01-01T00:00:00Z",
       last_ping_at: oldPingTime,
+      last_activity_at: null,
       ended_at: null,
       metadata: null,
       host: {

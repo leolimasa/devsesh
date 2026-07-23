@@ -207,6 +207,26 @@ func (c *APIClient) PingSession(sessionID string) error {
 	return nil
 }
 
+func (c *APIClient) SendActivity(sessionID string) error {
+	ctx := context.Background()
+
+	resp, err := c.doRequest(ctx, "POST", "/api/v1/sessions/"+sessionID+"/activity", nil)
+	if err != nil {
+		slog.Error("failed to send activity", "error", err, "session_id", sessionID)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		err := fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		slog.Error("activity failed", "error", err, "session_id", sessionID, "status", resp.StatusCode)
+		return err
+	}
+
+	return nil
+}
+
 func (c *APIClient) NotifySessionEnd(sessionID string) error {
 	ctx := context.Background()
 	

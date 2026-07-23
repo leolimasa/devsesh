@@ -254,7 +254,7 @@ test.describe('Session Integration Tests', () => {
     }
   });
 
-  test('Session has last_ping_at set on start', async ({ page }) => {
+  test('Session has last_ping_at and last_activity_at set on start', async ({ page }) => {
     const server = await startServer();
     const testEmail = `test-${Date.now()}@example.com`;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-ping-test-'));
@@ -289,22 +289,31 @@ test.describe('Session Integration Tests', () => {
       expect(session.last_ping_at).not.toBeNull();
       console.log('last_ping_at:', session.last_ping_at);
 
-      // Verify the ping time is recent (within the last minute)
-      const pingTime = new Date(session.last_ping_at!);
+      // Verify session has last_activity_at set (seeded on creation)
+      expect(session.last_activity_at).not.toBeNull();
+      console.log('last_activity_at:', session.last_activity_at);
+
+      // Verify both timestamps are recent (within the last minute)
       const now = new Date();
-      const diffMs = now.getTime() - pingTime.getTime();
-      expect(diffMs).toBeLessThan(60000); // Ping should be within the last minute
+      {
+        const pingTime = new Date(session.last_ping_at!);
+        const diffMs = now.getTime() - pingTime.getTime();
+        expect(diffMs).toBeLessThan(60000);
+      }
+      {
+        const activityTime = new Date(session.last_activity_at!);
+        const diffMs = now.getTime() - activityTime.getTime();
+        expect(diffMs).toBeLessThan(60000);
+      }
 
     } finally {
-      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
+      // Clean up tmux session
       if (tmuxSessionName) {
         await killTmuxSession(tmuxSessionName);
       }
 
-      // Stop server
       await stopServer(server);
 
-      // Clean up temp directory
       if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
@@ -347,6 +356,11 @@ test.describe('Session Integration Tests', () => {
       const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
       console.log('Session found in API:', session.id);
 
+      // Send a command to the tmux session to generate output and trigger
+      // an activity event so the session shows as "Active" (5s window).
+      await sendTmuxCommand(tmuxSessionName!, 'echo "hello"');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
       // Refresh dashboard to see the session
       await page.reload();
       await page.waitForLoadState('networkidle');
@@ -354,15 +368,15 @@ test.describe('Session Integration Tests', () => {
       // Wait for session to appear on dashboard
       await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
 
-      // Verify session shows as "Active" on dashboard (check for Active badge)
-      const dashboardActiveStatus = page.locator('tr', { has: page.getByText(tmuxSessionName!) })
+      // Verify session shows as "Active" on dashboard
+      const dashboardActiveStatus = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) })
         .locator('text=Active');
       await expect(dashboardActiveStatus).toBeVisible({ timeout: 5000 });
       console.log('Session shows as Active on dashboard');
 
       // Verify the ping is not "Never" on dashboard
-      const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!) });
-      const pingCell = dashboardRow.locator('td').nth(4); // Last Ping column (0-indexed: ID, Name, Host, Started, Last Ping)
+      const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      const pingCell = dashboardRow.locator('td').nth(4);
       const pingText = await pingCell.textContent();
       console.log('Dashboard ping text:', pingText);
       expect(pingText).not.toBe('Never');
@@ -371,38 +385,31 @@ test.describe('Session Integration Tests', () => {
       await page.getByText(tmuxSessionName!, { exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
 
-      // Verify session shows as "Active" on detail page. The redesigned details
-      // panel renders "Active" in both the status badge and the Status field, so
-      // scope to the first visible occurrence rather than a strict single match.
+      // Verify session shows as "Active" on detail page
       const detailActiveStatus = page.locator('text=Active').first();
       await expect(detailActiveStatus).toBeVisible({ timeout: 5000 });
       console.log('Session shows as Active on detail page');
 
-      // Verify the ping is displayed on detail page (not just "-")
-      // The detail page structure is: <div><h3>Last Ping</h3><p>value</p></div>
-      // Use xpath to find the p element that follows the h3 with "Last Ping"
+      // Verify the ping is displayed on detail page
       const lastPingValue = page.locator('h3:text-is("Last Ping") + p');
       const detailPingText = await lastPingValue.textContent();
       console.log('Detail page ping text:', detailPingText);
       expect(detailPingText).not.toBe('-');
 
     } finally {
-      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
       if (tmuxSessionName) {
         await killTmuxSession(tmuxSessionName);
       }
 
-      // Stop server
       await stopServer(server);
 
-      // Clean up temp directory
       if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     }
   });
 
-  test('Ping timestamp updates when session has output', async ({ page }) => {
+  test('Ping heartbeat updates last_ping_at and activity updates last_activity_at', async ({ page }) => {
     const server = await startServer();
     const testEmail = `test-${Date.now()}@example.com`;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-ping-update-test-'));
@@ -414,10 +421,8 @@ test.describe('Session Integration Tests', () => {
     let tmuxSessionName: string | null = null;
 
     try {
-      // Set up user and pair CLI
       const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
 
-      // Spawn devsesh start command
       tmuxSessionName = `ping-update-test-${Date.now()}`;
       const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
 
@@ -425,64 +430,173 @@ test.describe('Session Integration Tests', () => {
         console.log('Session process error:', err);
       });
 
-      // Wait for session file to be created
       sessionId = await waitForSessionFile(sessionDir, 15000);
       console.log('Session file created:', sessionId);
 
-      // Wait for session to appear in API
       const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
       console.log('Session found in API:', session.id);
 
-      // Get the initial ping time
-      const initialPingTime = session.last_ping_at;
-      console.log('Initial last_ping_at:', initialPingTime);
-      expect(initialPingTime).not.toBeNull();
+      // Wait for the 5-second heartbeat to fire at least once
+      await new Promise(resolve => setTimeout(resolve, 7000));
 
-      // Wait a bit to ensure time passes
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const afterPing = await getSessionFromApi(server.url, token, sessionId);
+      const pingTime = new Date(afterPing.last_ping_at!);
+      const initialPingTime = new Date(session.last_ping_at!);
+      const pingDiff = pingTime.getTime() - initialPingTime.getTime();
+      console.log('Ping delta (ms):', pingDiff);
+      expect(pingDiff).toBeGreaterThan(0);
 
-      // Send a command to the tmux session to generate output
-      // This should trigger a ping update (pings happen when there's output)
-      // Note: tmux sessions are named by tmuxSessionName, not sessionId UUID
-      await sendTmuxCommand(tmuxSessionName!, 'echo "trigger ping update"');
-      console.log('Sent command to tmux session');
+      // Verify the /activity endpoint by hitting it directly
+      const activityResp = await fetch(`${server.url}/api/v1/sessions/${sessionId}/activity`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      expect(activityResp.status).toBe(200);
 
-      // Wait for the ping to update (polling with timeout)
-      const maxWait = 15000;
-      const pollInterval = 500;
-      const startTime = Date.now();
-      let updatedSession = null;
-
-      while (Date.now() - startTime < maxWait) {
-        const currentSession = await getSessionFromApi(server.url, token, sessionId);
-        if (currentSession.last_ping_at !== initialPingTime) {
-          updatedSession = currentSession;
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-      }
-
-      if (updatedSession) {
-        console.log('Ping updated from', initialPingTime, 'to', updatedSession.last_ping_at);
-        expect(updatedSession.last_ping_at).not.toBeNull();
-        expect(updatedSession.last_ping_at).not.toBe(initialPingTime);
-      } else {
-        // If ping didn't update, it might be due to debouncing or timing - log warning but don't fail
-        console.log('Warning: Ping did not update within timeout. This may be due to debouncing.');
-        // Still verify the initial ping was set
-        expect(initialPingTime).not.toBeNull();
-      }
+      const afterActivity = await getSessionFromApi(server.url, token, sessionId);
+      const activityTime = new Date(afterActivity.last_activity_at!);
+      const initialActivityTime = new Date(session.last_activity_at!);
+      const activityDiff = activityTime.getTime() - initialActivityTime.getTime();
+      console.log('Activity delta (ms):', activityDiff);
+      expect(activityDiff).toBeGreaterThan(0);
 
     } finally {
-      // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
       if (tmuxSessionName) {
         await killTmuxSession(tmuxSessionName);
       }
 
-      // Stop server
       await stopServer(server);
 
-      // Clean up temp directory
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('Active indicator lights up after terminal activity', async ({ page }) => {
+    const server = await startServer();
+    const testEmail = `test-${Date.now()}@example.com`;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-active-test-'));
+    const configPath = path.join(tempDir, 'config.yml');
+    const sessionDir = path.join(tempDir, 'sessions');
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
+
+    try {
+      const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
+
+      await page.goto(`${server.url}/dashboard`);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+      await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 5000 });
+
+      // Use a name that does NOT contain "active"/"inactive" so badge
+      // locators don't accidentally match the session name text.
+      tmuxSessionName = `light-up-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
+      sessionProcess.process.on('error', (err) => {
+        console.log('Session process error:', err);
+      });
+
+      sessionId = await waitForSessionFile(sessionDir, 15000);
+      await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
+
+      // Wait for the initial activity seed to expire (7s > 5s window)
+      await new Promise(resolve => setTimeout(resolve, 7000));
+
+      // Send output to trigger fresh activity
+      await sendTmuxCommand(tmuxSessionName!, 'echo "making noise"');
+      // Throttle (1s) + HTTP + WS propagation
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+
+      // Use exact match on session name in the row filter
+      const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      await expect(dashboardRow.locator('text=Active')).toBeVisible({ timeout: 5000 });
+      console.log('Dashboard shows Active after activity');
+
+      await page.getByText(tmuxSessionName!, { exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
+      await expect(page.locator('text=Active').first()).toBeVisible({ timeout: 5000 });
+      console.log('Detail page shows Active after activity');
+
+    } finally {
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
+      }
+      await stopServer(server);
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('Active indicator decays to Inactive after 5 seconds of no output', async ({ page }) => {
+    const server = await startServer();
+    const testEmail = `test-${Date.now()}@example.com`;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-decay-test-'));
+    const configPath = path.join(tempDir, 'config.yml');
+    const sessionDir = path.join(tempDir, 'sessions');
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
+
+    try {
+      const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
+
+      await page.goto(`${server.url}/dashboard`);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+      await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 5000 });
+
+      tmuxSessionName = `decay-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
+      sessionProcess.process.on('error', (err) => {
+        console.log('Session process error:', err);
+      });
+
+      sessionId = await waitForSessionFile(sessionDir, 15000);
+      await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
+
+      // Trigger activity so the badge lights up
+      await sendTmuxCommand(tmuxSessionName!, 'echo "hello decay"');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+
+      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      await expect(row.locator('text=Active')).toBeVisible({ timeout: 5000 });
+      console.log('Dashboard shows Active after triggering activity');
+
+      // Wait for the 5s activity window to expire + a ping heartbeat to
+      // trigger a WS re-render that picks up the stale activity time.
+      console.log('Waiting for activity window to expire...');
+      await new Promise(resolve => setTimeout(resolve, 8000));
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+
+      const rowAfter = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      await expect(rowAfter.locator('text=Inactive')).toBeVisible({ timeout: 5000 });
+      console.log('Dashboard shows Inactive after activity window expired');
+
+      await page.getByText(tmuxSessionName!, { exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
+      await expect(page.locator('text=Inactive').first()).toBeVisible({ timeout: 5000 });
+      console.log('Detail page shows Inactive');
+
+    } finally {
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
+      }
+      await stopServer(server);
       if (fs.existsSync(tempDir)) {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }

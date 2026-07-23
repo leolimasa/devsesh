@@ -14,6 +14,7 @@ export interface Session {
   hostname: string;
   started_at: string;
   last_ping_at: string | null;
+  last_activity_at: string | null;
   ended_at: string | null;
   metadata: string | null;
 }

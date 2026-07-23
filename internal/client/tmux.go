@@ -15,33 +15,29 @@ import (
 )
 
 type OutputMonitor struct {
-	onOutput   func()
-	debouncer *util.Debouncer
+	onActivity func()
+	throttle   *util.Throttle
 	ctx        context.Context
-	mu         sync.Mutex
-	lastWrite  time.Time
 }
 
-func NewOutputMonitor(ctx context.Context, wg *sync.WaitGroup, onOutput func(), debounceDelay time.Duration) io.Writer {
+func NewOutputMonitor(ctx context.Context, wg *sync.WaitGroup, onActivity func(), throttleInterval time.Duration) io.Writer {
 	wg.Add(1)
-	
+
 	m := &OutputMonitor{
-		onOutput: onOutput,
-		ctx:      ctx,
+		onActivity: onActivity,
+		ctx:        ctx,
 	}
-	
-	m.debouncer = util.NewDebouncer(debounceDelay, func() {
-		m.mu.Lock()
-		m.onOutput()
-		m.mu.Unlock()
+
+	m.throttle = util.NewThrottle(throttleInterval, func() {
+		m.onActivity()
 	})
-	
+
 	go func() {
 		defer wg.Done()
 		<-ctx.Done()
-		m.debouncer.Stop()
+		m.throttle.Stop()
 	}()
-	
+
 	return m
 }
 
@@ -49,12 +45,12 @@ func (m *OutputMonitor) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	
-	m.debouncer.Call()
+
+	m.throttle.Call()
 	return len(p), nil
 }
 
-func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, env map[string]string, onOutput func()) (*exec.Cmd, error) {
+func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, env map[string]string, onActivity func()) (*exec.Cmd, error) {
 	cmd := exec.CommandContext(ctx, "tmux", "-2", "new-session", "-s", sessionName)
 
 	for k, v := range env {
@@ -64,8 +60,8 @@ func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, e
 
 	cmd.Stdin = os.Stdin
 
-	debounceDelay := 500 * time.Millisecond
-	monitor := NewOutputMonitor(ctx, wg, onOutput, debounceDelay)
+	throttleInterval := 1 * time.Second
+	monitor := NewOutputMonitor(ctx, wg, onActivity, throttleInterval)
 
 	cmd.Stdout = io.MultiWriter(os.Stdout, monitor)
 	cmd.Stderr = io.MultiWriter(os.Stderr, monitor)
@@ -97,7 +93,7 @@ func ListSessions() ([]string, error) {
 		slog.Error("failed to list tmux sessions", "error", err)
 		return nil, err
 	}
-	
+
 	var sessions []string
 	for _, line := range strings.Split(string(output), "\n") {
 		if line != "" {

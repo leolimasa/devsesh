@@ -1,12 +1,14 @@
 import type { Session } from "@/types/api"
 
-// A session counts as active when it hasn't ended and has pinged within the
-// last 5 minutes (a session with no ping yet is treated as freshly started,
-// hence active). Shared so the dashboard and detail views agree.
+// A session is "active" when terminal activity (output) has been observed
+// within the last 5 seconds. This is driven by the `last_activity_at` field,
+// which the CLI updates whenever the terminal buffer changes.
+// `last_ping_at` signals liveness (the `devsesh start` process is still
+// running) and is tracked independently.
 export function isActive(session: Session): boolean {
   if (session.ended_at) return false
-  if (!session.last_ping_at) return true
+  if (!session.last_activity_at) return false
 
-  const diffMs = Date.now() - new Date(session.last_ping_at).getTime()
-  return diffMs / 60000 < 5
+  const diffMs = Date.now() - new Date(session.last_activity_at).getTime()
+  return diffMs < 5000
 }
