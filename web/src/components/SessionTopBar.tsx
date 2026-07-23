@@ -5,7 +5,7 @@
 import { useRef, useState, useEffect, useCallback } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { Keyboard } from "lucide-react"
+import { Keyboard, ArrowLeft } from "lucide-react"
 import type { QuickKeyStep, ConnectionStatus } from "@/types/api"
 
 type Status = ConnectionStatus
@@ -18,6 +18,7 @@ interface SessionTopBarProps {
   onOpenOverlay: () => void
   onConnect: () => void
   onDisconnect: () => void
+  onBack: () => void
   hamburger?: ReactNode
 }
 
@@ -45,6 +46,7 @@ export function SessionTopBar({
   onOpenOverlay,
   onConnect,
   onDisconnect,
+  onBack,
   hamburger,
 }: SessionTopBarProps) {
   const regionRef = useRef<HTMLDivElement>(null)
@@ -86,6 +88,18 @@ export function SessionTopBar({
 
   return (
     <div className="flex items-center gap-2 px-2 py-1 bg-muted border-b h-10 min-h-10 flex-shrink-0">
+      {/* Back to dashboard */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 shrink-0"
+        onClick={onBack}
+        title="Back to dashboard"
+        aria-label="Back to dashboard"
+      >
+        <ArrowLeft className="h-4 w-4" />
+      </Button>
+
       {/* Mobile hamburger */}
       {hamburger}
 

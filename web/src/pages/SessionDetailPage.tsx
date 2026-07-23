@@ -8,6 +8,7 @@ import { useQuickKeys } from "@/hooks/useQuickKeys"
 import { SSHTerminal } from "@/components/SSHTerminal"
 import { SessionTopBar } from "@/components/SessionTopBar"
 import { QuickKeysOverlay } from "@/components/QuickKeysOverlay"
+import { useVisualViewport } from "@/hooks/useVisualViewport"
 import type { TerminalHandle } from "@/components/SSHTerminal"
 import type { Session, ConnectionStatus } from "@/types/api"
 import { Menu } from "lucide-react"
@@ -100,6 +101,13 @@ export default function SessionDetailPage() {
   const [showOverlay, setShowOverlay] = useState(false)
   const [topBarHeight, setTopBarHeight] = useState(40)
 
+  // Track the visual viewport so the whole page shrinks when the on-screen
+  // keyboard opens (iOS Safari keeps 100vh unchanged while the keyboard
+  // covers the bottom of the screen). Sizing the page container off the
+  // visual viewport lets the flex terminal shrink to fit above the keyboard
+  // instead of being overlaid by it.
+  const { height: viewportHeight } = useVisualViewport()
+
   // Measure the real top-bar height so the terminal sizing stays in sync with
   // the bar instead of relying on a hardcoded pixel value.
   useEffect(() => {
@@ -160,7 +168,10 @@ export default function SessionDetailPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
+    <div
+      className="h-screen flex flex-col overflow-hidden"
+      style={viewportHeight > 0 ? { height: `${viewportHeight}px` } : undefined}
+    >
       {session.host && (
         <div ref={topBarRef}>
           <SessionTopBar
@@ -171,6 +182,7 @@ export default function SessionDetailPage() {
             onOpenOverlay={() => setShowOverlay(true)}
             onConnect={() => terminalRef.current?.connect()}
             onDisconnect={() => terminalRef.current?.disconnect()}
+            onBack={() => navigate("/dashboard")}
             hamburger={
               <Sheet>
                 <SheetTrigger asChild className="md:hidden">
@@ -209,8 +221,11 @@ export default function SessionDetailPage() {
               topBarHeight={topBarHeight}
             />
           ) : (
-            <div className="h-full flex items-center justify-center bg-black text-muted-foreground">
-              No host configured for this session
+            <div className="h-full flex flex-col items-center justify-center gap-4 bg-black text-muted-foreground">
+              <p>No host configured for this session</p>
+              <Button variant="outline" onClick={() => navigate("/dashboard")}>
+                Back to Dashboard
+              </Button>
             </div>
           )}
         </div>

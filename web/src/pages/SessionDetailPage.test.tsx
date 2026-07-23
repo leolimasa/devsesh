@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { AuthProvider } from "@/contexts/AuthContext"
 import SessionDetailPage from "@/pages/SessionDetailPage"
@@ -72,6 +72,7 @@ function renderSessionDetailPage(sessionId: string) {
       <AuthProvider>
         <Routes>
           <Route path="/sessions/:id" element={<SessionDetailPage />} />
+          <Route path="/dashboard" element={<div>Dashboard Page</div>} />
         </Routes>
       </AuthProvider>
     </MemoryRouter>
@@ -137,6 +138,63 @@ describe("SessionDetailPage", () => {
       expect(screen.getByText("My Host")).toBeInTheDocument()
       // Session details panel is present
       expect(screen.getByText("Details")).toBeInTheDocument()
+    })
+  })
+
+  it("navigates back to the dashboard from the top bar", async () => {
+    const mockSession = {
+      id: "session-1",
+      user_id: 1,
+      host_id: 1,
+      name: "Test Session",
+      started_at: "2024-01-01T00:00:00Z",
+      last_ping_at: "2024-01-01T00:04:00Z",
+      ended_at: null,
+      metadata: null,
+      host: {
+        id: 1,
+        label: "My Host",
+        hostname: "localhost",
+        ssh_user: "root",
+        ssh_port: 22,
+        ssh_principal: "",
+        user_id: 1,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      },
+    }
+    vi.mocked(api.getSession).mockResolvedValue(mockSession)
+
+    renderSessionDetailPage("session-1")
+
+    const backButton = await screen.findByRole("button", { name: "Back to dashboard" })
+    fireEvent.click(backButton)
+
+    await waitFor(() => {
+      expect(screen.getByText("Dashboard Page")).toBeInTheDocument()
+    })
+  })
+
+  it("navigates back to the dashboard when no host is configured", async () => {
+    const mockSession = {
+      id: "session-1",
+      user_id: 1,
+      host_id: 1,
+      name: "Test",
+      started_at: "2024-01-01T00:00:00Z",
+      last_ping_at: null,
+      ended_at: null,
+      metadata: null,
+    }
+    vi.mocked(api.getSession).mockResolvedValue(mockSession)
+
+    renderSessionDetailPage("session-1")
+
+    const backButton = await screen.findByRole("button", { name: "Back to Dashboard" })
+    fireEvent.click(backButton)
+
+    await waitFor(() => {
+      expect(screen.getByText("Dashboard Page")).toBeInTheDocument()
     })
   })
 
