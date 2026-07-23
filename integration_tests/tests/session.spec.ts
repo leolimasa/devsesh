@@ -371,8 +371,10 @@ test.describe('Session Integration Tests', () => {
       await page.getByText(tmuxSessionName!, { exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
 
-      // Verify session shows as "Active" on detail page
-      const detailActiveStatus = page.locator('text=Active');
+      // Verify session shows as "Active" on detail page. The redesigned details
+      // panel renders "Active" in both the status badge and the Status field, so
+      // scope to the first visible occurrence rather than a strict single match.
+      const detailActiveStatus = page.locator('text=Active').first();
       await expect(detailActiveStatus).toBeVisible({ timeout: 5000 });
       console.log('Session shows as Active on detail page');
 

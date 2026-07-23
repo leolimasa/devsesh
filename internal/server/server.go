@@ -14,6 +14,7 @@ import (
 	"github.com/leolimasa/devsesh/internal/auth"
 	"github.com/leolimasa/devsesh/internal/config"
 	"github.com/leolimasa/devsesh/internal/hosts"
+	"github.com/leolimasa/devsesh/internal/quickkeys"
 	"github.com/leolimasa/devsesh/internal/sessions"
 	"github.com/leolimasa/devsesh/internal/ssh"
 	"github.com/leolimasa/devsesh/internal/ssh/ca"
@@ -103,6 +104,12 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("GET /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.GetHandler(database))))
 	mux.Handle("PUT /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.UpdateHandler(database))))
 	mux.Handle("DELETE /api/v1/hosts/{host_id}", jwtMiddleware(http.HandlerFunc(hosts.DeleteHandler(database))))
+
+	mux.Handle("GET /api/v1/quick-keys", jwtMiddleware(http.HandlerFunc(quickkeys.ListHandler(database))))
+	mux.Handle("GET /api/v1/quick-keys/{id}", jwtMiddleware(http.HandlerFunc(quickkeys.GetHandler(database))))
+	mux.Handle("POST /api/v1/quick-keys", jwtMiddleware(http.HandlerFunc(quickkeys.CreateHandler(database))))
+	mux.Handle("PUT /api/v1/quick-keys/{id}", jwtMiddleware(http.HandlerFunc(quickkeys.UpdateHandler(database))))
+	mux.Handle("DELETE /api/v1/quick-keys/{id}", jwtMiddleware(http.HandlerFunc(quickkeys.DeleteHandler(database))))
 
 	ssh.RegisterRoutes(mux, database, jwtMiddleware, cfg)
 

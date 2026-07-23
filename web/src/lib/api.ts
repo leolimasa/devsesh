@@ -1,4 +1,4 @@
-import type { Session, Passkey, AuthStatus, Host, PasskeyEnrollment, SSHCAConfig } from "@/types/api"
+import type { Session, Passkey, AuthStatus, Host, PasskeyEnrollment, SSHCAConfig, QuickKey } from "@/types/api"
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null
@@ -294,4 +294,43 @@ export async function updateSSHCAClientShare(encryptedShare: string): Promise<vo
 export function getSSHCASigningWebSocketURL(): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
   return `${protocol}//${window.location.host}/api/v1/sshca/sign`
+}
+
+export async function listQuickKeys(): Promise<QuickKey[]> {
+  return fetchApi<QuickKey[]>("/quick-keys")
+}
+
+export async function createQuickKey(qk: {
+  name: string
+  display_token: string
+  spec: string
+  pinned: boolean
+  sort_order: number
+}): Promise<QuickKey> {
+  return fetchApi<QuickKey>("/quick-keys", {
+    method: "POST",
+    body: JSON.stringify(qk),
+  })
+}
+
+export async function updateQuickKey(
+  id: number,
+  qk: {
+    name?: string
+    display_token?: string
+    spec?: string
+    pinned?: boolean
+    sort_order?: number
+  }
+): Promise<QuickKey> {
+  return fetchApi<QuickKey>(`/quick-keys/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(qk),
+  })
+}
+
+export async function deleteQuickKey(id: number): Promise<void> {
+  return fetchApi<void>(`/quick-keys/${id}`, {
+    method: "DELETE",
+  })
 }

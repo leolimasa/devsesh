@@ -459,6 +459,106 @@ func DeleteHost(db *sql.DB, id int64) error {
 	return nil
 }
 
+// QuickKey stores only user-defined quick keys and their pin/order state.
+// Presets are client-side and are never persisted.
+type QuickKey struct {
+	ID           int64     `json:"id"`
+	UserID       int64     `json:"user_id"`
+	Name         string    `json:"name"`
+	DisplayToken string    `json:"display_token"`
+	Spec         string    `json:"spec"`
+	Pinned       bool      `json:"pinned"`
+	SortOrder    int       `json:"sort_order"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+func CreateQuickKey(db *sql.DB, qk QuickKey) (int64, error) {
+	now := time.Now().UTC()
+	pinned := 0
+	if qk.Pinned {
+		pinned = 1
+	}
+	res, err := db.Exec(
+		"INSERT INTO quick_keys (user_id, name, display_token, spec, pinned, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		qk.UserID, qk.Name, qk.DisplayToken, qk.Spec, pinned, qk.SortOrder, now.Format(timeFormat), now.Format(timeFormat),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("create quick key: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+func GetQuickKeysByUserID(db *sql.DB, userID int64) ([]QuickKey, error) {
+	rows, err := db.Query(
+		"SELECT id, user_id, name, display_token, spec, pinned, sort_order, created_at, updated_at FROM quick_keys WHERE user_id = ? ORDER BY sort_order, id",
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get quick keys by user id: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []QuickKey
+	for rows.Next() {
+		var k QuickKey
+		var createdAt, updatedAt string
+		var pinned int
+		if err := rows.Scan(&k.ID, &k.UserID, &k.Name, &k.DisplayToken, &k.Spec, &pinned, &k.SortOrder, &createdAt, &updatedAt); err != nil {
+			return nil, fmt.Errorf("scan quick key: %w", err)
+		}
+		k.Pinned = pinned != 0
+		k.CreatedAt, _ = parseTime(createdAt)
+		k.UpdatedAt, _ = parseTime(updatedAt)
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
+func GetQuickKeyByID(db *sql.DB, id int64) (*QuickKey, error) {
+	var k QuickKey
+	var createdAt, updatedAt string
+	var pinned int
+	err := db.QueryRow(
+		"SELECT id, user_id, name, display_token, spec, pinned, sort_order, created_at, updated_at FROM quick_keys WHERE id = ?",
+		id,
+	).Scan(&k.ID, &k.UserID, &k.Name, &k.DisplayToken, &k.Spec, &pinned, &k.SortOrder, &createdAt, &updatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get quick key by id: %w", err)
+	}
+	k.Pinned = pinned != 0
+	k.CreatedAt, _ = parseTime(createdAt)
+	k.UpdatedAt, _ = parseTime(updatedAt)
+	return &k, nil
+}
+
+func UpdateQuickKey(db *sql.DB, qk QuickKey) error {
+	now := time.Now().UTC()
+	pinned := 0
+	if qk.Pinned {
+		pinned = 1
+	}
+	_, err := db.Exec(
+		"UPDATE quick_keys SET name = ?, display_token = ?, spec = ?, pinned = ?, sort_order = ?, updated_at = ? WHERE id = ?",
+		qk.Name, qk.DisplayToken, qk.Spec, pinned, qk.SortOrder, now.Format(timeFormat), qk.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update quick key: %w", err)
+	}
+	return nil
+}
+
+func DeleteQuickKey(db *sql.DB, id int64) error {
+	_, err := db.Exec("DELETE FROM quick_keys WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete quick key: %w", err)
+	}
+	return nil
+}
+
 func GetHostByLabel(db *sql.DB, userID int64, label string) (*Host, error) {
 	var h Host
 	var createdAt, updatedAt string

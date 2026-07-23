@@ -64,3 +64,39 @@ export interface SSHCAConfig {
   server_verifying_share: string;
   client_verifying_share: string;
 }
+
+// Shared connection status for the SSH terminal and its top bar.
+export type ConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "authenticating"
+  | "connected"
+  | "error";
+
+export interface QuickKeyComboStep {
+  type: "combo";
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+  key: string;
+}
+
+export interface QuickKeyLiteralStep {
+  type: "literal";
+  text: string;
+  enter: boolean;
+}
+
+export type QuickKeyStep = QuickKeyComboStep | QuickKeyLiteralStep;
+
+export interface QuickKey {
+  id: number;
+  user_id: number;
+  name: string;
+  display_token: string;
+  spec: string;
+  pinned: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}

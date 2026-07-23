@@ -308,9 +308,10 @@ async function navigateToSession(page: Page, serverUrl: string, sessionId: strin
   await page.goto(`${serverUrl}/sessions/${sessionId}`)
   await page.waitForLoadState('networkidle')
 
-  // Wait for Connect button to appear
-  await page.waitForSelector('button:has-text("Connect")', { timeout: 15000 })
-  console.log('[SSH CA] Session page loaded, Connect button visible')
+  // The terminal auto-connects on load; no manual Connect gate anymore. Wait for
+  // the session top bar to render (keyboard/Quick Keys button is always present).
+  await page.waitForSelector('button[title="Quick Keys"]', { timeout: 15000 })
+  console.log('[SSH CA] Session page loaded')
 
   await page.waitForTimeout(1000)
 }
@@ -332,16 +333,10 @@ async function navigateToSession(page: Page, serverUrl: string, sessionId: strin
 async function connectWithCertificateOnly(page: Page): Promise<void> {
   console.log('[SSH CA] Connecting with certificate authentication...')
 
-  // Click Connect button
-  const connectButton = page.locator('button:has-text("Connect")')
-  await expect(connectButton).toBeVisible({ timeout: 10000 })
-  await connectButton.click()
-  console.log('[SSH CA] Connect button clicked')
-
-  // Wait for WebAuthn dialog to appear
-  // This indicates the FROST certificate workflow is triggered
+  // The terminal auto-connects on mount and, with SSH CA enabled, surfaces the
+  // WebAuthn "Unlock SSH Certificate" dialog on its own — no Connect click.
   const webAuthnDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
-  await webAuthnDialog.waitFor({ state: 'visible', timeout: 20000 })
+  await webAuthnDialog.waitFor({ state: 'visible', timeout: 30000 })
   console.log('[SSH CA] WebAuthn dialog appeared - FROST workflow triggered')
 
   // Click Authenticate button to trigger WebAuthn PRF
@@ -365,8 +360,8 @@ async function connectWithCertificateOnly(page: Page): Promise<void> {
     throw new Error('Password dialog appeared - certificate authentication failed!')
   }
 
-  // Wait for connected status
-  await page.waitForSelector('text=🟢 Connected', { timeout: 60000 })
+  // Wait for connected status (top-bar shows a colored dot + the text "Connected")
+  await page.getByText('Connected', { exact: true }).waitFor({ state: 'visible', timeout: 60000 })
   console.log('[SSH CA] SSH connection established with certificate auth!')
 }
 

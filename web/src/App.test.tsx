@@ -33,6 +33,7 @@ vi.mock("@/lib/api", () => ({
   addPasskeyBegin: vi.fn().mockResolvedValue({ challenge: "abc" }),
   addPasskeyFinish: vi.fn().mockResolvedValue(undefined),
   deletePasskey: vi.fn().mockResolvedValue(undefined),
+  listQuickKeys: vi.fn().mockResolvedValue([]),
 }))
 
 function renderWithRouter(ui: React.ReactNode) {

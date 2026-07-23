@@ -140,57 +140,63 @@ async function navigateToSession(page: Page, serverUrl: string, sessionId: strin
   await page.waitForTimeout(2000);
 }
 
+// isConnected checks the redesigned top-bar status, which renders a colored dot
+// plus the exact text "Connected" (the old UI used a "🟢 Connected" label).
+async function isConnected(page: Page): Promise<boolean> {
+  return page
+    .getByText('Connected', { exact: true })
+    .isVisible()
+    .catch(() => false);
+}
+
+// connectAndAuthenticate drives the auto-connect flow to a live password auth.
+// The terminal now auto-connects on mount (no manual Connect gate): with SSH CA
+// enabled it surfaces the WebAuthn dialog, which we dismiss to fall back to
+// password auth, then fill + submit the password dialog.
 async function connectAndAuthenticate(page: Page, password: string): Promise<boolean> {
-  console.log('Looking for Connect button...');
-  const connectButton = page.locator('button:has-text("Connect")');
-  await expect(connectButton).toBeVisible({ timeout: 10000 });
-
-  console.log('Clicking Connect button...');
-  await connectButton.click();
-  await page.waitForTimeout(3000);
-
-  // Check if WebAuthn certificate dialog appears (SSH CA is enabled)
-  // If so, click "Use Password Instead" to skip certificate auth for password-based tests
-  const webAuthnDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")');
+  // Auto-connect surfaces the WebAuthn "Unlock SSH Certificate" dialog.
   const usePasswordButton = page.locator('button:has-text("Use Password Instead")');
-  const isWebAuthnDialogVisible = await webAuthnDialog.isVisible().catch(() => false);
+  const webAuthnAppeared = await usePasswordButton
+    .waitFor({ state: 'visible', timeout: 45000 })
+    .then(() => true)
+    .catch(() => false);
 
-  if (isWebAuthnDialogVisible) {
+  if (webAuthnAppeared) {
     console.log('WebAuthn certificate dialog detected, clicking "Use Password Instead"...');
-    await usePasswordButton.click();
-    await page.waitForTimeout(2000);
+    // Radix overlay can intercept normal clicks; click via evaluate.
+    await page.evaluate(() => {
+      for (const btn of document.querySelectorAll('button')) {
+        if (btn.textContent?.includes('Use Password Instead')) {
+          (btn as HTMLButtonElement).click();
+          return;
+        }
+      }
+    });
   }
 
   console.log('Looking for password dialog...');
   const passwordInput = page.locator('input[type="password"]');
-  const isPasswordVisible = await passwordInput.isVisible({ timeout: 10000 }).catch(() => false);
+  const isPasswordVisible = await passwordInput
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false);
 
   if (!isPasswordVisible) {
-    const errorText = await page.locator('.text-destructive').textContent().catch(() => '');
-    if (errorText) {
-      console.log('Error displayed:', errorText);
-      return false;
-    }
-    const connectedStatus = await page.locator('text=🟢 Connected').isVisible().catch(() => false);
-    return connectedStatus;
+    // No password prompt — either already connected or errored.
+    return isConnected(page);
   }
 
   console.log('Entering password...');
   await passwordInput.fill(password);
-  await page.keyboard.press('Enter');
+  // Exact match: has-text("Connect") would also catch the top-bar "Disconnect".
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
 
   console.log('Waiting for connection...');
-  try {
-    await page.waitForSelector('text=🟢 Connected', { timeout: 15000 });
-    return true;
-  } catch {
-    const errorVisible = await page.locator('text=🔴').isVisible().catch(() => false);
-    if (errorVisible) {
-      const errorText = await page.locator('.text-destructive').textContent().catch(() => '');
-      console.log('Connection error:', errorText);
-    }
-    return false;
-  }
+  return page
+    .getByText('Connected', { exact: true })
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false);
 }
 
 test.describe('SSH WebSocket Full E2E Integration Tests', () => {
@@ -239,7 +245,7 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       await page.waitForTimeout(2000);
 
       // Verify terminal is still connected (no crash)
-      const stillConnected = await page.locator('text=🟢 Connected').isVisible().catch(() => false);
+      const stillConnected = await isConnected(page);
       expect(stillConnected).toBe(true);
 
       console.log('✅ Terminal input test passed!');
@@ -273,47 +279,41 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
     }
   });
 
-  // Test 4: Auth failure shows error (req.ssh111)
-  test('Wrong password shows error status', async ({ page }) => {
+  // Test 4: Auth failure does not connect (req.ssh111)
+  test('Wrong password does not reach connected state', async ({ page }) => {
     let ctx: TestContext | null = null;
 
     try {
       ctx = await setupTestEnvironment(page);
       await navigateToSession(page, ctx.server.url, ctx.sessionId);
 
-      console.log('Clicking Connect button...');
-      const connectButton = page.locator('button:has-text("Connect")');
-      await connectButton.click();
-      await page.waitForTimeout(3000);
-
-      // Check if WebAuthn certificate dialog appears (SSH CA is enabled)
-      // If so, click "Use Password Instead" to skip certificate auth
-      const webAuthnDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")');
+      // Auto-connect surfaces the WebAuthn dialog; fall back to password auth.
       const usePasswordButton = page.locator('button:has-text("Use Password Instead")');
-      const isWebAuthnDialogVisible = await webAuthnDialog.isVisible().catch(() => false);
-
-      if (isWebAuthnDialogVisible) {
-        console.log('WebAuthn certificate dialog detected, clicking "Use Password Instead"...');
-        await usePasswordButton.click();
-        await page.waitForTimeout(2000);
-      }
+      await usePasswordButton.waitFor({ state: 'visible', timeout: 45000 });
+      await page.evaluate(() => {
+        for (const btn of document.querySelectorAll('button')) {
+          if (btn.textContent?.includes('Use Password Instead')) {
+            (btn as HTMLButtonElement).click();
+            return;
+          }
+        }
+      });
 
       console.log('Entering wrong password...');
       const passwordInput = page.locator('input[type="password"]');
       await expect(passwordInput).toBeVisible({ timeout: 10000 });
       await passwordInput.fill('wrongpassword');
-      await page.keyboard.press('Enter');
+      await page.getByRole('button', { name: 'Connect', exact: true }).click();
 
-      console.log('Waiting for error status...');
-      // Wait for either error status or timeout
-      await page.waitForTimeout(8000);
+      // A wrong password must never reach the Connected state.
+      const connectedReached = await page
+        .getByText('Connected', { exact: true })
+        .waitFor({ state: 'visible', timeout: 12000 })
+        .then(() => true)
+        .catch(() => false);
 
-      // Check for red status indicator (error or disconnected after auth failure)
-      const errorStatus = page.locator('text=🔴');
-      const hasError = await errorStatus.isVisible().catch(() => false);
-
-      console.log('Has error status:', hasError);
-      expect(hasError).toBe(true);
+      console.log('Reached connected with wrong password:', connectedReached);
+      expect(connectedReached).toBe(false);
 
       console.log('✅ Auth failure test passed!');
     } finally {
@@ -344,8 +344,7 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       await page.waitForTimeout(1000);
 
       // Connection should still be active
-      const connectedStatus = page.locator('text=🟢 Connected');
-      const stillConnected = await connectedStatus.isVisible().catch(() => false);
+      const stillConnected = await isConnected(page);
       expect(stillConnected).toBe(true);
 
       console.log('✅ Terminal resize test passed!');
@@ -354,8 +353,10 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
     }
   });
 
-  // Test 6: Close Terminal button hides terminal (simplified reconnect test) (req.ssh110)
-  test('Close Terminal button hides terminal and shows Connect again', async ({ page }) => {
+  // Test 6: Explicit disconnect stops the session and Connect reappears (req.ssh110)
+  // The always-on terminal replaced the old "Close Terminal" button [req.b26nmc];
+  // an explicit disconnect must suppress auto-reconnect [req.jy9djs].
+  test('Explicit disconnect stops the session and Connect reappears', async ({ page }) => {
     let ctx: TestContext | null = null;
 
     try {
@@ -365,23 +366,19 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       const connected = await connectAndAuthenticate(page, 'testpass');
       expect(connected).toBe(true);
 
-      console.log('Looking for Close Terminal button...');
-      // The parent component has "Close Terminal" button (not the internal Disconnect)
-      const closeButton = page.locator('button:has-text("Close Terminal")');
-      await expect(closeButton).toBeVisible({ timeout: 5000 });
+      console.log('Clicking Disconnect...');
+      const disconnectButton = page.getByRole('button', { name: 'Disconnect', exact: true });
+      await expect(disconnectButton).toBeVisible({ timeout: 5000 });
+      await disconnectButton.click();
 
-      console.log('Clicking Close Terminal button...');
-      await closeButton.click();
-      await page.waitForTimeout(2000);
+      // Explicit disconnect must not auto-reconnect; the Connect button returns
+      // and stays (no reconnect flipping it back to Disconnect).
+      const connectButton = page.getByRole('button', { name: 'Connect', exact: true });
+      await expect(connectButton).toBeVisible({ timeout: 10000 });
+      await page.waitForTimeout(3000);
+      await expect(connectButton).toBeVisible();
 
-      // After closing, Connect button should reappear
-      const connectButton = page.locator('button:has-text("Connect")');
-      const canReconnect = await connectButton.isVisible({ timeout: 5000 }).catch(() => false);
-
-      console.log('Can reconnect:', canReconnect);
-      expect(canReconnect).toBe(true);
-
-      console.log('✅ Close Terminal test passed!');
+      console.log('✅ Explicit disconnect test passed!');
     } finally {
       if (ctx) await cleanupTestEnvironment(ctx);
     }
@@ -410,7 +407,7 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       await page.waitForSelector('.xterm-screen', { timeout: 10000 });
       
       // The connection should succeed and terminal should be in tmux session
-      const stillConnected = await page.locator('text=🟢 Connected').isVisible().catch(() => false);
+      const stillConnected = await isConnected(page);
       expect(stillConnected).toBe(true);
 
       console.log('✅ SSH terminal connects to tmux session test passed!');

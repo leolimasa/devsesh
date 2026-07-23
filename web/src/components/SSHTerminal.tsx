@@ -1,19 +1,11 @@
 /**
  * SSHTerminal Component
  *
- * Provides a terminal interface for SSH connections with support for both
- * certificate-based and password-based authentication.
- *
- * Certificate-based authentication (Phase 11):
- * - When the SSH client requests a certificate, checks if FROST worker is active
- * - If active, requests a certificate via FROST signing
- * - If inactive, prompts user to authenticate with WebAuthn to unlock the worker
- * - Falls back to password authentication if certificate auth fails/is rejected
- *
- * [req.4oofln] [req.3j5hnq]
+ * Always-present terminal whose connection lifecycle is driven by the parent
+ * via an imperative handle. Supports certificate-based and password-based
+ * authentication, auto-connect on mount, and auto-reconnect on unsolicited drop.
  */
-
-import { useEffect, useRef, useState, useCallback } from "react"
+import { forwardRef, useImperativeHandle, useEffect, useRef, useState, useCallback } from "react"
 import { Terminal as XTerm } from "xterm"
 import { FitAddon } from "xterm-addon-fit"
 import "xterm/css/xterm.css"
@@ -22,6 +14,8 @@ import { PasswordDialog } from "@/components/PasswordDialog"
 import { WebAuthnDialog } from "@/components/WebAuthnDialog"
 import { useFROST } from "@/contexts/FROSTContext"
 import type { Host } from "@/types/api"
+import type { QuickKeyStep, ConnectionStatus } from "@/types/api"
+import { encodeSpec } from "@/lib/quick-keys"
 import { getMasterKey } from "@/lib/api"
 import { loginBegin } from "@/lib/api"
 import { clientLog } from "@/lib/api"
@@ -29,463 +23,430 @@ import { deriveMasterKeyFromPrf, getPrfSalt, parseEncryptedMasterKey, decodeBase
 import { decodeBase64URL, encodeBase64URL } from "@/lib/crypto/encoding"
 import { decrypt } from "@/lib/crypto/aes"
 import { encodeBase64 } from "@/lib/crypto/encoding"
+import { useVisualViewport } from "@/hooks/useVisualViewport"
+
+export type TerminalHandle = {
+  connect: () => void
+  disconnect: () => void
+  sendKeys: (spec: QuickKeyStep[]) => void
+  focus: () => void
+}
+
+type Status = ConnectionStatus
 
 interface SSHTerminalProps {
-  host: Host
+  host: Host | null | undefined
   sessionName: string
-  onDisconnect?: () => void
+  onStatusChange?: (status: Status) => void
+  topBarHeight?: number
 }
 
-type Status = "disconnected" | "connecting" | "authenticating" | "connected" | "error"
+export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
+  function SSHTerminal({ host, sessionName, onStatusChange, topBarHeight = 0 }, ref) {
+    const terminalRef = useRef<HTMLDivElement>(null)
+    const xtermRef = useRef<XTerm | null>(null)
+    const fitAddonRef = useRef<FitAddon | null>(null)
+    const sshClientRef = useRef<SSHClient | null>(null)
+    const [status, setStatus] = useState<Status>("disconnected")
+    const [showPasswordDialog, setShowPasswordDialog] = useState(false)
+    const [showWebAuthnDialog, setShowWebAuthnDialog] = useState(false)
+    const [webAuthnAuthenticating, setWebAuthnAuthenticating] = useState(false)
+    const [webAuthnError, setWebAuthnError] = useState<string | null>(null)
+    const [loading, setLoading] = useState(true)
+    const userDisconnectedRef = useRef(false)
+    const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const reconnectAttemptRef = useRef(0)
+    const hasExecutedRef = useRef(false)
+    const mountedRef = useRef(true)
 
-export function SSHTerminal({ host, sessionName, onDisconnect }: SSHTerminalProps) {
-  const terminalRef = useRef<HTMLDivElement>(null)
-  const xtermRef = useRef<XTerm | null>(null)
-  const fitAddonRef = useRef<FitAddon | null>(null)
-  const sshClientRef = useRef<SSHClient | null>(null)
-  const [status, setStatus] = useState<Status>("disconnected")
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false)
-  const [showWebAuthnDialog, setShowWebAuthnDialog] = useState(false)
-  const [webAuthnAuthenticating, setWebAuthnAuthenticating] = useState(false)
-  const [webAuthnError, setWebAuthnError] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [certAuthError, setCertAuthError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+    // Track true unmount (this effect's cleanup only runs when the component
+    // is actually destroyed, not when host.id / ssh_user change). Used to stop
+    // a scheduled reconnect from resurrecting a torn-down client.
+    useEffect(() => {
+      mountedRef.current = true
+      return () => { mountedRef.current = false }
+    }, [])
 
-  const { isActive, initWorker, requestCert } = useFROST()
+    const { isActive, initWorker, requestCert } = useFROST()
+    const { height: viewportHeight } = useVisualViewport()
 
-  // Ref to store the latest handleCertificateRequest callback
-  // This avoids the useEffect re-running when the callback changes
-  const handleCertificateRequestRef = useRef<() => Promise<void>>(() => Promise.resolve())
+    const handleCertificateRequestRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
-  // Handle WebAuthn authentication to unlock FROST worker.
-  //
-  // Ordering matters: we run the WebAuthn ceremony FIRST, then fetch the master
-  // key keyed by the credential that actually authenticated. Each passkey wraps
-  // the master key with its own PRF output, so fetching a fixed blob up front
-  // (the old behaviour) only decrypts on the one device whose passkey the server
-  // happened to return — every other passkey failed decryption with
-  // OperationError ("operation failed for an operation-specific reason").
-  // [req.4oofln]
-  const handleWebAuthnAuth = useCallback(async () => {
-    setWebAuthnAuthenticating(true)
-    setWebAuthnError(null)
+    // Report status changes to parent
+    useEffect(() => {
+      onStatusChange?.(status)
+    }, [status, onStatusChange])
 
-    // Diagnostics shipped to the server journal on failure (iOS has no devtools).
-    let stage = "init"
-    const diag: Record<string, unknown> = {
-      hasPublicKeyCredential: typeof window !== "undefined" && "PublicKeyCredential" in window,
-      ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
-    }
+    // --- WebAuthn unlock for FROST (same logic as before, extracted for reuse) ---
+    const handleWebAuthnAuth = useCallback(async () => {
+      setWebAuthnAuthenticating(true)
+      setWebAuthnError(null)
 
-    try {
-      // Get the user's email from localStorage
-      const userStr = localStorage.getItem("user")
-      if (!userStr) {
-        throw new Error("No user found. Please log in again.")
+      let stage = "init"
+      const diag: Record<string, unknown> = {
+        hasPublicKeyCredential: typeof window !== "undefined" && "PublicKeyCredential" in window,
+        ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
       }
-      const user = JSON.parse(userStr)
 
-      // PRF salt for master-key derivation
-      const prfSalt = getPrfSalt()
-      const prfSaltBuffer = prfSalt.buffer.slice(
-        prfSalt.byteOffset,
-        prfSalt.byteOffset + prfSalt.byteLength
-      )
-
-      // Get WebAuthn options from server (returns JSON with base64url-encoded values)
-      stage = "login-begin"
-      const options = await loginBegin(user.email) as {
-        publicKey: {
-          challenge: string
-          timeout?: number
-          rpId?: string
-          userVerification?: UserVerificationRequirement
-          allowCredentials?: Array<{
-            id: string
-            type: PublicKeyCredentialType
-            transports?: AuthenticatorTransport[]
-          }>
+      try {
+        const userStr = localStorage.getItem("user")
+        if (!userStr) {
+          throw new Error("No user found. Please log in again.")
         }
-      }
+        const user = JSON.parse(userStr)
 
-      const challengeBuffer = decodeBase64URL(options.publicKey.challenge)
-      const allowCredentials = options.publicKey.allowCredentials?.map((cred) => ({
-        id: decodeBase64URL(cred.id),
-        type: cred.type,
-        transports: cred.transports,
-      }))
+        const prfSalt = getPrfSalt()
+        const prfSaltBuffer = prfSalt.buffer.slice(
+          prfSalt.byteOffset,
+          prfSalt.byteOffset + prfSalt.byteLength
+        )
 
-      const publicKeyOptions: PublicKeyCredentialRequestOptions = {
-        challenge: challengeBuffer,
-        timeout: options.publicKey.timeout,
-        rpId: options.publicKey.rpId,
-        userVerification: options.publicKey.userVerification,
-        allowCredentials,
-        extensions: {
-          prf: {
-            eval: {
-              first: prfSaltBuffer
-            }
+        stage = "login-begin"
+        const options = await loginBegin(user.email) as {
+          publicKey: {
+            challenge: string
+            timeout?: number
+            rpId?: string
+            userVerification?: UserVerificationRequirement
+            allowCredentials?: Array<{
+              id: string
+              type: PublicKeyCredentialType
+              transports?: AuthenticatorTransport[]
+            }>
           }
-        } as AuthenticationExtensionsClientInputs
+        }
+
+        const challengeBuffer = decodeBase64URL(options.publicKey.challenge)
+        const allowCredentials = options.publicKey.allowCredentials?.map((cred) => ({
+          id: decodeBase64URL(cred.id),
+          type: cred.type,
+          transports: cred.transports,
+        }))
+
+        const publicKeyOptions: PublicKeyCredentialRequestOptions = {
+          challenge: challengeBuffer,
+          timeout: options.publicKey.timeout,
+          rpId: options.publicKey.rpId,
+          userVerification: options.publicKey.userVerification,
+          allowCredentials,
+          extensions: {
+            prf: {
+              eval: { first: prfSaltBuffer }
+            }
+          } as AuthenticationExtensionsClientInputs
+        }
+        diag.rpId = options.publicKey.rpId
+        diag.allowCredentialsCount = allowCredentials?.length ?? 0
+        diag.origin = typeof window !== "undefined" ? window.location.origin : ""
+
+        stage = "webauthn-get"
+        const credential = await navigator.credentials.get({ publicKey: publicKeyOptions }) as PublicKeyCredential
+        if (!credential) {
+          throw new Error("WebAuthn authentication cancelled")
+        }
+
+        stage = "prf-extract"
+        const extResults = credential.getClientExtensionResults() as {
+          prf?: { results?: { first?: ArrayBuffer } }
+        }
+        diag.prfEnabled = !!(extResults as { prf?: { enabled?: boolean } })?.prf?.enabled
+        diag.prfHasResults = !!extResults?.prf?.results?.first
+
+        if (!extResults?.prf?.results?.first) {
+          throw new Error("WebAuthn PRF extension required but not available")
+        }
+
+        const prfOutput = new Uint8Array(extResults.prf.results.first)
+
+        stage = "fetch-master-key"
+        const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
+        diag.credentialIdLen = credential.rawId.byteLength
+        const { encrypted_master_key } = await getMasterKey(credentialId)
+        const { data: encryptedPayload } = parseEncryptedMasterKey(new Uint8Array(decodeBase64(encrypted_master_key)))
+
+        stage = "derive-decrypt"
+        const prfKey = await deriveMasterKeyFromPrf(prfOutput)
+        const nonce = encryptedPayload.slice(0, 12)
+        const ciphertext = encryptedPayload.slice(12)
+        const masterKey = await decrypt(prfKey, nonce, ciphertext)
+
+        stage = "init-worker"
+        await initWorker(masterKey)
+
+        stage = "request-cert"
+        const client = sshClientRef.current
+        if (!client) {
+          throw new Error("SSH client not available")
+        }
+        const result = await requestCert(host?.id ?? 0)
+        const privateKeyBase64 = encodeBase64(result.userPrivateKey)
+        client.resolveCertificate(result.certificate, privateKeyBase64)
+
+        setShowWebAuthnDialog(false)
+      } catch (err) {
+        const e = err as { name?: string; message?: string; stack?: string }
+        const name = e?.name ? `${e.name}: ` : ""
+        setWebAuthnError(err instanceof Error ? `${name}${err.message}` : "Authentication failed")
+        clientLog({
+          event: "ssh-unlock-error",
+          stage,
+          errorName: e?.name ?? null,
+          errorMessage: e?.message ?? String(err),
+          errorStack: e?.stack ?? null,
+          ...diag,
+        })
+      } finally {
+        setWebAuthnAuthenticating(false)
       }
-      diag.rpId = options.publicKey.rpId
-      diag.allowCredentialsCount = allowCredentials?.length ?? 0
-      diag.origin = typeof window !== "undefined" ? window.location.origin : ""
+    }, [initWorker, requestCert, host?.id])
 
-      // Authenticate with WebAuthn
-      stage = "webauthn-get"
-      console.log('[SSHTerminal] Calling get() for PRF output...')
-      const credential = await navigator.credentials.get({ publicKey: publicKeyOptions }) as PublicKeyCredential
-      console.log('[SSHTerminal] PRF get() completed')
-      if (!credential) {
-        throw new Error("WebAuthn authentication cancelled")
-      }
-
-      // Extract PRF results
-      stage = "prf-extract"
-      const extResults = credential.getClientExtensionResults() as {
-        prf?: { results?: { first?: ArrayBuffer } }
-      }
-      diag.prfEnabled = !!(extResults as { prf?: { enabled?: boolean } })?.prf?.enabled
-      diag.prfHasResults = !!extResults?.prf?.results?.first
-
-      if (!extResults?.prf?.results?.first) {
-        throw new Error("WebAuthn PRF extension required but not available")
-      }
-
-      const prfOutput = new Uint8Array(extResults.prf.results.first)
-
-      // Fetch the master key wrapped for THIS specific credential. The credential
-      // id identifies which passkey's PRF-wrapped blob to return.
-      stage = "fetch-master-key"
-      const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
-      diag.credentialIdLen = credential.rawId.byteLength
-      const { encrypted_master_key } = await getMasterKey(credentialId)
-      const { data: encryptedPayload } = parseEncryptedMasterKey(new Uint8Array(decodeBase64(encrypted_master_key)))
-
-      // Derive the wrapping key from the PRF output and decrypt the master key.
-      stage = "derive-decrypt"
-      const prfKey = await deriveMasterKeyFromPrf(prfOutput)
-      const nonce = encryptedPayload.slice(0, 12)
-      const ciphertext = encryptedPayload.slice(12)
-      const masterKey = await decrypt(prfKey, nonce, ciphertext)
-
-      // Initialize the FROST worker with the master key
-      stage = "init-worker"
-      console.log('[SSHTerminal] Calling initWorker with masterKey length:', masterKey.length)
-      await initWorker(masterKey)
-      console.log('[SSHTerminal] initWorker completed, continuing with certificate request...')
-
-      // Request certificate directly here instead of going through handleCertificateRequest
-      // because React state updates are async and isActive won't be updated yet
+    // Handle certificate request from SSH client
+    const handleCertificateRequest = useCallback(async () => {
       const client = sshClientRef.current
-      if (!client) {
-        throw new Error("SSH client not available")
+      if (!client) return
+
+      try {
+        if (!isActive) {
+          setShowWebAuthnDialog(true)
+          return
+        }
+
+        const result = await requestCert(host?.id ?? 0)
+        const privateKeyBase64 = encodeBase64(result.userPrivateKey)
+        client.resolveCertificate(result.certificate, privateKeyBase64)
+      } catch (err) {
+        console.error("[SSHTerminal] Certificate request failed:", err)
+        client.rejectCertificate()
       }
+    }, [isActive, requestCert, host?.id])
 
-      stage = "request-cert"
-      console.log('[SSHTerminal] FROST initialized, requesting certificate for host:', host.id)
-      const result = await requestCert(host.id)
-      console.log('[SSHTerminal] Certificate received, serial:', result.serial)
+    useEffect(() => {
+      handleCertificateRequestRef.current = handleCertificateRequest
+    }, [handleCertificateRequest])
 
-      // Provide the certificate and private key to the SSH client
-      const privateKeyBase64 = encodeBase64(result.userPrivateKey)
-      client.resolveCertificate(result.certificate, privateKeyBase64)
-      console.log('[SSHTerminal] Certificate provided to SSH client')
-
-      // Close the WebAuthn dialog AFTER certificate is provided
+    const handleWebAuthnCancel = useCallback(() => {
       setShowWebAuthnDialog(false)
-
-    } catch (err) {
-      console.error("[SSHTerminal] WebAuthn auth failed:", err)
-      // Surface the DOMException name (e.g. NotAllowedError / OperationError) so a
-      // failure on a device without devtools is still diagnosable from the dialog.
-      const e = err as { name?: string; message?: string; stack?: string }
-      const name = e?.name ? `${e.name}: ` : ""
-      setWebAuthnError(err instanceof Error ? `${name}${err.message}` : "Authentication failed")
-      // Ship the real error to the server journal — iOS Safari has no devtools, so
-      // this is the only way to see the actual exception behind a failed unlock.
-      clientLog({
-        event: "ssh-unlock-error",
-        stage,
-        errorName: e?.name ?? null,
-        errorMessage: e?.message ?? String(err),
-        errorStack: e?.stack ?? null,
-        ...diag,
-      })
-      // Don't reject certificate here - let user retry by clicking "Authenticate" again.
-      // Certificate will only be rejected when user explicitly clicks "Use Password Instead".
-    } finally {
-      setWebAuthnAuthenticating(false)
-    }
-  }, [initWorker, requestCert, host.id])
-
-  // Handle certificate request from SSH client
-  const handleCertificateRequest = useCallback(async () => {
-    console.log('[SSHTerminal] handleCertificateRequest called, isActive:', isActive)
-    const client = sshClientRef.current
-    if (!client) {
-      console.log('[SSHTerminal] handleCertificateRequest: no client, returning')
-      return
-    }
-
-    try {
-      // Check if FROST worker is active
-      if (!isActive) {
-        // Show WebAuthn dialog to unlock worker
-        console.log('[SSHTerminal] FROST not active, showing WebAuthn dialog')
-        setShowWebAuthnDialog(true)
-        return
-      }
-
-      // Request certificate from FROST
-      console.log('[SSHTerminal] FROST is active, requesting certificate for host:', host.id)
-      const result = await requestCert(host.id)
-      console.log('[SSHTerminal] Certificate received, serial:', result.serial)
-
-      // Provide the certificate and private key to the SSH client
-      // Private key needs to be base64-encoded
-      const privateKeyBase64 = encodeBase64(result.userPrivateKey)
-      client.resolveCertificate(result.certificate, privateKeyBase64)
-
-    } catch (err) {
-      console.error("[SSHTerminal] Certificate request failed:", err)
-      console.log("[SSHTerminal] Rejecting certificate due to error in handleCertificateRequest")
-      // Fall back to password auth
-      client.rejectCertificate()
-    }
-  }, [isActive, requestCert, host.id])
-
-  // Keep the ref updated with the latest callback
-  useEffect(() => {
-    handleCertificateRequestRef.current = handleCertificateRequest
-  }, [handleCertificateRequest])
-
-  // Handle canceling WebAuthn and falling back to password
-  const handleWebAuthnCancel = useCallback(() => {
-    console.log("[SSHTerminal] handleWebAuthnCancel called - user clicked 'Use Password Instead'")
-    setShowWebAuthnDialog(false)
-    setWebAuthnError(null)
-
-    // Reject certificate auth to fall back to password
-    if (sshClientRef.current) {
-      console.log("[SSHTerminal] Rejecting certificate due to WebAuthn cancel")
-      sshClientRef.current.rejectCertificate()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!terminalRef.current) return
-
-    const term = new XTerm({
-      cursorBlink: true,
-      fontSize: 14,
-      fontFamily: "monospace",
-      theme: {
-        background: "#1a1a1a",
-        foreground: "#ffffff",
-        cursor: "#ffffff",
-      },
-      rows: 24,
-      cols: 80,
-    })
-    xtermRef.current = term
-
-    const fitAddon = new FitAddon()
-    term.loadAddon(fitAddon)
-    fitAddonRef.current = fitAddon
-
-    term.open(terminalRef.current)
-    fitAddon.fit()
-
-    // WebGL addon can cause issues on cleanup, so we skip it for stability
-    // The canvas renderer works fine for our use case
-
-    const client = new SSHClient()
-    sshClientRef.current = client
-
-    client.on("output", (data: string) => {
-      try {
-        term.write(data)
-      } catch (e) {
-        console.error("[SSHTerminal] Error writing to terminal:", e)
-      }
-    })
-
-    client.on("status", (newStatus: string, err?: string) => {
-      setStatus(newStatus as Status)
-      if (err) {
-        setError(err)
-      } else {
-        setError(null)
-      }
-    })
-
-    client.on("password-request", () => {
-      setStatus("authenticating")
-      setShowPasswordDialog(true)
-    })
-
-    // Handle certificate request - this is triggered by the WASM client when
-    // certificate authentication is available
-    // We use a ref to get the latest callback without re-running this effect
-    client.on("certificate-request", () => {
-      setStatus("authenticating")
-      handleCertificateRequestRef.current()
-    })
-
-    // Handle certificate auth failure - when server rejects the certificate
-    client.on("certificate-auth-failed", (reason: string) => {
-      console.error("[SSHTerminal] Certificate auth failed:", reason)
-      setCertAuthError(reason)
-    })
-
-    client.init()
-      .then(() => {
-        setLoading(false)
-        const sshUser = host.ssh_user || "root"
-        client.connect(host.id, sshUser)
-        setStatus("connecting")
-      })
-      .catch((err) => {
-        setLoading(false)
-        setError(err.message)
-        setStatus("error")
-      })
-
-    const handleResize = () => {
-      fitAddon.fit()
+      setWebAuthnError(null)
       if (sshClientRef.current) {
-        const { rows, cols } = term
-        sshClientRef.current.resize(rows, cols)
+        sshClientRef.current.rejectCertificate()
       }
-    }
+    }, [])
 
-    window.addEventListener("resize", handleResize)
-
-    term.onData((data) => {
+    // Internal disconnect that tracks user intent
+    const doDisconnect = useCallback(() => {
+      userDisconnectedRef.current = true
       if (sshClientRef.current) {
-        sshClientRef.current.sendInput(data)
+        try { sshClientRef.current.disconnect() } catch { /* ignore */ }
       }
-    })
-
-    return () => {
-      window.removeEventListener("resize", handleResize)
-      // Wrap cleanup in try-catch to prevent crashes
-      try {
-        client.disconnect()
-      } catch (e) {
-        console.error("Error disconnecting SSH client:", e)
-      }
-      try {
-        term.dispose()
-      } catch (e) {
-        console.error("Error disposing terminal:", e)
-      }
-    }
-  // Note: handleCertificateRequest is accessed via ref to avoid re-running this effect
-  }, [host.id, host.ssh_user])
-
-  const handlePasswordSubmit = (password: string) => {
-    if (sshClientRef.current) {
-      sshClientRef.current.resolvePassword(password)
-      setShowPasswordDialog(false)
-      setStatus("connecting")
-    }
-  }
-
-  const handlePasswordCancel = () => {
-    if (sshClientRef.current) {
-      sshClientRef.current.rejectPassword()
-      sshClientRef.current.disconnect()
-      setShowPasswordDialog(false)
       setStatus("disconnected")
-    }
-  }
+      hasExecutedRef.current = false
+    }, [])
 
-  const hasExecutedRef = useRef(false)
+    // Internal connect
+    const doConnect = useCallback(() => {
+      if (!mountedRef.current || !host || !sshClientRef.current) return
+      userDisconnectedRef.current = false
+      const sshUser = host.ssh_user || "root"
+      sshClientRef.current.connect(host.id, sshUser)
+      setStatus("connecting")
+    }, [host])
 
-  useEffect(() => {
-    if (status === "connected" && sshClientRef.current && !hasExecutedRef.current) {
-      hasExecutedRef.current = true
-      sshClientRef.current.exec(`tmux attach -t ${sessionName}`)
-    }
-  }, [status, sessionName])
+    // Auto-reconnect on unsolicited drop
+    const maybeReconnect = useCallback(() => {
+      if (userDisconnectedRef.current || !mountedRef.current) return
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
+      const backoff = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000)
+      reconnectTimeoutRef.current = setTimeout(() => {
+        if (userDisconnectedRef.current || !mountedRef.current) return
+        reconnectAttemptRef.current++
+        doConnect()
+      }, backoff)
+    }, [doConnect])
 
-  const handleDisconnect = () => {
-    if (sshClientRef.current) {
-      sshClientRef.current.disconnect()
-    }
-    setStatus("disconnected")
-    onDisconnect?.()
-  }
+    // Imperative handle for parent
+    useImperativeHandle(ref, () => ({
+      connect: doConnect,
+      disconnect: doDisconnect,
+      sendKeys: (spec: QuickKeyStep[]) => {
+        if (sshClientRef.current) {
+          const bytes = encodeSpec(spec)
+          sshClientRef.current.sendInput(bytes)
+          // Focus back to terminal after sending
+          xtermRef.current?.focus()
+        }
+      },
+      focus: () => {
+        xtermRef.current?.focus()
+      },
+    }), [doConnect, doDisconnect])
 
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between p-2 bg-muted">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">
-            {status === "connected" && "🟢 Connected"}
-            {status === "connecting" && "🟡 Connecting..."}
-            {status === "authenticating" && "🟡 Authenticating..."}
-            {status === "error" && "🔴 Error"}
-            {status === "disconnected" && "🔴 Disconnected"}
-          </span>
-          {error && <span className="text-sm text-destructive">{error}</span>}
-        </div>
-        {status !== "disconnected" && (
-          <button
-            onClick={handleDisconnect}
-            className="px-3 py-1 text-sm bg-destructive text-white rounded hover:bg-destructive/90"
-          >
-            Disconnect
-          </button>
-        )}
-      </div>
-      {certAuthError && (
-        <div className="bg-yellow-100 dark:bg-yellow-900 border-l-4 border-yellow-500 p-4 m-2">
-          <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <span className="text-yellow-500">⚠️</span>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                Certificate Authentication Failed
-              </p>
-              <pre className="mt-2 text-xs text-yellow-700 dark:text-yellow-300 whitespace-pre-wrap font-mono">
-                {certAuthError}
-              </pre>
-              <button
-                onClick={() => setCertAuthError(null)}
-                className="mt-2 text-xs text-yellow-600 dark:text-yellow-400 underline hover:no-underline"
-              >
-                Dismiss
-              </button>
-            </div>
+    // --- Main lifecycle: create terminal, SSH client, wire events ---
+    useEffect(() => {
+      if (!terminalRef.current) return
+
+      // Fresh lifecycle: re-enable auto-reconnect for this client instance.
+      userDisconnectedRef.current = false
+
+      const term = new XTerm({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: "monospace",
+        theme: {
+          background: "#1a1a1a",
+          foreground: "#ffffff",
+          cursor: "#ffffff",
+        },
+        rows: 24,
+        cols: 80,
+      })
+      xtermRef.current = term
+
+      const fitAddon = new FitAddon()
+      term.loadAddon(fitAddon)
+      fitAddonRef.current = fitAddon
+
+      term.open(terminalRef.current)
+      fitAddon.fit()
+
+      const client = new SSHClient()
+      sshClientRef.current = client
+
+      client.on("output", (data: string) => {
+        try { term.write(data) } catch { /* ignore */ }
+      })
+
+      client.on("status", (newStatus: string, _err?: string) => {
+        setStatus(newStatus as Status)
+        // On unsolicited drop, try auto-reconnect
+        if (newStatus === "disconnected" || newStatus === "error") {
+          if (!userDisconnectedRef.current) {
+            maybeReconnect()
+          }
+        }
+        if (newStatus === "connected") {
+          reconnectAttemptRef.current = 0
+        }
+      })
+
+      client.on("password-request", () => {
+        setStatus("authenticating")
+        setShowPasswordDialog(true)
+      })
+
+      client.on("certificate-request", () => {
+        setStatus("authenticating")
+        handleCertificateRequestRef.current()
+      })
+
+      client.on("certificate-auth-failed", (reason: string) => {
+        console.error("[SSHTerminal] Certificate auth failed:", reason)
+      })
+
+      client.init()
+        .then(() => {
+          setLoading(false)
+          // Auto-connect if host is present
+          if (host) {
+            const sshUser = host.ssh_user || "root"
+            client.connect(host.id, sshUser)
+            setStatus("connecting")
+          }
+        })
+        .catch(() => {
+          setLoading(false)
+          setStatus("error")
+        })
+
+      term.onData((data) => {
+        if (sshClientRef.current) {
+          sshClientRef.current.sendInput(data)
+        }
+      })
+
+      return () => {
+        // Mark this teardown as intentional so the "disconnected" event that
+        // disconnect() may emit does not schedule a reconnect.
+        userDisconnectedRef.current = true
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
+        try { client.disconnect() } catch { /* ignore */ }
+        try { term.dispose() } catch { /* ignore */ }
+      }
+      // Deliberately re-create terminal only on host.id and ssh_user changes
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [host?.id, host?.ssh_user])
+
+    // --- tmux attach when connected ---
+    useEffect(() => {
+      if (status === "connected" && sshClientRef.current && !hasExecutedRef.current) {
+        hasExecutedRef.current = true
+        sshClientRef.current.exec(`tmux attach -t ${sessionName}`)
+      }
+    }, [status, sessionName])
+
+    // --- Keyboard-aware sizing via visualViewport ---
+    useEffect(() => {
+      if (!fitAddonRef.current || !xtermRef.current || !sshClientRef.current) return
+      const term = xtermRef.current
+      const fitAddon = fitAddonRef.current
+      // Small delay to let the layout settle
+      const timer = setTimeout(() => {
+        fitAddon.fit()
+        const { rows, cols } = term
+        sshClientRef.current?.resize(rows, cols)
+      }, 50)
+      return () => clearTimeout(timer)
+    }, [viewportHeight, loading])
+
+    const handlePasswordSubmit = useCallback((password: string) => {
+      if (sshClientRef.current) {
+        sshClientRef.current.resolvePassword(password)
+        setShowPasswordDialog(false)
+        setStatus("connecting")
+      }
+    }, [])
+
+    const handlePasswordCancel = useCallback(() => {
+      // Cancelling auth is an explicit "stop" — mark it so the resulting
+      // disconnect does not trigger auto-reconnect (which would re-open the
+      // WebAuthn/password dialogs in a loop).
+      userDisconnectedRef.current = true
+      hasExecutedRef.current = false
+      if (sshClientRef.current) {
+        sshClientRef.current.rejectPassword()
+        sshClientRef.current.disconnect()
+        setShowPasswordDialog(false)
+        setStatus("disconnected")
+      }
+    }, [])
+
+    return (
+      <div className="flex flex-col h-full">
+        {loading && (
+          <div className="flex items-center justify-center h-full">
+            <span>Loading SSH client...</span>
           </div>
-        </div>
-      )}
-      {loading && (
-        <div className="flex items-center justify-center h-full">
-          <span>Loading SSH client...</span>
-        </div>
-      )}
-      <div ref={terminalRef} className={loading ? "hidden" : "flex-1"} />
-      <PasswordDialog
-        isOpen={showPasswordDialog}
-        username={host.ssh_user || "root"}
-        onSubmit={handlePasswordSubmit}
-        onCancel={handlePasswordCancel}
-      />
-      <WebAuthnDialog
-        isOpen={showWebAuthnDialog}
-        onAuthenticate={handleWebAuthnAuth}
-        onCancel={handleWebAuthnCancel}
-        isAuthenticating={webAuthnAuthenticating}
-        error={webAuthnError}
-      />
-    </div>
-  )
-}
+        )}
+        <div
+          ref={terminalRef}
+          className={loading ? "hidden" : "flex-1"}
+          style={{
+            height: viewportHeight > 0 ? `${viewportHeight - topBarHeight}px` : "100%",
+          }}
+        />
+        <PasswordDialog
+          isOpen={showPasswordDialog}
+          username={host?.ssh_user || "root"}
+          onSubmit={handlePasswordSubmit}
+          onCancel={handlePasswordCancel}
+        />
+        <WebAuthnDialog
+          isOpen={showWebAuthnDialog}
+          onAuthenticate={handleWebAuthnAuth}
+          onCancel={handleWebAuthnCancel}
+          isAuthenticating={webAuthnAuthenticating}
+          error={webAuthnError}
+        />
+      </div>
+    )
+  }
+)

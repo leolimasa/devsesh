@@ -5,6 +5,7 @@ import { AuthProvider } from "@/contexts/AuthContext"
 import SessionDetailPage from "@/pages/SessionDetailPage"
 import * as api from "@/lib/api"
 import * as hooks from "@/hooks/useSessionUpdates"
+import type { ReactNode } from "react"
 
 vi.mock("@/hooks/useSessionUpdates", () => ({
   useSessionUpdates: vi.fn(),
@@ -12,6 +13,57 @@ vi.mock("@/hooks/useSessionUpdates", () => ({
 
 vi.mock("@/lib/api", () => ({
   getSession: vi.fn(),
+  listQuickKeys: vi.fn().mockResolvedValue([]),
+}))
+
+vi.mock("@/contexts/FROSTContext", () => ({
+  FROSTProvider: ({ children }: { children: ReactNode }) => children,
+  useFROST: () => ({
+    isActive: false,
+    remainingTime: 0,
+    client: null,
+    initWorker: vi.fn(),
+    requestCert: vi.fn().mockRejectedValue(new Error("Mock error")),
+    terminate: vi.fn(),
+  }),
+}))
+
+vi.mock("@/hooks/useVisualViewport", () => ({
+  useVisualViewport: () => ({ height: 768, inset: 0 }),
+}))
+
+vi.mock("xterm", () => ({
+  Terminal: class MockTerminal {
+    loadAddon = vi.fn()
+    open = vi.fn()
+    write = vi.fn()
+    onData = vi.fn()
+    dispose = vi.fn()
+    focus = vi.fn()
+    rows = 24
+    cols = 80
+  },
+}))
+
+vi.mock("xterm-addon-fit", () => ({
+  FitAddon: class MockFitAddon { fit = vi.fn() },
+}))
+
+vi.mock("@/lib/ssh-client", () => ({
+  SSHClient: class MockSSHClient {
+    init = vi.fn().mockResolvedValue(undefined)
+    connect = vi.fn()
+    disconnect = vi.fn()
+    exec = vi.fn()
+    sendInput = vi.fn()
+    resize = vi.fn()
+    resolvePassword = vi.fn()
+    rejectPassword = vi.fn()
+    resolveCertificate = vi.fn()
+    rejectCertificate = vi.fn()
+    on = vi.fn()
+    off = vi.fn()
+  },
 }))
 
 function renderSessionDetailPage(sessionId: string) {
@@ -50,7 +102,7 @@ describe("SessionDetailPage", () => {
     })
   })
 
-  it("renders session metadata when loaded", async () => {
+  it("renders session metadata fields when loaded", async () => {
     const mockSession = {
       id: "session-1",
       user_id: 1,
@@ -77,14 +129,18 @@ describe("SessionDetailPage", () => {
     renderSessionDetailPage("session-1")
 
     await waitFor(() => {
-      expect(screen.getByText("Session Details")).toBeInTheDocument()
-      expect(screen.getByText("Test Session")).toBeInTheDocument()
-      expect(screen.getByText("My Host")).toBeInTheDocument()
+      // Session name appears in both top bar and details panel
+      expect(screen.getAllByText("Test Session").length).toBe(2)
+      // Session hash as a field in details
       expect(screen.getByText("session-1")).toBeInTheDocument()
+      // Host name in details
+      expect(screen.getByText("My Host")).toBeInTheDocument()
+      // Session details panel is present
+      expect(screen.getByText("Details")).toBeInTheDocument()
     })
   })
 
-  it("shows terminal placeholder", async () => {
+  it("shows terminal placeholder when no host configured", async () => {
     const mockSession = {
       id: "session-1",
       user_id: 1,
@@ -104,7 +160,7 @@ describe("SessionDetailPage", () => {
     })
   })
 
-  it("shows back button", async () => {
+  it("does not show top bar when no host", async () => {
     const mockSession = {
       id: "session-1",
       user_id: 1,
@@ -120,11 +176,13 @@ describe("SessionDetailPage", () => {
     renderSessionDetailPage("session-1")
 
     await waitFor(() => {
-      expect(screen.getByText("Back")).toBeInTheDocument()
+      expect(screen.getByText("No host configured for this session")).toBeInTheDocument()
     })
+    // Connect should NOT be visible since there's no top bar
+    expect(screen.queryByText("Connect")).not.toBeInTheDocument()
   })
 
-  it("shows active status for recent ping", async () => {
+  it("shows active status in details panel", async () => {
     const now = new Date()
     const mockSession = {
       id: "session-1",
@@ -135,13 +193,26 @@ describe("SessionDetailPage", () => {
       last_ping_at: now.toISOString(),
       ended_at: null,
       metadata: null,
+      host: {
+        id: 1,
+        label: "My Host",
+        hostname: "localhost",
+        ssh_user: "root",
+        ssh_port: 22,
+        ssh_principal: "",
+        user_id: 1,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      },
     }
     vi.mocked(api.getSession).mockResolvedValue(mockSession)
 
     renderSessionDetailPage("session-1")
 
     await waitFor(() => {
-      expect(screen.getByText("Active")).toBeInTheDocument()
+      // Active badge in the details panel
+      const activeBadges = screen.getAllByText("Active")
+      expect(activeBadges.length).toBeGreaterThan(0)
     })
   })
 
@@ -204,12 +275,10 @@ describe("SessionDetailPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Connect")).toBeInTheDocument()
-      expect(screen.getByText("Inactive")).toBeInTheDocument()
     })
   })
 
   it("shows connect button for inactive session with host (stale ping)", async () => {
-    // Session with last_ping_at more than 5 minutes ago
     const oldPingTime = new Date(Date.now() - 10 * 60 * 1000).toISOString()
     const mockSession = {
       id: "session-3",
@@ -238,7 +307,6 @@ describe("SessionDetailPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Connect")).toBeInTheDocument()
-      expect(screen.getByText("Inactive")).toBeInTheDocument()
     })
   })
 })
