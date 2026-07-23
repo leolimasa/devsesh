@@ -47,3 +47,4 @@ web/dist
 web/devsesh
 .llm-cur-command*
 web/public/*.wasm
+# vendor/
