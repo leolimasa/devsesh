@@ -602,4 +602,72 @@ test.describe('Session Integration Tests', () => {
       }
     }
   });
+
+  test('Delete button removes session from dashboard and API', async ({ page }) => {
+    const server = await startServer();
+    const testEmail = `test-${Date.now()}@example.com`;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-delete-test-'));
+    const configPath = path.join(tempDir, 'config.yml');
+    const sessionDir = path.join(tempDir, 'sessions');
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
+
+    try {
+      const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
+
+      await page.goto(`${server.url}/dashboard`);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+      await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 5000 });
+
+      tmuxSessionName = `delete-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
+      sessionProcess.process.on('error', (err) => {
+        console.log('Session process error:', err);
+      });
+
+      sessionId = await waitForSessionFile(sessionDir, 15000);
+      await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
+
+      // Navigate back to dashboard
+      await page.goto(`${server.url}/dashboard`);
+      await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 5000 });
+      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+
+      // Accept the confirm dialog
+      page.on('dialog', (dialog) => dialog.accept());
+
+      // Click the delete button (✕) in the row containing our session
+      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      await row.locator('button:has-text("✕")').click();
+
+      // Wait for the session to disappear from the dashboard
+      await expect(page.getByText(tmuxSessionName!, { exact: true })).not.toBeVisible({ timeout: 5000 });
+      console.log('Session removed from dashboard');
+
+      // Verify the session is gone from the API (returns 404)
+      const resp = await fetch(`${server.url}/api/v1/sessions/${sessionId}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      expect(resp.status).toBe(404);
+      console.log('Session deleted from API');
+
+      // Clean up tmux before test teardown (session entry is gone but
+      // the tmux process may still be running)
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
+        tmuxSessionName = null;
+      }
+
+    } finally {
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
+      }
+      await stopServer(server);
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
+  });
 });

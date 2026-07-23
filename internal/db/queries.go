@@ -402,6 +402,14 @@ func DeleteStaleSessions(db *sql.DB) (int64, error) {
 	return result.RowsAffected()
 }
 
+func DeleteSession(db *sql.DB, id string) error {
+	_, err := db.Exec("DELETE FROM sessions WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete session: %w", err)
+	}
+	return nil
+}
+
 func DeleteCredential(db *sql.DB, id string) error {
 	_, err := db.Exec("DELETE FROM webauthn_credentials WHERE id = ?", id)
 	if err != nil {

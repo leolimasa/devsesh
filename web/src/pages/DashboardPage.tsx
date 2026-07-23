@@ -20,7 +20,7 @@ import {
   SheetClose,
 } from "@/components/ui/sheet"
 import { Menu } from "lucide-react"
-import { listSessions, deleteStaleSessions, getSSHCAPublicKey } from "@/lib/api"
+import { listSessions, deleteStaleSessions, deleteSession, getSSHCAPublicKey } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useAuth } from "@/contexts/AuthContext"
 import type { Session } from "@/types/api"
@@ -104,6 +104,18 @@ export default function DashboardPage() {
       loadSessions()
     } catch (err) {
       console.error("Failed to delete stale sessions:", err)
+    }
+  }
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm("Delete this session?")) return
+    try {
+      await deleteSession(sessionId)
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+    } catch (err) {
+      console.error("Failed to delete session:", err)
     }
   }
 
@@ -225,6 +237,7 @@ export default function DashboardPage() {
                   <TableHead>Last Ping</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Metadata</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -244,6 +257,16 @@ export default function DashboardPage() {
                       <TableCell className="text-sm text-muted-foreground">
                         {parseMetadata(session.metadata)}
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          onClick={(e) => handleDeleteSession(e, session.id)}
+                        >
+                          ✕
+                        </Button>
+                      </TableCell>
                     </Link>
                   </TableRow>
                 ))}
@@ -254,25 +277,35 @@ export default function DashboardPage() {
 
         <div className="md:hidden space-y-4">
           {sessions.map((session) => (
-            <Link key={session.id} to={`/sessions/${session.id}`}>
-              <Card>
-                <CardHeader className="pb-2">
-                  <div className="flex justify-between items-center">
-                    <CardTitle className="text-lg font-mono">{truncateId(session.id)}</CardTitle>
-                    <Badge variant={isActive(session) ? "success" : "secondary"}>
-                      {isActive(session) ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-sm space-y-1">
-                  <p><span className="text-muted-foreground">Name:</span> {session.name || "-"}</p>
-                  <p><span className="text-muted-foreground">Host:</span> {session.host?.label || session.host?.hostname || "-"}</p>
-                  <p><span className="text-muted-foreground">Started:</span> {formatDate(session.started_at)}</p>
-                  <p><span className="text-muted-foreground">Last Ping:</span> {formatRelativeTime(session.last_ping_at)}</p>
-                  <p><span className="text-muted-foreground">Metadata:</span> {parseMetadata(session.metadata)}</p>
-                </CardContent>
-              </Card>
-            </Link>
+            <div key={session.id} className="relative">
+              <Link to={`/sessions/${session.id}`}>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-center">
+                      <CardTitle className="text-lg font-mono">{truncateId(session.id)}</CardTitle>
+                      <Badge variant={isActive(session) ? "success" : "secondary"}>
+                        {isActive(session) ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-sm space-y-1">
+                    <p><span className="text-muted-foreground">Name:</span> {session.name || "-"}</p>
+                    <p><span className="text-muted-foreground">Host:</span> {session.host?.label || session.host?.hostname || "-"}</p>
+                    <p><span className="text-muted-foreground">Started:</span> {formatDate(session.started_at)}</p>
+                    <p><span className="text-muted-foreground">Last Ping:</span> {formatRelativeTime(session.last_ping_at)}</p>
+                    <p><span className="text-muted-foreground">Metadata:</span> {parseMetadata(session.metadata)}</p>
+                  </CardContent>
+                </Card>
+              </Link>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute top-2 right-2 h-7 w-7 text-destructive hover:text-destructive"
+                onClick={(e) => handleDeleteSession(e, session.id)}
+              >
+                ✕
+              </Button>
+            </div>
           ))}
         </div>
       </div>

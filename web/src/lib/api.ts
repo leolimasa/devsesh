@@ -154,6 +154,12 @@ export async function deleteStaleSessions(): Promise<{ deleted: number }> {
   })
 }
 
+export async function deleteSession(id: string): Promise<void> {
+  await fetchApi<unknown>(`/sessions/${id}`, {
+    method: "DELETE",
+  })
+}
+
 export async function listPasskeys(): Promise<Passkey[]> {
   return fetchApi<Passkey[]>("/auth/passkeys")
 }

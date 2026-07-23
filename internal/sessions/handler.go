@@ -294,6 +294,32 @@ func DeleteStaleHandler(database *sql.DB) http.HandlerFunc {
 	}
 }
 
+func DeleteSessionHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, ok := SessionFromContext(r.Context())
+		if !ok {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+
+		userID, _ := UserIDFromContext(r.Context())
+		if err := db.DeleteSession(database, session.ID); err != nil {
+			slog.Error("failed to delete session", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		hub.Broadcast(userID, SessionUpdate{
+			Event:     "delete",
+			SessionID: session.ID,
+			Session:   *session,
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"deleted": session.ID})
+	}
+}
+
 func UpdatesHandler(database *sql.DB, hub *Hub, jwtSecret string, rpOrigin string) http.HandlerFunc {
 	upgrader := makeUpgrader(rpOrigin)
 	return func(w http.ResponseWriter, r *http.Request) {
