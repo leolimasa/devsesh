@@ -103,15 +103,19 @@ export function SessionTopBar({
       {/* Mobile hamburger */}
       {hamburger}
 
-      {/* Session name (far left) */}
-      <span className="font-medium text-sm truncate min-w-0 max-w-[200px]">
+      {/* Session name (far left) — hidden on mobile to save space */}
+      <span className="hidden md:inline font-medium text-sm truncate min-w-0 max-w-[200px]">
         {sessionName}
       </span>
 
-      {/* Connection status */}
+      {/* Connection status. When connected on mobile, show only the dot
+          (the green dot alone conveys "connected"); the label still shows
+          on desktop and for every other status. */}
       <div className="flex items-center gap-1 text-xs shrink-0">
         <span className={`inline-block w-2 h-2 rounded-full ${STATUS_COLORS[status]}`} />
-        <span className="text-muted-foreground">{STATUS_LABELS[status]}</span>
+        <span className={`text-muted-foreground ${status === "connected" ? "hidden md:inline" : ""}`}>
+          {STATUS_LABELS[status]}
+        </span>
       </div>
 
       {/* Pinned quick-key pills region (flex-1: stable width for measurement) */}
@@ -171,12 +175,13 @@ export function SessionTopBar({
         <Keyboard className="h-4 w-4" />
       </Button>
 
-      {/* Connect / Disconnect button (far right) */}
+      {/* Connect / Disconnect button (far right). Hidden on mobile, where it
+          lives in the details panel instead. */}
       {status === "disconnected" || status === "error" ? (
         <Button
           variant="outline"
           size="sm"
-          className="h-8 shrink-0"
+          className="hidden md:inline-flex h-8 shrink-0"
           onClick={onConnect}
         >
           Connect
@@ -185,7 +190,7 @@ export function SessionTopBar({
         <Button
           variant="outline"
           size="sm"
-          className="h-8 shrink-0 text-destructive"
+          className="hidden md:inline-flex h-8 shrink-0 text-destructive"
           onClick={onDisconnect}
         >
           Disconnect

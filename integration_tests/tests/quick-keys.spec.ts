@@ -693,7 +693,7 @@ test.describe("Quick Keys Integration Tests", () => {
     }
   })
 
-  test("Mobile viewport shows keyboard icon and connect button", async ({ page }) => {
+  test("Mobile viewport shows keyboard icon; connect button lives in details panel", async ({ page }) => {
     let ctx: TestContext | null = null
     try {
       ctx = await setupTestEnvironment(page, { withSession: true })
@@ -702,13 +702,32 @@ test.describe("Quick Keys Integration Tests", () => {
       await page.setViewportSize({ width: 375, height: 812 })
       await navigateToSession(page, server.url, sessionId)
 
-      // Keyboard icon visible
+      // Keyboard icon visible in the top bar
       await expect(page.locator('button[title="Quick Keys"]')).toBeVisible({ timeout: 10000 })
 
-      // Connect/Disconnect button visible
-      await expect(page.locator('button:has-text("Connect")').or(page.locator('button:has-text("Disconnect")'))).toBeVisible({ timeout: 10000 })
+      // Auto-connect surfaces the WebAuthn/password dialogs whose overlay would
+      // otherwise intercept clicks on the top bar / hamburger. Dismiss them
+      // (this also leaves the session disconnected, so the toggle reads
+      // "Connect").
+      await dismissAutoConnectDialogs(page)
 
-      console.log("Mobile top bar controls visible")
+      // Connect/Disconnect is hidden from the top bar on mobile — it moved to
+      // the details panel. The top-bar button still exists in the DOM (with
+      // the `hidden md:inline-flex` class) but must not be visible here.
+      const connectToggle = page
+        .locator('button:has-text("Connect")')
+        .or(page.locator('button:has-text("Disconnect")'))
+      await expect(connectToggle).toBeHidden({ timeout: 10000 })
+
+      // Open the details panel via the hamburger; the connect/disconnect
+      // button should be visible inside it.
+      await page.locator('button[aria-label="Details"]').click()
+      const panelToggle = page
+        .locator('[role="dialog"] button:has-text("Connect")')
+        .or(page.locator('[role="dialog"] button:has-text("Disconnect")'))
+      await expect(panelToggle).toBeVisible({ timeout: 10000 })
+
+      console.log("Mobile connect/disconnect verified in details panel")
     } finally {
       if (ctx) await cleanupTestEnvironment(ctx)
     }

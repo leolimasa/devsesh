@@ -193,6 +193,27 @@ export default function SessionDetailPage() {
                   <SheetHeader>
                     <SheetTitle>Session Details</SheetTitle>
                   </SheetHeader>
+                  {/* Connect/Disconnect lives here on mobile (it's hidden in
+                      the top bar below the md breakpoint). */}
+                  <div className="mt-4">
+                    {status === "disconnected" || status === "error" ? (
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => terminalRef.current?.connect()}
+                      >
+                        Connect
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="w-full text-destructive"
+                        onClick={() => terminalRef.current?.disconnect()}
+                      >
+                        Disconnect
+                      </Button>
+                    )}
+                  </div>
                   <div className="mt-4">
                     <SessionDetails session={session} />
                   </div>
