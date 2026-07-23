@@ -6,12 +6,15 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
-	"syscall"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/leolimasa/devsesh/internal/util"
+	"golang.org/x/term"
 )
 
 type OutputMonitor struct {
@@ -50,6 +53,15 @@ func (m *OutputMonitor) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+// StartSession launches `tmux new-session` attached to a real pty rather
+// than to the process's inherited stdio. tmux needs genuine terminal
+// semantics on its output fd to keep pushing screen updates: if that fd is
+// just a plain pipe (e.g. an io.Writer passed via cmd.Stdout), tmux writes
+// its initial handshake and then stops actively redrawing to it, even
+// though the session keeps producing real output. Routing through a pty
+// keeps tmux's rendering behavior correct while still letting us observe
+// every byte it writes (for the activity monitor) and forward it to the
+// real terminal.
 func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, env map[string]string, onActivity func()) (*exec.Cmd, error) {
 	cmd := exec.CommandContext(ctx, "tmux", "-2", "new-session", "-s", sessionName)
 
@@ -58,18 +70,65 @@ func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, e
 	}
 	cmd.Env = append(cmd.Env, os.Environ()...)
 
-	cmd.Stdin = os.Stdin
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		slog.Error("failed to start tmux session", "error", err, "session_name", sessionName)
+		return nil, err
+	}
+
+	if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
+		slog.Warn("failed to set initial pty size", "error", err)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGWINCH)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer signal.Stop(sigCh)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-sigCh:
+				if err := pty.InheritSize(os.Stdin, ptmx); err != nil {
+					slog.Warn("failed to resize pty", "error", err)
+				}
+			}
+		}
+	}()
+
+	// Put the real terminal into raw mode so keystrokes pass through to
+	// tmux untranslated, restoring it once the session ends.
+	if oldState, err := term.MakeRaw(int(os.Stdin.Fd())); err == nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-ctx.Done()
+			term.Restore(int(os.Stdin.Fd()), oldState)
+		}()
+	}
 
 	throttleInterval := 1 * time.Second
 	monitor := NewOutputMonitor(ctx, wg, onActivity, throttleInterval)
 
-	cmd.Stdout = io.MultiWriter(os.Stdout, monitor)
-	cmd.Stderr = io.MultiWriter(os.Stderr, monitor)
+	// Forward tmux's output to the real terminal and the activity monitor.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		io.Copy(io.MultiWriter(os.Stdout, monitor), ptmx)
+	}()
 
-	if err := cmd.Start(); err != nil {
-		slog.Error("failed to start tmux session", "error", err, "session_name", sessionName)
-		return nil, err
-	}
+	// Forward keystrokes from the real terminal to tmux. Not tracked in wg:
+	// a blocking read on the real stdin has no way to be interrupted on
+	// session end short of closing the process's stdin, so this goroutine
+	// is left to exit on its own (it errors out once ptmx is closed below).
+	go io.Copy(ptmx, os.Stdin)
+
+	go func() {
+		<-ctx.Done()
+		ptmx.Close()
+	}()
 
 	return cmd, nil
 }

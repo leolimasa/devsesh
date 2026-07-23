@@ -535,6 +535,75 @@ test.describe('Session Integration Tests', () => {
     }
   });
 
+  test('Active indicator stays Active during sustained continuous output', async ({ page }) => {
+    const server = await startServer();
+    const testEmail = `test-${Date.now()}@example.com`;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-sustained-test-'));
+    const configPath = path.join(tempDir, 'config.yml');
+    const sessionDir = path.join(tempDir, 'sessions');
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
+
+    try {
+      const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
+
+      await page.goto(`${server.url}/dashboard`);
+      await expect(page).toHaveURL(/\/dashboard/, { timeout: 10000 });
+      await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 5000 });
+
+      tmuxSessionName = `sustained-test-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
+      sessionProcess.process.on('error', (err) => {
+        console.log('Session process error:', err);
+      });
+
+      sessionId = await waitForSessionFile(sessionDir, 15000);
+      await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
+
+      // Load the dashboard ONCE and observe it live via the websocket,
+      // without reloading -- that's what a real user watching the page
+      // would see, and reloading would mask a websocket-drop bug by
+      // re-fetching fresh state over REST every time.
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      await expect(row.locator('text=Active')).toBeVisible({ timeout: 5000 });
+      console.log('Dashboard shows Active shortly after continuous output started');
+
+      // Send a new short command into the tmux session every 500ms for 15s
+      // (driven from the test, not a shell loop, to avoid any shell-quoting
+      // pitfalls) while sampling the badge and the REST API in parallel.
+      // This simulates a real user watching continuous terminal output.
+      const samples: { t: number; badge: string; lastActivityAgeMs: number }[] = [];
+      for (let i = 0; i < 15; i++) {
+        await sendTmuxCommand(tmuxSessionName!, `echo line-${i}`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const isInactiveVisible = await row.locator('text=Inactive').isVisible();
+        const session = await getSessionFromApi(server.url, token, sessionId);
+        const lastActivityAgeMs = session.last_activity_at
+          ? Date.now() - new Date(session.last_activity_at).getTime()
+          : -1;
+        samples.push({ t: i, badge: isInactiveVisible ? 'Inactive' : 'Active', lastActivityAgeMs });
+        console.log(`t=${i} badge=${isInactiveVisible ? 'Inactive' : 'Active'} last_activity_age_ms=${lastActivityAgeMs}`);
+      }
+
+      const inactiveSamples = samples.filter(s => s.badge === 'Inactive');
+      expect(inactiveSamples, `Badge showed Inactive during sustained output: ${JSON.stringify(inactiveSamples)}`).toHaveLength(0);
+
+    } finally {
+      if (tmuxSessionName) {
+        await killTmuxSession(tmuxSessionName);
+      }
+      await stopServer(server);
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }
+  });
+
   test('Active indicator decays to Inactive after 5 seconds of no output', async ({ page }) => {
     const server = await startServer();
     const testEmail = `test-${Date.now()}@example.com`;
