@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import { startAuthentication, browserSupportsWebAuthn } from "@simplewebauthn/browser"
 import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/types"
 import { Button } from "@/components/ui/button"
@@ -105,9 +105,9 @@ export default function LoginPage() {
             {noUsers && (
               <p className="text-sm text-center text-muted-foreground">
                 No users found.{" "}
-                <a href="/register" className="text-primary hover:underline">
+                <Link to="/register" className="text-primary hover:underline">
                   Create an account
-                </a>
+                </Link>
               </p>
             )}
           </form>

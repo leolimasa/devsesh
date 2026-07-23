@@ -24,6 +24,7 @@ import { listSessions, deleteStaleSessions, getSSHCAPublicKey } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useAuth } from "@/contexts/AuthContext"
 import type { Session } from "@/types/api"
+import { isActive } from "@/lib/session"
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
@@ -42,17 +43,6 @@ function formatRelativeTime(dateStr: string | null): string {
   const diffHours = Math.floor(diffMins / 60)
   if (diffHours < 24) return `${diffHours}h ago`
   return formatDate(dateStr)
-}
-
-function isActive(session: Session): boolean {
-  if (session.ended_at) return false
-  if (!session.last_ping_at) return true
-  
-  const lastPing = new Date(session.last_ping_at)
-  const now = new Date()
-  const diffMs = now.getTime() - lastPing.getTime()
-  const diffMins = diffMs / 60000
-  return diffMins < 5
 }
 
 function truncateId(id: string): string {

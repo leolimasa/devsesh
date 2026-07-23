@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { isActive } from "@/lib/session"
 import { getSession } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useQuickKeys } from "@/hooks/useQuickKeys"
@@ -30,18 +32,15 @@ function formatJson(json: string | null): string {
 type Status = ConnectionStatus
 
 function SessionDetails({ session }: { session: Session }) {
-  const isActive = !session.ended_at && (
-    !session.last_ping_at ||
-    (new Date().getTime() - new Date(session.last_ping_at).getTime()) < 5 * 60 * 1000
-  )
+  const active = isActive(session)
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <h2 className="text-lg font-semibold">Details</h2>
-        <span className={`px-2 py-0.5 rounded-full text-xs ${isActive ? "bg-green-500/20 text-green-500" : "bg-gray-500/20 text-gray-400"}`}>
-          {isActive ? "Active" : "Inactive"}
-        </span>
+        <Badge variant={active ? "success" : "secondary"}>
+          {active ? "Active" : "Inactive"}
+        </Badge>
       </div>
 
       <div className="space-y-3">
@@ -75,7 +74,7 @@ function SessionDetails({ session }: { session: Session }) {
         </div>
         <div>
           <h3 className="text-sm font-medium text-muted-foreground">Status</h3>
-          <p>{isActive ? "Active" : "Inactive"}</p>
+          <p>{active ? "Active" : "Inactive"}</p>
         </div>
       </div>
 
