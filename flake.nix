@@ -32,7 +32,7 @@
           version = "0.1.0";
           src = ./.;
 
-          vendorHash = "sha256-x2t89aXdJsvxtYm/18O8QnBqlPG2bcyA78PCUazAXOc=";
+          vendorHash = "sha256-cdSnpe2qwsvnRWwlrK9VXy9s4GSVOdN8lM2pVD1dZGo=";
 
           nativeBuildInputs = [ pkgs.go ];
 
