@@ -208,7 +208,7 @@ function BuilderTab({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full border rounded px-2 py-1 text-sm"
+            className="w-full border border-input bg-background text-foreground placeholder:text-muted-foreground rounded px-2 py-1 text-sm"
             placeholder="e.g. Tmux Detach"
           />
         </div>
@@ -218,7 +218,7 @@ function BuilderTab({
             type="text"
             value={displayToken}
             onChange={(e) => setDisplayToken(e.target.value.slice(0, 20))}
-            className="w-full border rounded px-2 py-1 text-sm"
+            className="w-full border border-input bg-background text-foreground placeholder:text-muted-foreground rounded px-2 py-1 text-sm"
             placeholder="e.g. ^A d"
           />
         </div>
@@ -261,7 +261,7 @@ function BuilderTab({
             <select
               value={baseKey}
               onChange={(e) => setBaseKey(e.target.value)}
-              className="border rounded px-2 py-1 text-sm"
+              className="border border-input bg-background text-foreground placeholder:text-muted-foreground rounded px-2 py-1 text-sm"
             >
               {BASE_KEYS.map((k) => (
                 <option key={k} value={k}>{k}</option>
@@ -275,7 +275,7 @@ function BuilderTab({
               type="text"
               value={literalText}
               onChange={(e) => setLiteralText(e.target.value)}
-              className="border rounded px-2 py-1 text-sm flex-1"
+              className="border border-input bg-background text-foreground placeholder:text-muted-foreground rounded px-2 py-1 text-sm flex-1"
               placeholder="Literal text..."
             />
             <label className="flex items-center gap-1 text-xs">
@@ -391,13 +391,13 @@ function ManageTab({
               <input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                className="border rounded px-2 py-1 text-sm flex-1"
+                className="border border-input bg-background text-foreground placeholder:text-muted-foreground rounded px-2 py-1 text-sm flex-1"
                 placeholder="Name"
               />
               <input
                 value={editToken}
                 onChange={(e) => setEditToken(e.target.value.slice(0, 20))}
-                className="border rounded px-2 py-1 text-sm w-20"
+                className="border border-input bg-background text-foreground placeholder:text-muted-foreground rounded px-2 py-1 text-sm w-20"
                 placeholder="Token"
               />
               <Button size="sm" onClick={() => saveEdit(k)}>Save</Button>
