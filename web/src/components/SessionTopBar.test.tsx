@@ -1,15 +1,18 @@
 import { describe, it, expect, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, fireEvent } from "@testing-library/react"
 import { SessionTopBar } from "@/components/SessionTopBar"
 import type { QuickKeyStep } from "@/types/api"
 
-function renderTopBar(pinnedKeys: Array<{ display_token: string; spec: QuickKeyStep[] }> = []) {
+function renderTopBar(
+  pinnedKeys: Array<{ display_token: string; spec: QuickKeyStep[] }> = [],
+  onSendKey: (spec: QuickKeyStep[]) => void = vi.fn(),
+) {
   return render(
     <SessionTopBar
       sessionName="Test Session"
       status="connected"
       pinnedKeys={pinnedKeys}
-      onSendKey={vi.fn()}
+      onSendKey={onSendKey}
       onOpenOverlay={vi.fn()}
       onConnect={vi.fn()}
       onDisconnect={vi.fn()}
@@ -46,5 +49,18 @@ describe("SessionTopBar (mobile touch sizing)", () => {
     const pill = container.querySelector("[data-pill]")
     expect(pill).not.toBeNull()
     expect(pill).toHaveClass("min-h-11", "md:min-h-0")
+  })
+
+  it("does not steal focus when a pill is pressed, but still sends the key", () => {
+    const onSendKey = vi.fn()
+    const { container } = renderTopBar([{ display_token: "^C", spec: [] }], onSendKey)
+    const pill = container.querySelector("[data-pill]") as HTMLElement
+    // mousedown must be default-prevented so the pill never takes focus off the
+    // terminal (a focused terminal stays focused; an unfocused one stays so).
+    const notPrevented = fireEvent.mouseDown(pill)
+    expect(notPrevented, "pill mousedown should preventDefault").toBe(false)
+    // the click still fires and sends the quick key.
+    fireEvent.click(pill)
+    expect(onSendKey).toHaveBeenCalledTimes(1)
   })
 })

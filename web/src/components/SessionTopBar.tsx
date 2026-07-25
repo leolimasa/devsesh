@@ -165,6 +165,11 @@ export function SessionTopBar({
             <button
               key={i}
               data-pill
+              // Don't let the pill steal focus: a focused terminal stays focused
+              // (its keyboard stays up) and an unfocused one stays unfocused
+              // (no keyboard summoned). We preserve the terminal's focus state
+              // rather than forcing it.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => onSendKey(key.spec)}
               className="px-2 min-h-11 md:min-h-0 inline-flex items-center py-0.5 text-xs bg-background border rounded hover:bg-accent whitespace-nowrap"
               title={key.display_token}
