@@ -677,6 +677,33 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       if (ctx) await cleanupTestEnvironment(ctx);
     }
   });
+
+  // The bundled JetBrainsMono Nerd Font must be served and loaded so the
+  // terminal can render powerline/airline separators and Nerd Font icons.
+  test('Bundled JetBrainsMono Nerd Font is served and loaded by the terminal', async ({ page }) => {
+    let ctx: TestContext | null = null;
+    try {
+      ctx = await setupTestEnvironmentWithSession(page, 'testsession');
+
+      // The font file is served from the embedded web assets (not SPA-fallbacked).
+      const fontResp = await page.request.get(`${ctx.server.url}/fonts/JetBrainsMonoNerdFontMono-Regular.woff2`);
+      expect(fontResp.status()).toBe(200);
+      expect(Number(fontResp.headers()['content-length'] || 0)).toBeGreaterThan(500000);
+
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+      await connectAndAuthenticate(page, 'testpass');
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 });
+
+      // The Nerd Font actually loads and is available to the terminal.
+      const loaded = await page.evaluate(async () => {
+        await document.fonts.load("14px 'JetBrainsMono Nerd Font Mono'");
+        return document.fonts.check("14px 'JetBrainsMono Nerd Font Mono'");
+      });
+      expect(loaded, 'Nerd Font should be loaded and available').toBe(true);
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
 });
 
 // Helper function to setup test environment with specific session name

@@ -301,7 +301,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         // mode. (We intentionally do NOT auto-focus the terminal.)
         cursorInactiveStyle: "block",
         fontSize: 14,
-        fontFamily: "monospace",
+        fontFamily: "'JetBrainsMono Nerd Font Mono', monospace",
         theme: {
           background: "#1a1a1a",
           foreground: "#ffffff",
@@ -318,6 +318,19 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       term.open(terminalRef.current)
       fitAddon.fit()
+
+      // The Nerd Font is a web font (font-display: swap), so the first fit may
+      // measure the fallback metrics. Re-fit and push the size once the font is
+      // ready so the grid matches the actual glyph width.
+      if (typeof document !== "undefined" && document.fonts?.ready) {
+        document.fonts.ready.then(() => {
+          try {
+            fitAddon.fit()
+            const { rows, cols } = term
+            sshClientRef.current?.resize(rows, cols)
+          } catch { /* ignore */ }
+        })
+      }
 
       const client = new SSHClient()
       sshClientRef.current = client

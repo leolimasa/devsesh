@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* JetBrainsMono Nerd Font Mono — self-hosted so the terminal can render
+   powerline/airline separators and Nerd Font icons. The "Mono" variant keeps
+   every glyph single-cell width for correct terminal alignment. ~2MB total,
+   cached by the browser after first load. */
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  src: url("/fonts/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  src: url("/fonts/JetBrainsMonoNerdFontMono-Bold.woff2") format("woff2");
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   :root {
     --background: 222.2 84% 4.9%;
