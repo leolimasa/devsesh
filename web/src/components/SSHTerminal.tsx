@@ -386,43 +386,22 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       if (status === "connected" && sshClientRef.current && !hasExecutedRef.current) {
         hasExecutedRef.current = true
         sshClientRef.current.exec(`tmux attach -t ${sessionName}`)
-        // The pty was opened while the terminal container was still hidden and
-        // its size was still settling (visual-viewport height + measured
-        // top-bar height arrive after first paint), so it has a stale size and
-        // tmux would draw at the wrong size until the next resize event. Now
-        // that we're connected and the layout has settled, re-fit and push the
-        // real size to the pty so it's correct on first load.
-        requestAnimationFrame(() => {
-          if (fitAddonRef.current && xtermRef.current) {
-            fitAddonRef.current.fit()
-            const { rows, cols } = xtermRef.current
-            sshClientRef.current?.resize(rows, cols)
-          }
-        })
       }
     }, [status, sessionName])
 
-    // --- Keep the terminal fitted to its container ---
-    // Fitting only on mount leaves the terminal at the wrong size until the
-    // next resize event: the container's final size isn't known until layout
-    // settles after first paint (the visual-viewport height, the measured
-    // top-bar height, and the loading -> visible transition all arrive later).
-    // A ResizeObserver re-fits on every real size change of the container --
-    // initial settle, on-screen keyboard opening, and window resize alike --
-    // and pushes the new dimensions to the remote pty.
+    // --- Keyboard-aware sizing via visualViewport ---
     useEffect(() => {
-      const el = terminalRef.current
-      if (!el || typeof ResizeObserver === "undefined") return
-      const refit = () => {
-        if (!fitAddonRef.current || !xtermRef.current) return
-        fitAddonRef.current.fit()
-        const { rows, cols } = xtermRef.current
+      if (!fitAddonRef.current || !xtermRef.current || !sshClientRef.current) return
+      const term = xtermRef.current
+      const fitAddon = fitAddonRef.current
+      // Small delay to let the layout settle
+      const timer = setTimeout(() => {
+        fitAddon.fit()
+        const { rows, cols } = term
         sshClientRef.current?.resize(rows, cols)
-      }
-      const obs = new ResizeObserver(refit)
-      obs.observe(el)
-      return () => obs.disconnect()
-    }, [])
+      }, 50)
+      return () => clearTimeout(timer)
+    }, [viewportHeight, loading])
 
     const handlePasswordSubmit = useCallback((password: string) => {
       if (sshClientRef.current) {
