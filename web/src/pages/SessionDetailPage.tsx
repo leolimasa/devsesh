@@ -172,7 +172,11 @@ export default function SessionDetailPage() {
       style={viewportHeight > 0 ? { height: `${viewportHeight}px` } : undefined}
     >
       {session.host && (
-        <div ref={topBarRef}>
+        // On mobile the bar renders last so it sits at the bottom of the
+        // (visual-viewport-sized) screen — reachable by thumb, and kept just
+        // above the on-screen keyboard when it opens. On desktop it stays on
+        // top in source order.
+        <div ref={topBarRef} className="order-last md:order-none">
           <SessionTopBar
             sessionName={session.name || session.id}
             status={status}
@@ -185,8 +189,8 @@ export default function SessionDetailPage() {
             hamburger={
               <Sheet>
                 <SheetTrigger asChild className="md:hidden">
-                  <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label="Details">
-                    <Menu className="h-4 w-4" />
+                  <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0" aria-label="Details">
+                    <Menu className="h-5 w-5" />
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="left">
@@ -199,7 +203,7 @@ export default function SessionDetailPage() {
                     {status === "disconnected" || status === "error" ? (
                       <Button
                         variant="outline"
-                        className="w-full"
+                        className="w-full h-11"
                         onClick={() => terminalRef.current?.connect()}
                       >
                         Connect
@@ -207,7 +211,7 @@ export default function SessionDetailPage() {
                     ) : (
                       <Button
                         variant="outline"
-                        className="w-full text-destructive"
+                        className="w-full h-11 text-destructive"
                         onClick={() => terminalRef.current?.disconnect()}
                       >
                         Disconnect

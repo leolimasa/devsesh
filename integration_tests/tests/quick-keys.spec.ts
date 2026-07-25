@@ -674,8 +674,26 @@ test.describe("Quick Keys Integration Tests", () => {
       await page.setViewportSize({ width: 375, height: 812 })
       await navigateToSession(page, server.url, sessionId)
 
-      // Top bar should be visible
-      await expect(page.locator(".bg-muted.border-b")).toBeVisible({ timeout: 10000 })
+      // Bar should be visible
+      const bar = page.getByTestId("session-top-bar")
+      await expect(bar).toBeVisible({ timeout: 10000 })
+
+      // On mobile the bar lives at the BOTTOM of the screen (reachable by
+      // thumb, above the on-screen keyboard). Its vertical centre must sit in
+      // the lower half of the viewport.
+      const barBox = await bar.boundingBox()
+      expect(barBox).not.toBeNull()
+      expect(barBox!.y + barBox!.height / 2).toBeGreaterThan(812 / 2)
+      console.log("Top bar is anchored to the bottom on mobile")
+
+      // Buttons meet the standard 44px touch target.
+      for (const sel of ['button[aria-label="Back to dashboard"]', 'button[title="Quick Keys"]', 'button[aria-label="Details"]']) {
+        const box = await page.locator(sel).boundingBox()
+        expect(box, `${sel} should exist`).not.toBeNull()
+        expect(box!.width, `${sel} width`).toBeGreaterThanOrEqual(44)
+        expect(box!.height, `${sel} height`).toBeGreaterThanOrEqual(44)
+      }
+      console.log("Top bar buttons meet the 44px touch target")
 
       // Desktop details panel hidden on mobile
       const detailsPanel = page.locator(".hidden.md\\:block.w-72")
@@ -687,7 +705,7 @@ test.describe("Quick Keys Integration Tests", () => {
       const hamburger = page.locator('button[aria-label="Details"]')
       await expect(hamburger).toBeVisible({ timeout: 5000 })
 
-      console.log("Mobile layout verified: top bar, hidden desktop panel, hamburger present")
+      console.log("Mobile layout verified: bottom bar, touch buttons, hidden desktop panel, hamburger present")
     } finally {
       if (ctx) await cleanupTestEnvironment(ctx)
     }
@@ -728,6 +746,29 @@ test.describe("Quick Keys Integration Tests", () => {
       await expect(panelToggle).toBeVisible({ timeout: 10000 })
 
       console.log("Mobile connect/disconnect verified in details panel")
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx)
+    }
+  })
+
+  test("Desktop viewport keeps the top bar at the top (bottom placement is mobile-only)", async ({ page }) => {
+    let ctx: TestContext | null = null
+    try {
+      ctx = await setupTestEnvironment(page, { withSession: true })
+      const { server, sessionId } = ctx
+
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await navigateToSession(page, server.url, sessionId)
+
+      const bar = page.getByTestId("session-top-bar")
+      await expect(bar).toBeVisible({ timeout: 10000 })
+
+      // On desktop the bar stays at the TOP: its vertical centre is in the
+      // upper part of the viewport.
+      const barBox = await bar.boundingBox()
+      expect(barBox).not.toBeNull()
+      expect(barBox!.y + barBox!.height / 2).toBeLessThan(800 / 2)
+      console.log("Top bar stays at the top on desktop")
     } finally {
       if (ctx) await cleanupTestEnvironment(ctx)
     }

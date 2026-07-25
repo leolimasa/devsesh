@@ -102,17 +102,24 @@ export function SessionTopBar({
   }, [measureOverflow, pinnedKeys])
 
   return (
-    <div className="flex items-center gap-2 px-2 py-1 bg-muted border-b h-10 min-h-10 flex-shrink-0">
+    // On mobile the bar is taller and sits at the bottom of the screen (see the
+    // `order-last` on its wrapper in SessionDetailPage), so its border faces up
+    // and its controls are sized for touch. On desktop it reverts to a compact
+    // top bar with a bottom border.
+    <div
+      data-testid="session-top-bar"
+      className="flex items-center gap-2 px-2 py-1 bg-muted border-t md:border-t-0 md:border-b h-14 min-h-14 md:h-10 md:min-h-10 flex-shrink-0"
+    >
       {/* Back to dashboard */}
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 shrink-0"
+        className="h-11 w-11 md:h-8 md:w-8 shrink-0"
         onClick={onBack}
         title="Back to dashboard"
         aria-label="Back to dashboard"
       >
-        <ArrowLeft className="h-4 w-4" />
+        <ArrowLeft className="h-5 w-5 md:h-4 md:w-4" />
       </Button>
 
       {/* Mobile hamburger */}
@@ -159,7 +166,7 @@ export function SessionTopBar({
               key={i}
               data-pill
               onClick={() => onSendKey(key.spec)}
-              className="px-2 py-0.5 text-xs bg-background border rounded hover:bg-accent whitespace-nowrap"
+              className="px-2 min-h-11 md:min-h-0 inline-flex items-center py-0.5 text-xs bg-background border rounded hover:bg-accent whitespace-nowrap"
               title={key.display_token}
             >
               {key.display_token}
@@ -172,7 +179,7 @@ export function SessionTopBar({
       {pinnedKeys.length > visibleCount && (
         <button
           onClick={onOpenOverlay}
-          className="px-1.5 py-0.5 text-xs bg-background border rounded text-muted-foreground hover:bg-accent shrink-0"
+          className="px-1.5 min-h-11 md:min-h-0 inline-flex items-center py-0.5 text-xs bg-background border rounded text-muted-foreground hover:bg-accent shrink-0"
           title={`${pinnedKeys.length - visibleCount} more`}
         >
           +{pinnedKeys.length - visibleCount}
@@ -183,11 +190,11 @@ export function SessionTopBar({
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 shrink-0"
+        className="h-11 w-11 md:h-8 md:w-8 shrink-0"
         onClick={onOpenOverlay}
         title="Quick Keys"
       >
-        <Keyboard className="h-4 w-4" />
+        <Keyboard className="h-5 w-5 md:h-4 md:w-4" />
       </Button>
 
       {/* Connect / Disconnect button (far right). Hidden on mobile, where it

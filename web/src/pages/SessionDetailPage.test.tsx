@@ -142,6 +142,41 @@ describe("SessionDetailPage", () => {
     })
   })
 
+  it("renders the top bar at the bottom on mobile (order-last)", async () => {
+    const mockSession = {
+      id: "session-1",
+      user_id: 1,
+      host_id: 1,
+      name: "Test Session",
+      started_at: "2024-01-01T00:00:00Z",
+      last_ping_at: "2024-01-01T00:04:00Z",
+      last_activity_at: null,
+      ended_at: null,
+      metadata: null,
+      host: {
+        id: 1,
+        label: "My Host",
+        hostname: "localhost",
+        ssh_user: "root",
+        ssh_port: 22,
+        ssh_principal: "",
+        user_id: 1,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      },
+    }
+    vi.mocked(api.getSession).mockResolvedValue(mockSession)
+
+    renderSessionDetailPage("session-1")
+
+    // The bar wrapper carries `order-last` so mobile flow places it at the
+    // bottom of the flex column; `md:order-none` restores top placement on
+    // desktop.
+    const bar = await screen.findByTestId("session-top-bar")
+    const wrapper = bar.parentElement
+    expect(wrapper).toHaveClass("order-last", "md:order-none")
+  })
+
   it("navigates back to the dashboard from the top bar", async () => {
     const mockSession = {
       id: "session-1",
