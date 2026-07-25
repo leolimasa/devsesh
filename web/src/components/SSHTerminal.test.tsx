@@ -86,6 +86,21 @@ vi.mock("@/lib/quick-keys", () => ({
   encodeSpec: vi.fn().mockReturnValue(new Uint8Array([0x03])),
 }))
 
+// isDesktopViewport() reads window.matchMedia; jsdom doesn't implement it, so
+// stub it to simulate a desktop or mobile viewport.
+function setDesktopViewport(isDesktop: boolean) {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: isDesktop,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })) as unknown as typeof window.matchMedia
+}
+
 describe("SSHTerminal", () => {
   const mockHost: Host = {
     id: 1,
@@ -234,10 +249,28 @@ describe("SSHTerminal", () => {
     ref.current!.disconnect()
     expect(mockDisconnect).toHaveBeenCalled()
 
+    // On desktop, focus returns to the terminal after sending a quick key so
+    // typing continues there. [req.72jxmp]
+    setDesktopViewport(true)
     ref.current!.sendKeys([{ type: "combo", ctrl: true, alt: false, shift: false, key: "c" }])
     expect(mockSendInput).toHaveBeenCalled()
-    // Focus returns to the terminal after sending a quick key. [req.72jxmp]
     expect(mockFocus).toHaveBeenCalled()
+  })
+
+  it("does NOT refocus the terminal after a quick key on mobile", async () => {
+    const ref = createRef<TerminalHandle>()
+    render(<SSHTerminal ref={ref} host={mockHost} sessionName="test-session-id" />)
+
+    await waitFor(() => {
+      expect(mockInit).toHaveBeenCalled()
+    })
+
+    // On mobile, refocusing xterm's textarea would pop the on-screen keyboard,
+    // so the quick key is sent but focus is left alone.
+    setDesktopViewport(false)
+    ref.current!.sendKeys([{ type: "combo", ctrl: true, alt: false, shift: false, key: "c" }])
+    expect(mockSendInput).toHaveBeenCalled()
+    expect(mockFocus).not.toHaveBeenCalled()
   })
 
   it("auto-reconnects after an unsolicited drop", async () => {

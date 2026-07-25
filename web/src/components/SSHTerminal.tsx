@@ -16,6 +16,7 @@ import { useFROST } from "@/contexts/FROSTContext"
 import type { Host } from "@/types/api"
 import type { QuickKeyStep, ConnectionStatus } from "@/types/api"
 import { encodeSpec } from "@/lib/quick-keys"
+import { isDesktopViewport } from "@/lib/utils"
 import { getMasterKey } from "@/lib/api"
 import { loginBegin } from "@/lib/api"
 import { clientLog } from "@/lib/api"
@@ -271,8 +272,13 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         if (sshClientRef.current) {
           const bytes = encodeSpec(spec)
           sshClientRef.current.sendInput(bytes)
-          // Focus back to terminal after sending
-          xtermRef.current?.focus()
+          // Refocus the terminal on desktop so typing continues there. On
+          // mobile we deliberately skip it: focusing xterm's textarea pops the
+          // on-screen keyboard, which is unwanted when firing quick keys by
+          // touch.
+          if (isDesktopViewport()) {
+            xtermRef.current?.focus()
+          }
         }
       },
       focus: () => {
