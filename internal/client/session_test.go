@@ -138,7 +138,52 @@ func TestUpdateSessionFile(t *testing.T) {
 }
 
 func TestWatchSessionFile_DetectsChanges(t *testing.T) {
-	t.Skip("fsnotify test flaky - skipping for now")
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "session.yml")
+
+	sf := &SessionFile{
+		SessionID: "test-id",
+		Name:      "Test Session",
+		StartTime: time.Now(),
+		Hostname:  "testhost",
+		Cwd:       "/tmp",
+	}
+	if err := WriteSessionFile(path, sf); err != nil {
+		t.Fatalf("failed to write session file: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wg := &sync.WaitGroup{}
+
+	changed := make(chan SessionFile, 1)
+	if err := WatchSessionFile(ctx, wg, path, 50*time.Millisecond, func(s SessionFile) {
+		select {
+		case changed <- s:
+		default:
+		}
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Let the watcher goroutine start before modifying the file.
+	time.Sleep(100 * time.Millisecond)
+
+	if err := UpdateSessionFile(path, "foo", "bar"); err != nil {
+		t.Fatalf("failed to update session file: %v", err)
+	}
+
+	select {
+	case s := <-changed:
+		if s.Extra["foo"] != "bar" {
+			t.Errorf("expected extra foo=bar, got %v", s.Extra)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("watcher did not detect the file change within 3s")
+	}
+
+	cancel()
+	wg.Wait()
 }
 
 func TestWatchSessionFile_Debounce(t *testing.T) {

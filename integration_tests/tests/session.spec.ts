@@ -120,7 +120,7 @@ test.describe('Session Integration Tests', () => {
     }
   });
 
-  test.skip('Editing session YAML updates metadata on web', async ({ page }) => {
+  test('Editing session YAML updates metadata on web', async ({ page }) => {
     const server = await startServer();
     const testEmail = `test-${Date.now()}@example.com`;
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-yaml-test-'));
@@ -149,31 +149,30 @@ test.describe('Session Integration Tests', () => {
 
       // Wait for session to appear in API
       const session = await waitForSessionInApi(server.url, token, tmuxSessionName!, 30000);
-      console.log('Session found in API:', session.ID);
+      console.log('Session found in API:', session.id);
 
       // Verify initial metadata
-      expect(session.Name).toBe(tmuxSessionName);
+      expect(session.name).toBe(tmuxSessionName);
 
-      // Update the session YAML file directly
+      // Update the session YAML file directly — the `devsesh watch` file
+      // watcher should sync it to the server.
       updateSessionYamlFile(sessionDir, sessionId, 'custom_key', 'custom_value');
       console.log('Updated YAML file with custom_key: custom_value');
 
-      // Wait for metadata to sync (file watcher has ~500ms debounce)
-      // Note: This test is expected to fail when run via PTY wrapper due to inotify limitations
-      // The file watcher code is correct, but the test infrastructure has limitations
+      // Wait for metadata to sync (file watcher has ~500ms debounce).
       const updatedSession = await waitForSessionMetadata(
         server.url,
         token,
         sessionId,
         'custom_key',
         'custom_value',
-        10000
+        15000
       );
-      console.log('Session metadata after YAML update:', updatedSession.Metadata);
+      console.log('Session metadata after YAML update:', updatedSession.metadata);
 
       // Verify metadata contains the new key-value pair
-      expect(updatedSession.Metadata).toContain('custom_key');
-      expect(updatedSession.Metadata).toContain('custom_value');
+      expect(updatedSession.metadata).toContain('custom_key');
+      expect(updatedSession.metadata).toContain('custom_value');
 
     } finally {
       // Clean up tmux session (use tmuxSessionName, not sessionId UUID)

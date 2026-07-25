@@ -108,7 +108,7 @@ func WatchSessionFile(ctx context.Context, wg *sync.WaitGroup, path string, debo
 
 	go func() {
 		defer wg.Done()
-		watcher.Close()
+		defer watcher.Close()
 
 		debouncer := util.NewDebouncer(debounceDelay, func() {
 			sf, err := ReadSessionFile(path)

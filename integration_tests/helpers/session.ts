@@ -131,8 +131,8 @@ export async function waitForSessionMetadata(
   while (Date.now() - startTime < timeout) {
     try {
       const session = await getSessionFromApi(serverUrl, token, sessionId);
-      if (session.Metadata) {
-        const metadata = JSON.parse(session.Metadata);
+      if (session.metadata) {
+        const metadata = JSON.parse(session.metadata);
         if (key in metadata) {
           if (value === undefined || metadata[key] === value) {
             return session;
@@ -171,12 +171,9 @@ export function updateSessionYamlFile(
   const content = fs.readFileSync(filePath, 'utf8');
   const data = yaml.parse(content);
 
-  // Initialize extra section if it doesn't exist
-  if (!data.extra) {
-    data.extra = {};
-  }
-
-  data.extra[key] = value;
+  // Extra keys are inline (top-level) in the session file — the Go SessionFile
+  // uses `yaml:",inline"`, and `devsesh set` writes them at the top level.
+  data[key] = value;
 
   const newContent = yaml.stringify(data);
   fs.writeFileSync(filePath, newContent, 'utf8');
