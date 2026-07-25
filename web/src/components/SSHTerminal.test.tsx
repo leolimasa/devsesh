@@ -10,7 +10,7 @@ import { createRef } from "react"
 const { mockFocus } = vi.hoisted(() => ({ mockFocus: vi.fn() }))
 
 // Mock xterm
-vi.mock("xterm", () => {
+vi.mock("@xterm/xterm", () => {
   return {
     Terminal: class MockTerminal {
       loadAddon = vi.fn()
@@ -25,7 +25,7 @@ vi.mock("xterm", () => {
   }
 })
 
-vi.mock("xterm-addon-fit", () => {
+vi.mock("@xterm/addon-fit", () => {
   return {
     FitAddon: class MockFitAddon {
       fit = vi.fn()

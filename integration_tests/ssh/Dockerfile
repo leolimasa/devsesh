@@ -1,6 +1,6 @@
 FROM alpine:latest
 
-RUN apk add --no-cache openssh-server tmux bash openssh-client expect curl
+RUN apk add --no-cache openssh-server tmux bash openssh-client expect curl neovim
 
 RUN adduser -D testuser && echo "testuser:testpass" | chpasswd
 

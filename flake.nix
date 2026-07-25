@@ -16,7 +16,7 @@
           pname = "devsesh-web";
           version = "0.1.0";
           src = ./web;
-          npmDepsHash = "sha256-Z8bq8WyPM7OQZIjMguNjQ0O/eOpD38MISj//Uf5Aevo=";
+          npmDepsHash = "sha256-ao7KRMji6C2g9B55V5nH0FAuvcT9zf3dgIxMYNLdUns=";
           npmBuild = "npm run build";
           installPhase = ''
             mkdir -p $out

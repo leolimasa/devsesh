@@ -32,7 +32,7 @@ vi.mock("@/hooks/useVisualViewport", () => ({
   useVisualViewport: () => ({ height: 768, inset: 0 }),
 }))
 
-vi.mock("xterm", () => ({
+vi.mock("@xterm/xterm", () => ({
   Terminal: class MockTerminal {
     loadAddon = vi.fn()
     open = vi.fn()
@@ -45,7 +45,7 @@ vi.mock("xterm", () => ({
   },
 }))
 
-vi.mock("xterm-addon-fit", () => ({
+vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class MockFitAddon { fit = vi.fn() },
 }))
 

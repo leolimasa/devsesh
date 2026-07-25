@@ -623,6 +623,60 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       if (ctx) await cleanupTestEnvironment(ctx);
     }
   });
+
+  // Regression guard: in stock neovim the normal-mode cursor must render as a
+  // solid, visible block (not disappear). Insert mode switches to a bar.
+  test('Neovim normal-mode cursor renders as a visible solid block', async ({ page }) => {
+    let ctx: TestContext | null = null;
+    try {
+      ctx = await setupTestEnvironmentWithSession(page, 'testsession');
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+      await connectAndAuthenticate(page, 'testpass');
+      await page.waitForSelector('.xterm-cursor', { timeout: 10000 });
+      await page.waitForTimeout(1000);
+
+      const inspect = () => page.evaluate(() => {
+        const el = document.querySelector('.xterm-cursor') as HTMLElement | null;
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return { className: el.className, bg: cs.backgroundColor, visibility: cs.visibility, opacity: cs.opacity };
+      });
+
+      const term = page.locator('.xterm-helper-textarea');
+      await term.focus();
+      await page.keyboard.type('nvim', { delay: 40 });
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(4000);
+      // Put some text on screen and return to normal mode so the cursor sits on
+      // a visible character.
+      await page.keyboard.type('iHELLO WORLD', { delay: 40 });
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(800);
+      await term.focus();
+      await page.waitForTimeout(500);
+
+      const normal = await inspect();
+      console.log('nvim normal-mode cursor =', JSON.stringify(normal));
+      expect(normal, 'cursor element should exist').not.toBeNull();
+      expect(normal!.className, 'normal mode should use a block cursor').toContain('xterm-cursor-block');
+      expect(normal!.visibility).toBe('visible');
+      // A solid block fills the cell with the cursor colour (white by default),
+      // i.e. it is not transparent / the same as the background.
+      expect(normal!.bg, `block cursor should be filled, got ${normal!.bg}`).not.toBe('rgba(0, 0, 0, 0)');
+
+      await page.keyboard.press('i');
+      await page.waitForTimeout(800);
+      const insert = await inspect();
+      console.log('nvim insert-mode cursor =', JSON.stringify(insert));
+      expect(insert!.className, 'insert mode should use a bar cursor').toContain('xterm-cursor-bar');
+
+      await page.keyboard.press('Escape');
+      await page.keyboard.type(':q!', { delay: 40 });
+      await page.keyboard.press('Enter');
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
 });
 
 // Helper function to setup test environment with specific session name

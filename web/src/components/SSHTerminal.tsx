@@ -6,9 +6,9 @@
  * authentication, auto-connect on mount, and auto-reconnect on unsolicited drop.
  */
 import { forwardRef, useImperativeHandle, useEffect, useRef, useState, useCallback } from "react"
-import { Terminal as XTerm } from "xterm"
-import { FitAddon } from "xterm-addon-fit"
-import "xterm/css/xterm.css"
+import { Terminal as XTerm } from "@xterm/xterm"
+import { FitAddon } from "@xterm/addon-fit"
+import "@xterm/xterm/css/xterm.css"
 import { SSHClient } from "@/lib/ssh-client"
 import { PasswordDialog } from "@/components/PasswordDialog"
 import { WebAuthnDialog } from "@/components/WebAuthnDialog"
