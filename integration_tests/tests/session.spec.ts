@@ -100,12 +100,9 @@ test.describe('Session Integration Tests', () => {
       // Verify we're on dashboard
       await expect(verificationPage.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 10000 });
       
-      // Wait for the session to appear on the dashboard
-      await expect(verificationPage.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
-      
-      // Also verify the session ID (truncated) appears - use first() to handle multiple matches
-      const truncatedId = sessionId.substring(0, 8);
-      await expect(verificationPage.getByText(truncatedId).first()).toBeVisible({ timeout: 5000 });
+      // Wait for the session to appear on the dashboard (by name — the ID is
+      // no longer displayed; the name is the row title).
+      await expect(verificationPage.getByText(tmuxSessionName!, { exact: true }).first()).toBeVisible({ timeout: 10000 });
 
     } finally {
       // Clean up tmux session (use tmuxSessionName, not sessionId UUID)
@@ -366,23 +363,24 @@ test.describe('Session Integration Tests', () => {
       await page.waitForLoadState('networkidle');
 
       // Wait for session to appear on dashboard
-      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(tmuxSessionName!, { exact: true }).first()).toBeVisible({ timeout: 10000 });
 
       // Verify session shows as "Active" on dashboard
-      const dashboardActiveStatus = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) })
+      const dashboardActiveStatus = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() })
         .locator('text=Active');
       await expect(dashboardActiveStatus).toBeVisible({ timeout: 5000 });
       console.log('Session shows as Active on dashboard');
 
-      // Verify the ping is not "Never" on dashboard
-      const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
-      const pingCell = dashboardRow.locator('td').nth(4);
+      // Verify the ping is not "Never" on dashboard. Columns (ID removed):
+      // Name(0) Host(1) Started(2) Last Ping(3) Status(4) Metadata(5) delete(6).
+      const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() });
+      const pingCell = dashboardRow.locator('td').nth(3);
       const pingText = await pingCell.textContent();
       console.log('Dashboard ping text:', pingText);
       expect(pingText).not.toBe('Never');
 
       // Navigate to session detail page
-      await page.getByText(tmuxSessionName!, { exact: true }).click();
+      await page.getByText(tmuxSessionName!, { exact: true }).first().click();
       await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
 
       // Verify session shows as "Active" on detail page
@@ -512,14 +510,14 @@ test.describe('Session Integration Tests', () => {
 
       await page.reload();
       await page.waitForLoadState('networkidle');
-      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(tmuxSessionName!, { exact: true }).first()).toBeVisible({ timeout: 10000 });
 
       // Use exact match on session name in the row filter
-      const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() });
       await expect(dashboardRow.locator('text=Active')).toBeVisible({ timeout: 5000 });
       console.log('Dashboard shows Active after activity');
 
-      await page.getByText(tmuxSessionName!, { exact: true }).click();
+      await page.getByText(tmuxSessionName!, { exact: true }).first().click();
       await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
       await expect(page.locator('text=Active').first()).toBeVisible({ timeout: 5000 });
       console.log('Detail page shows Active after activity');
@@ -568,8 +566,8 @@ test.describe('Session Integration Tests', () => {
       // re-fetching fresh state over REST every time.
       await page.reload();
       await page.waitForLoadState('networkidle');
-      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
-      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      await expect(page.getByText(tmuxSessionName!, { exact: true }).first()).toBeVisible({ timeout: 10000 });
+      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() });
       await expect(row.locator('text=Active')).toBeVisible({ timeout: 5000 });
       console.log('Dashboard shows Active shortly after continuous output started');
 
@@ -637,9 +635,9 @@ test.describe('Session Integration Tests', () => {
 
       await page.reload();
       await page.waitForLoadState('networkidle');
-      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(tmuxSessionName!, { exact: true }).first()).toBeVisible({ timeout: 10000 });
 
-      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() });
       await expect(row.locator('text=Active')).toBeVisible({ timeout: 5000 });
       console.log('Dashboard shows Active after triggering activity');
 
@@ -650,13 +648,13 @@ test.describe('Session Integration Tests', () => {
 
       await page.reload();
       await page.waitForLoadState('networkidle');
-      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(tmuxSessionName!, { exact: true }).first()).toBeVisible({ timeout: 10000 });
 
-      const rowAfter = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      const rowAfter = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() });
       await expect(rowAfter.locator('text=Inactive')).toBeVisible({ timeout: 5000 });
       console.log('Dashboard shows Inactive after activity window expired');
 
-      await page.getByText(tmuxSessionName!, { exact: true }).click();
+      await page.getByText(tmuxSessionName!, { exact: true }).first().click();
       await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
       await expect(page.locator('text=Inactive').first()).toBeVisible({ timeout: 5000 });
       console.log('Detail page shows Inactive');
@@ -702,17 +700,17 @@ test.describe('Session Integration Tests', () => {
       // Navigate back to dashboard
       await page.goto(`${server.url}/dashboard`);
       await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 5000 });
-      await expect(page.getByText(tmuxSessionName!, { exact: true })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(tmuxSessionName!, { exact: true }).first()).toBeVisible({ timeout: 10000 });
 
       // Accept the confirm dialog
       page.on('dialog', (dialog) => dialog.accept());
 
       // Click the delete button (✕) in the row containing our session
-      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }) });
+      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() });
       await row.locator('button:has-text("✕")').click();
 
       // Wait for the session to disappear from the dashboard
-      await expect(page.getByText(tmuxSessionName!, { exact: true })).not.toBeVisible({ timeout: 5000 });
+      await expect(page.getByText(tmuxSessionName!, { exact: true }).first()).not.toBeVisible({ timeout: 5000 });
       console.log('Session removed from dashboard');
 
       // Verify the session is gone from the API (returns 404)

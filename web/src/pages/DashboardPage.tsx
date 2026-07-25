@@ -45,10 +45,6 @@ function formatRelativeTime(dateStr: string | null): string {
   return formatDate(dateStr)
 }
 
-function truncateId(id: string): string {
-  return id.length > 8 ? id.substring(0, 8) + "..." : id
-}
-
 function parseMetadata(metadata: string | null): string {
   if (!metadata) return "-"
   try {
@@ -230,7 +226,6 @@ export default function DashboardPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Host</TableHead>
                   <TableHead>Started</TableHead>
@@ -244,8 +239,7 @@ export default function DashboardPage() {
                 {sessions.map((session) => (
                   <TableRow key={session.id} className="cursor-pointer">
                     <Link to={`/sessions/${session.id}`} className="contents">
-                      <TableCell className="font-mono">{truncateId(session.id)}</TableCell>
-                      <TableCell>{session.name || "-"}</TableCell>
+                      <TableCell className="font-medium">{session.name || "-"}</TableCell>
                       <TableCell>{session.host?.label || session.host?.hostname || "-"}</TableCell>
                       <TableCell>{formatDate(session.started_at)}</TableCell>
                       <TableCell>{formatRelativeTime(session.last_ping_at)}</TableCell>
@@ -282,14 +276,13 @@ export default function DashboardPage() {
                 <Card>
                   <CardHeader className="pb-2">
                     <div className="flex justify-between items-center">
-                      <CardTitle className="text-lg font-mono">{truncateId(session.id)}</CardTitle>
+                      <CardTitle className="text-lg">{session.name || "-"}</CardTitle>
                       <Badge variant={isActive(session) ? "success" : "secondary"}>
                         {isActive(session) ? "Active" : "Inactive"}
                       </Badge>
                     </div>
                   </CardHeader>
                   <CardContent className="text-sm space-y-1">
-                    <p><span className="text-muted-foreground">Name:</span> {session.name || "-"}</p>
                     <p><span className="text-muted-foreground">Host:</span> {session.host?.label || session.host?.hostname || "-"}</p>
                     <p><span className="text-muted-foreground">Started:</span> {formatDate(session.started_at)}</p>
                     <p><span className="text-muted-foreground">Last Ping:</span> {formatRelativeTime(session.last_ping_at)}</p>
