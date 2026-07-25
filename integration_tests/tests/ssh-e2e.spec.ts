@@ -678,6 +678,45 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
     }
   });
 
+  // Regression: the terminal must not overflow its container and cover the
+  // (bottom, on mobile) bar — otherwise its buttons become untappable. This
+  // reproduces the disconnected-state over-fit that hid the bar.
+  test('Terminal does not overflow onto the bottom bar on mobile (disconnected)', async ({ page }) => {
+    let ctx: TestContext | null = null;
+    try {
+      await page.setViewportSize({ width: 375, height: 812 });
+      ctx = await setupTestEnvironmentWithSession(page, 'testsession');
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+      // Dismiss auto-connect dialogs -> leaves the terminal DISCONNECTED (the
+      // state the failing test is in).
+      await page.locator('button:has-text("Use Password Instead")').waitFor({ state: 'visible', timeout: 30000 }).catch(() => {});
+      await page.evaluate(() => { for (const b of document.querySelectorAll('button')) if (b.textContent?.includes('Use Password Instead')) { (b as HTMLButtonElement).click(); return; } });
+      await page.waitForTimeout(1000);
+      await page.evaluate(() => { for (const b of document.querySelectorAll('button')) if (b.textContent?.trim() === 'Cancel') { (b as HTMLButtonElement).click(); return; } });
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 });
+      await page.waitForTimeout(3000);
+      // The real invariant: the bar (and its buttons) must not be covered by
+      // the terminal. Sample the topmost element at several points across the
+      // bar; each must be inside the bar, not the terminal.
+      const probe = await page.evaluate(() => {
+        const bar = document.querySelector('[data-testid="session-top-bar"]') as HTMLElement | null;
+        if (!bar) return { ok: false, reason: 'no bar' };
+        const r = bar.getBoundingClientRect();
+        const y = r.top + r.height / 2;
+        const covered: string[] = [];
+        for (const frac of [0.1, 0.5, 0.9]) {
+          const el = document.elementFromPoint(r.left + r.width * frac, y);
+          if (!bar.contains(el)) covered.push(`${frac}:${el?.className || el?.tagName}`);
+        }
+        return { ok: covered.length === 0, covered };
+      });
+      console.log('BAR PROBE:', JSON.stringify(probe));
+      expect(probe.ok, `bar must not be covered by the terminal: ${JSON.stringify(probe.covered)}`).toBe(true);
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
+
   // The bundled JetBrainsMono Nerd Font must be served and loaded so the
   // terminal can render powerline/airline separators and Nerd Font icons.
   test('Bundled JetBrainsMono Nerd Font is served and loaded by the terminal', async ({ page }) => {

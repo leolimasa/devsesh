@@ -421,7 +421,12 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       }
     }, [status, sessionName])
 
-    // --- Keyboard-aware sizing via visualViewport ---
+    // --- Keep the terminal fitted to its container ---
+    // Re-fit when the visual viewport (keyboard), the loading->visible
+    // transition, or the measured top-bar height changes. topBarHeight is
+    // essential: it settles after first paint, and without re-fitting the
+    // terminal keeps an over-tall grid that overflows its container and covers
+    // the (bottom, on mobile) bar.
     useEffect(() => {
       if (!fitAddonRef.current || !xtermRef.current || !sshClientRef.current) return
       const term = xtermRef.current
@@ -433,7 +438,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         sshClientRef.current?.resize(rows, cols)
       }, 50)
       return () => clearTimeout(timer)
-    }, [viewportHeight, loading])
+    }, [viewportHeight, topBarHeight, loading])
 
     const handlePasswordSubmit = useCallback((password: string) => {
       if (sshClientRef.current) {
@@ -466,7 +471,9 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         )}
         <div
           ref={terminalRef}
-          className={loading ? "hidden" : "flex-1"}
+          // overflow-hidden so a transiently over-tall xterm grid can never
+          // spill out and cover the bar (which would block taps on it).
+          className={loading ? "hidden" : "flex-1 overflow-hidden"}
           style={{
             height: viewportHeight > 0 ? `${viewportHeight - topBarHeight}px` : "100%",
           }}
