@@ -116,7 +116,6 @@ export default function RegisterPage() {
         prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } }
       }
 
-      let encryptedMasterKey: string
       const masterKey = generateMasterKey()
       let prfOutput: Uint8Array | null = null
 
@@ -187,7 +186,7 @@ export default function RegisterPage() {
       combined.set(nonce, 0)
       combined.set(ciphertext, 12)
       const versioned = formatEncryptedMasterKey(combined)
-      encryptedMasterKey = encodeBase64(versioned)
+      const encryptedMasterKey = encodeBase64(versioned)
 
       // Convert credential to JSON format for server
       const credentialJSON = {
