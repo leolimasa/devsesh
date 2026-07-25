@@ -295,6 +295,11 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       const term = new XTerm({
         cursorBlink: true,
+        // Keep the block cursor a solid block even when the terminal isn't
+        // focused. By default an unfocused block renders as a faint hollow
+        // outline, which reads as the cursor "disappearing" in neovim normal
+        // mode. (We intentionally do NOT auto-focus the terminal.)
+        cursorInactiveStyle: "block",
         fontSize: 14,
         fontFamily: "monospace",
         theme: {

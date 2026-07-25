@@ -593,6 +593,36 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       if (ctx) await cleanupTestEnvironment(ctx);
     }
   });
+
+  // The block cursor (neovim normal mode / shell default) must stay visible even
+  // when the terminal isn't focused. By default xterm renders an unfocused block
+  // as a hard-to-see hollow outline, which reads as "the cursor disappears in
+  // normal mode". cursorInactiveStyle: 'block' keeps it a solid block.
+  test('Block cursor stays visible (solid) when the terminal is not focused', async ({ page }) => {
+    let ctx: TestContext | null = null;
+    try {
+      ctx = await setupTestEnvironmentWithSession(page, 'testsession');
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+      await connectAndAuthenticate(page, 'testpass');
+      await page.waitForSelector('.xterm-cursor', { timeout: 10000 });
+      await page.waitForTimeout(2000);
+
+      await page.locator('.xterm-helper-textarea').focus();
+      await page.waitForTimeout(500);
+      const focused = await page.evaluate(() => document.querySelector('.xterm-cursor')?.className || '(none)');
+
+      // Blur the terminal without grabbing focus back.
+      await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+      await page.waitForTimeout(500);
+      const blurred = await page.evaluate(() => document.querySelector('.xterm-cursor')?.className || '(none)');
+
+      console.log('cursor: focused =', JSON.stringify(focused), 'blurred =', JSON.stringify(blurred));
+      expect(focused, 'focused cursor should be a solid block').toContain('xterm-cursor-block');
+      expect(blurred, `unfocused cursor should stay a solid block, not a hollow outline (got ${blurred})`).toContain('xterm-cursor-block');
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
 });
 
 // Helper function to setup test environment with specific session name
