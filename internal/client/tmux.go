@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bufio"
 	"context"
 	"io"
 	"log/slog"
@@ -131,6 +132,86 @@ func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, e
 	}()
 
 	return cmd, nil
+}
+
+// NewSessionDetached creates a new detached tmux session. Because the session
+// lives in the tmux server daemon (which is reparented to init), it outlives
+// whatever process created it -- unlike a foreground `new-session` client. The
+// env map is injected into the session environment via `-e` so tools running
+// inside the session (e.g. `devsesh set`) can read DEVSESH_* variables.
+func NewSessionDetached(sessionName string, env map[string]string) error {
+	args := []string{"-2", "new-session", "-d", "-s", sessionName}
+	for k, v := range env {
+		args = append(args, "-e", k+"="+v)
+	}
+	cmd := exec.Command("tmux", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		slog.Error("failed to create detached tmux session", "error", err, "session_name", sessionName, "output", string(out))
+		return err
+	}
+	return nil
+}
+
+// SetSessionEnv sets an environment variable on an existing tmux session. This
+// only affects newly created windows/panes, so it is best-effort for sessions
+// that already have running shells.
+func SetSessionEnv(sessionName, key, value string) error {
+	cmd := exec.Command("tmux", "set-environment", "-t", sessionName, key, value)
+	if err := cmd.Run(); err != nil {
+		slog.Warn("failed to set tmux session env", "error", err, "session_name", sessionName, "key", key)
+		return err
+	}
+	return nil
+}
+
+// WatchControlMode attaches to an existing tmux session as a read-only control
+// mode client and invokes onActivity for every chunk of pane output the session
+// produces. Control mode gives a second, non-interactive view of the session
+// that is independent of any interactive attach: its lifetime tracks the tmux
+// session itself, so this call blocks until the session is destroyed, the tmux
+// server exits, or ctx is cancelled -- then returns nil.
+//
+// The client attaches read-only (`-r`) so it is excluded from tmux's window
+// sizing calculation and never disturbs the size the human's terminal drives.
+func WatchControlMode(ctx context.Context, sessionName string, onActivity func()) error {
+	cmd := exec.CommandContext(ctx, "tmux", "-C", "attach-session", "-r", "-t", sessionName)
+
+	// Control mode reads commands from stdin; it exits on stdin EOF. Hold the
+	// pipe open for the life of the client so the session isn't detached out
+	// from under us. We never need to write to it.
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = nil
+
+	if err := cmd.Start(); err != nil {
+		slog.Error("failed to start tmux control-mode client", "error", err, "session_name", sessionName)
+		return err
+	}
+
+	// Read notifications line by line. %output / %extended-output lines carry
+	// pane output and mean the session is producing activity.
+	r := bufio.NewReader(stdout)
+	for {
+		line, err := r.ReadString('\n')
+		if len(line) > 0 {
+			if strings.HasPrefix(line, "%output") || strings.HasPrefix(line, "%extended-output") {
+				onActivity()
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	stdin.Close()
+	cmd.Wait()
+	return nil
 }
 
 func KillSession(sessionName string) error {

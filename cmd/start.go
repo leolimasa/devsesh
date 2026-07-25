@@ -1,14 +1,12 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"sync"
-	"time"
+	"syscall"
 
 	"github.com/google/uuid"
 	"github.com/leolimasa/devsesh/internal/client"
@@ -26,8 +24,6 @@ func NewStartCmd() *cobra.Command {
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
-
 	if os.Getenv("DEVSESH_SESSION_ID") != "" {
 		return fmt.Errorf("already inside a devsesh session")
 	}
@@ -45,127 +41,93 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in. Please run 'devsesh login <url>' first")
 	}
 
-	sessionID := uuid.New().String()
 	sessionName := "Unnamed Session"
 	if len(args) > 0 {
 		sessionName = args[0]
 	}
 
-	sessionsDir := cfg.SessionsDir
-	if sessionsDir == "" {
-		homeDir, _ := user.Current()
-		sessionsDir = filepath.Join(homeDir.HomeDir, ".devsesh", "sessions")
+	// If a tmux session with this name already exists, just attach to it. It is
+	// presumed to already be watched (or the user can run `devsesh watch`); we
+	// must not create a duplicate session or a second watcher.
+	if client.SessionExists(sessionName) {
+		return client.AttachSession(sessionName)
 	}
 
+	sessionID := uuid.New().String()
+
+	sessionsDir := cfg.SessionsDir
+	if sessionsDir == "" {
+		if u, err := user.Current(); err == nil {
+			sessionsDir = filepath.Join(u.HomeDir, ".devsesh", "sessions")
+		}
+	}
 	if err := os.MkdirAll(sessionsDir, 0700); err != nil {
 		return fmt.Errorf("failed to create sessions directory: %w", err)
 	}
 
 	sessionFile := filepath.Join(sessionsDir, sessionID+".yml")
 
-	sessionLogger, err := client.NewSessionLogger(sessionID, sessionsDir)
-	if err != nil {
-		return fmt.Errorf("failed to create session logger: %w", err)
-	}
-	defer sessionLogger.Close()
-
 	sf, err := client.NewSessionFile(sessionID, sessionName)
 	if err != nil {
-		sessionLogger.Logger().Error("failed to create session file", "error", err)
 		return fmt.Errorf("failed to create session file: %w", err)
 	}
-
 	if err := client.WriteSessionFile(sessionFile, sf); err != nil {
-		sessionLogger.Logger().Error("failed to write session file", "error", err)
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
 
-	apiClient := client.NewAPIClient(cfg.ServerURL, cfg.JWTToken)
-
-	if err := apiClient.NotifySessionStart(sessionID, *sf); err != nil {
-		sessionLogger.Logger().Error("failed to notify session start", "error", err)
-	}
-
-	os.Setenv("DEVSESH_SESSION_ID", sessionID)
-	os.Setenv("DEVSESH_SESSION_FILE", sessionFile)
-	os.Setenv("DEVSESH_SESSION_NAME", sessionName)
-
-	signalCtx, cancelSignal := context.WithCancel(ctx)
-	defer cancelSignal()
-
-	var wg sync.WaitGroup
-
-	// Start file watcher BEFORE starting the tmux session
-	// This ensures we don't miss any file changes
-	if err := client.WatchSessionFile(signalCtx, &wg, sessionFile, 500*time.Millisecond, func(sf client.SessionFile) {
-		sessionLogger.Logger().Debug("file watcher callback triggered", "extra", sf.Extra)
-		meta := map[string]any{
-			"name":      sf.Name,
-			"start_time": sf.StartTime,
-			"hostname":  sf.Hostname,
-			"cwd":       sf.Cwd,
-		}
-		for k, v := range sf.Extra {
-			meta[k] = v
-		}
-		sessionLogger.Logger().Debug("updating session metadata", "meta", meta)
-		if err := apiClient.UpdateSessionMeta(sessionID, meta); err != nil {
-			sessionLogger.Logger().Error("failed to update session meta", "error", err)
-		}
-	}); err != nil {
-		sessionLogger.Logger().Error("failed to watch session file", "error", err)
-	}
-
-	onActivity := func() {
-		if err := apiClient.SendActivity(sessionID); err != nil {
-			sessionLogger.Logger().Error("failed to send activity", "error", err)
-		}
-	}
-
-	// Start ping heartbeat goroutine: sends a ping every 5 seconds for as
-	// long as the tmux process is alive. Stops when signalCtx is cancelled.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-signalCtx.Done():
-				return
-			case <-ticker.C:
-				if err := apiClient.PingSession(sessionID); err != nil {
-					sessionLogger.Logger().Error("failed to ping session", "error", err)
-				}
-			}
-		}
-	}()
-
-	tmuxCmd, err := client.StartSession(signalCtx, &wg, sessionName, map[string]string{
+	// Create the tmux session detached. It lives in the tmux server daemon, so
+	// it survives this process (and the SSH connection that launched it). The
+	// DEVSESH_* env is injected so `devsesh set` works inside the session.
+	env := map[string]string{
 		"DEVSESH_SESSION_ID":   sessionID,
 		"DEVSESH_SESSION_FILE": sessionFile,
 		"DEVSESH_SESSION_NAME": sessionName,
-	}, onActivity)
-	if err != nil {
-		sessionLogger.Logger().Error("failed to start tmux session", "error", err)
+	}
+	if err := client.NewSessionDetached(sessionName, env); err != nil {
 		return fmt.Errorf("failed to start tmux session: %w", err)
 	}
 
-	err = tmuxCmd.Wait()
-	cancelSignal()
-	wg.Wait()
-
-	if err := apiClient.NotifySessionEnd(sessionID); err != nil {
-		sessionLogger.Logger().Error("failed to notify session end", "error", err)
+	// Spawn the watcher: a detached (setsid) process whose lifetime tracks the
+	// tmux session's, independent of this foreground process. It owns the ping
+	// heartbeat, the activity signal, and the end notification. If it fails to
+	// spawn we still attach -- the session just won't be monitored.
+	if err := spawnWatcher(sessionID, sessionName, sessionsDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to start session watcher: %v\n", err)
 	}
 
-	logFile := filepath.Join(sessionsDir, sessionID+".log")
-	os.Remove(sessionFile)
-	os.Remove(logFile)
+	// Replace this process with an interactive attach. When the user detaches
+	// or the SSH connection drops, only this attach dies; the tmux session and
+	// its watcher keep running.
+	return client.AttachSession(sessionName)
+}
 
-	os.Unsetenv("DEVSESH_SESSION_ID")
-	os.Unsetenv("DEVSESH_SESSION_FILE")
-	os.Unsetenv("DEVSESH_SESSION_NAME")
+// spawnWatcher launches `devsesh watch` as a detached background process. It is
+// placed in its own session (Setsid) so a SIGHUP delivered to the launching
+// terminal's process group when the SSH connection closes cannot reach it. Its
+// output is redirected to the session log file.
+func spawnWatcher(sessionID, sessionName, sessionsDir string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
 
-	return nil
+	logPath := filepath.Join(sessionsDir, sessionID+".log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
+
+	c := exec.Command(exe, "watch", sessionName, "--id", sessionID)
+	c.Env = os.Environ()
+	c.Stdin = nil // /dev/null
+	c.Stdout = logFile
+	c.Stderr = logFile
+	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := c.Start(); err != nil {
+		return err
+	}
+	// Detach: do not wait on the watcher; it runs for the life of the session.
+	return c.Process.Release()
 }

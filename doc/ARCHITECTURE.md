@@ -17,16 +17,36 @@ Devsesh is a client-server system for tracking development sessions and long run
 
 ### Session Sync
 
-When a session starts, the CLI:
-1. Creates a session file (`~/.devsesh/sessions/<uuid>.yml`) with metadata
-2. Starts a tmux session
-3. Notifies the server via `POST /api/v1/sessions/{id}/start`
+Liveness and activity are bound to the **tmux session's** lifetime, not to the
+shell that launched it. A tmux session lives in the tmux server daemon (which is
+reparented to `init`), so it outlives the process that created it — closing your
+terminal or dropping an SSH connection must not stop its monitoring. To achieve
+this, monitoring is owned by a dedicated `devsesh watch` process that is
+decoupled from the foreground `devsesh start`.
 
-While the session runs, the CLI:
+When a session starts, `devsesh start`:
+1. Creates a session file (`~/.devsesh/sessions/<uuid>.yml`) with metadata
+2. Creates a **detached** tmux session (injecting the `DEVSESH_*` env vars)
+3. Spawns a detached `devsesh watch` process — placed in its own session via
+   `setsid`, so a `SIGHUP` delivered when the launching terminal/SSH connection
+   closes cannot reach it
+4. Replaces itself with an interactive `tmux attach`
+
+The `devsesh watch <name>` process owns the session's server-side lifecycle for
+as long as the tmux session is alive. It observes the session in tmux **control
+mode** (`tmux -C attach -r` — a read-only client that receives all pane output
+but is excluded from window-size calculations, so it never disturbs the
+interactive client's size), and:
+- **Registers the session** via `POST /api/v1/sessions/{id}/start`
 - **Pings the server** every 5 seconds to signal liveness (drives `last_ping_at`, used for stale session cleanup)
-- **Sends activity events** when there's output from the tmux session (throttled to at most 1/sec, drives `last_activity_at`, used for the Active indicator)
+- **Sends activity events** for pane output observed over control mode (throttled to at most 1/sec, drives `last_activity_at`, used for the Active indicator)
 - **Watches the session file** for changes and syncs metadata to the server
-- **Notifies the server** when the session ends
+- **Notifies the server that the session ended** (`POST /api/v1/sessions/{id}/end`) only when the tmux session itself is gone — detaching or an SSH drop does **not** end the session
+
+Because the watcher lives in the tmux server's world rather than the launching
+shell's, closing your terminal or dropping SSH leaves the session monitored and
+its heartbeat flowing. `devsesh watch <name>` can also be run standalone to
+(re)attach monitoring to any existing tmux session that has no watcher.
 
 The server broadcasts all updates via WebSocket to connected web clients for real-time display.
 
@@ -54,6 +74,7 @@ The CLI is part of the same binary as the server, accessed via subcommands.
 **Key Responsibilities:**
 - Session lifecycle (start, stop, resume, delete)
 - tmux process management
+- Session-lifetime liveness/activity monitoring via a detached `devsesh watch` process (control mode)
 - Session file watching and metadata sync
 - Device pairing with server
 
@@ -75,11 +96,12 @@ A React SPA embedded in the Go binary and served by the server.
 
 1. User runs `devsesh start myproject`
 2. CLI generates UUID, creates session file at `~/.devsesh/sessions/<uuid>.yml`
-3. CLI starts a new tmux session
-4. CLI calls `POST /api/v1/sessions/<id>/start` to notify server
-5. Server creates session record in SQLite
-6. Server broadcasts update via WebSocket to connected web clients
-7. Dashboard updates in real-time
+3. CLI creates a **detached** tmux session (injecting the `DEVSESH_*` env vars)
+4. CLI spawns a detached `devsesh watch` process bound to the tmux session's lifetime
+5. `devsesh watch` calls `POST /api/v1/sessions/<id>/start` to register the session
+6. Server creates session record in SQLite and broadcasts via WebSocket
+7. CLI replaces itself with `tmux attach`; the watcher keeps pinging/observing independently
+8. Dashboard updates in real-time
 
 ### Authentication Flow
 

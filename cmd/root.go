@@ -20,6 +20,7 @@ func ExecuteWithLogger(logger *slog.Logger) error {
 	ctx := context.WithValue(context.Background(), "logger", logger)
 	rootCmd.AddCommand(NewLoginCmd())
 	rootCmd.AddCommand(NewStartCmd())
+	rootCmd.AddCommand(NewWatchCmd())
 	rootCmd.AddCommand(NewSetCmd())
 	rootCmd.AddCommand(NewStopCmd())
 	rootCmd.AddCommand(NewListCmd())

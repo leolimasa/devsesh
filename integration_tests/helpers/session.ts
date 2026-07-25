@@ -3,7 +3,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
-import { DevseshProcess, spawnDevseshWithPty, getBinaryPath } from './binary';
+import { DevseshProcess, spawnDevsesh, spawnDevseshWithPty, getBinaryPath } from './binary';
 
 const execAsync = promisify(exec);
 
@@ -180,6 +180,105 @@ export function updateSessionYamlFile(
 
   const newContent = yaml.stringify(data);
   fs.writeFileSync(filePath, newContent, 'utf8');
+}
+
+/**
+ * Spawn `devsesh watch <name>` against an existing tmux session.
+ * No PTY is needed: watch observes the session over tmux control mode.
+ */
+export function spawnDevseshWatch(
+  tmuxSessionName: string,
+  configPath: string,
+  sessionDir: string,
+  serverUrl: string
+): DevseshProcess {
+  return spawnDevsesh(['watch', tmuxSessionName], {
+    DEVSESH_CONFIG_FILE: configPath,
+    DEVSESH_SESSIONS_DIR: sessionDir,
+    DEVSESH_SERVER_URL: serverUrl,
+  });
+}
+
+/**
+ * Create a detached tmux session directly (not via devsesh), as if the user
+ * had an existing session they now want devsesh to watch.
+ */
+export async function tmuxNewSessionDetached(name: string): Promise<void> {
+  await execAsync(`tmux new-session -d -s "${name}"`);
+}
+
+/**
+ * Whether a tmux session with the given name currently exists.
+ */
+export async function tmuxHasSession(name: string): Promise<boolean> {
+  try {
+    await execAsync(`tmux has-session -t "${name}"`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Poll the API until the session's last_ping_at advances past `afterMs`.
+ * Returns the ping time (ms). Throws if it never advances within `timeout`.
+ */
+export async function waitForPingAfter(
+  serverUrl: string,
+  token: string,
+  sessionId: string,
+  afterMs: number,
+  timeout: number = 15000
+): Promise<number> {
+  const startTime = Date.now();
+  const pollInterval = 500;
+  let last = -1;
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const session = await getSessionFromApi(serverUrl, token, sessionId);
+      if (session.last_ping_at) {
+        last = new Date(session.last_ping_at).getTime();
+        if (last > afterMs) {
+          return last;
+        }
+      }
+    } catch {
+      // keep polling
+    }
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+
+  throw new Error(
+    `last_ping_at did not advance past ${new Date(afterMs).toISOString()} within ${timeout}ms (last seen: ${last > 0 ? new Date(last).toISOString() : 'null'})`
+  );
+}
+
+/**
+ * Poll the API until the session's ended_at becomes non-null. Throws on timeout.
+ */
+export async function waitForSessionEnded(
+  serverUrl: string,
+  token: string,
+  sessionId: string,
+  timeout: number = 15000
+): Promise<Session> {
+  const startTime = Date.now();
+  const pollInterval = 500;
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const session = await getSessionFromApi(serverUrl, token, sessionId);
+      if (session.ended_at) {
+        return session;
+      }
+    } catch {
+      // keep polling
+    }
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+  }
+
+  throw new Error(`Session ${sessionId} was not marked ended within ${timeout}ms`);
 }
 
 /**

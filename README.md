@@ -7,6 +7,7 @@ Ideal for monitoring AI agents and long running processes across machines.
 ## Features
 
 - **Session Tracking** - Automatically track tmux sessions with metadata like project name, branch, and working directory
+- **Session-lifetime monitoring** - Liveness and activity are bound to the tmux session itself, not the shell that started it, so monitoring survives detaching or an SSH disconnect
 - **Passkey Authentication** - Secure WebAuthn/FIDO2 passkey-based login
 - **Idle detection** - Automatically detect when sessions are idle (no terminal output for 5 seconds)
 - **Real-time Updates** - Live session updates via WebSocket
@@ -44,6 +45,7 @@ devsesh start
 | `devsesh server`            | Start the devsesh server                  |
 | `devsesh migrate`           | Run database migrations                   |
 | `devsesh start [name]`      | Start a new tracked session               |
+| `devsesh watch <name>`      | Monitor an existing tmux session's liveness/activity |
 | `devsesh stop`              | End the current session                   |
 | `devsesh list`              | List all sessions for the current machine |
 | `devsesh attach [name]`     | Attach to a session                       |
