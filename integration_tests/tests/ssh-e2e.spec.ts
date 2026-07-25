@@ -5,6 +5,7 @@ import { spawnDevseshStart, killTmuxSession, waitForSessionInApi } from '../help
 import {
   startSSHContainer as startContainer,
   stopSSHContainer as stopContainer,
+  execInContainer,
   SSHContainer,
 } from '../helpers/ssh-container';
 import * as path from 'path';
@@ -550,6 +551,44 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
       await expect(terminalScreen).toContainText('HELLO_FROM_TMUX', { timeout: 10000 });
 
       console.log('✅ Terminal sends keystrokes test passed!');
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
+
+  // On load the terminal must negotiate a pty size that fits the viewport, not
+  // stay at the 80x24 default. On a 375px-wide mobile viewport a correctly
+  // fitted terminal is well under 80 columns and taller than 24 rows. This
+  // reproduces the "terminal doesn't size on load" bug: the pty was opened at
+  // the default size while the container was still hidden/settling and never
+  // re-sized after connecting.
+  test('Terminal pty is fitted to the viewport on mobile load', async ({ page }) => {
+    let ctx: TestContext | null = null;
+    try {
+      await page.setViewportSize({ width: 375, height: 812 });
+      ctx = await setupTestEnvironmentWithSession(page, 'testsession');
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+
+      // Drive auth. On mobile the "Connected" label is hidden (only the status
+      // dot shows), so we don't rely on connectAndAuthenticate's return value;
+      // instead we wait for the web terminal to attach as a tmux client.
+      await connectAndAuthenticate(page, 'testpass');
+
+      let clients = '';
+      for (let i = 0; i < 30; i++) {
+        clients = execInContainer(
+          'devsesh-ssh-test-integration',
+          "tmux list-clients -t testsession -F '#{client_width}x#{client_height}'",
+        );
+        if (clients.trim()) break;
+        await page.waitForTimeout(1000);
+      }
+      const box = await page.locator('.xterm-screen').boundingBox();
+      console.log('mobile pty: tmux clients =', JSON.stringify(clients), 'xterm-screen box =', JSON.stringify(box));
+
+      const [cols, rows] = clients.trim().split('\n')[0].split('x').map(Number);
+      expect(cols, `pty should fit the narrow mobile viewport, not the 80-col default (got ${clients})`).toBeLessThan(70);
+      expect(rows, `pty should fill the tall mobile viewport, not the 24-row default (got ${clients})`).toBeGreaterThan(30);
     } finally {
       if (ctx) await cleanupTestEnvironment(ctx);
     }

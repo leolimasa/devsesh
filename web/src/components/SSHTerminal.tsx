@@ -386,6 +386,20 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       if (status === "connected" && sshClientRef.current && !hasExecutedRef.current) {
         hasExecutedRef.current = true
         sshClientRef.current.exec(`tmux attach -t ${sessionName}`)
+        // The pty was opened at the default size while the terminal container
+        // was still hidden/settling (its width/height aren't known until the
+        // layout settles after first paint), so tmux would draw at the wrong
+        // size until the next resize event. Once attached, fit to the real
+        // container and push the size so it's correct on first load. The short
+        // delay lets tmux finish attaching so the resize triggers a redraw.
+        const t = setTimeout(() => {
+          if (fitAddonRef.current && xtermRef.current && sshClientRef.current) {
+            fitAddonRef.current.fit()
+            const { rows, cols } = xtermRef.current
+            sshClientRef.current.resize(rows, cols)
+          }
+        }, 300)
+        return () => clearTimeout(t)
       }
     }, [status, sessionName])
 
