@@ -6,8 +6,8 @@ import type { Host } from "@/types/api"
 import type { ReactNode } from "react"
 import { createRef } from "react"
 
-// Shared focus mock so tests can assert the terminal is refocused.
-const { mockFocus } = vi.hoisted(() => ({ mockFocus: vi.fn() }))
+// Shared mocks so tests can assert the terminal is refocused / refitted.
+const { mockFocus, mockFit } = vi.hoisted(() => ({ mockFocus: vi.fn(), mockFit: vi.fn() }))
 
 // Mock xterm
 vi.mock("xterm", () => {
@@ -28,7 +28,7 @@ vi.mock("xterm", () => {
 vi.mock("xterm-addon-fit", () => {
   return {
     FitAddon: class MockFitAddon {
-      fit = vi.fn()
+      fit = mockFit
     },
   }
 })
@@ -114,9 +114,22 @@ describe("SSHTerminal", () => {
     updated_at: "2024-01-01T00:00:00Z",
   }
 
+  // Capture the ResizeObserver callback so a test can simulate a container
+  // resize (jsdom doesn't lay out or fire ResizeObserver on its own).
+  let resizeObserverCallback: (() => void) | null = null
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockInit.mockResolvedValue(undefined)
+    resizeObserverCallback = null
+    global.ResizeObserver = class {
+      constructor(cb: () => void) {
+        resizeObserverCallback = cb
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
   })
 
   it("renders loading state initially", () => {
@@ -271,6 +284,27 @@ describe("SSHTerminal", () => {
     ref.current!.sendKeys([{ type: "combo", ctrl: true, alt: false, shift: false, key: "c" }])
     expect(mockSendInput).toHaveBeenCalled()
     expect(mockFocus).not.toHaveBeenCalled()
+  })
+
+  it("re-fits the terminal and resizes the pty when the container resizes", async () => {
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" topBarHeight={40} />)
+
+    await waitFor(() => {
+      expect(mockInit).toHaveBeenCalled()
+    })
+    // The container is observed once mounted.
+    expect(resizeObserverCallback).not.toBeNull()
+
+    // The layout settling (e.g. the measured top-bar height changing, or the
+    // loading->visible transition) resizes the container. That must trigger a
+    // re-fit and a pty resize -- not wait for the next window/keyboard resize.
+    mockFit.mockClear()
+    mockResize.mockClear()
+    act(() => {
+      resizeObserverCallback!()
+    })
+    expect(mockFit).toHaveBeenCalled()
+    expect(mockResize).toHaveBeenCalledWith(24, 80)
   })
 
   it("auto-reconnects after an unsolicited drop", async () => {

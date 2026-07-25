@@ -389,19 +389,27 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       }
     }, [status, sessionName])
 
-    // --- Keyboard-aware sizing via visualViewport ---
+    // --- Keep the terminal fitted to its container ---
+    // Fitting only on mount leaves the terminal at the wrong size until the
+    // next resize event: the container's final size isn't known until layout
+    // settles after first paint (the visual-viewport height, the measured
+    // top-bar height, and the loading -> visible transition all arrive later).
+    // A ResizeObserver re-fits on every real size change of the container --
+    // initial settle, on-screen keyboard opening, and window resize alike --
+    // and pushes the new dimensions to the remote pty.
     useEffect(() => {
-      if (!fitAddonRef.current || !xtermRef.current || !sshClientRef.current) return
-      const term = xtermRef.current
-      const fitAddon = fitAddonRef.current
-      // Small delay to let the layout settle
-      const timer = setTimeout(() => {
-        fitAddon.fit()
-        const { rows, cols } = term
+      const el = terminalRef.current
+      if (!el || typeof ResizeObserver === "undefined") return
+      const refit = () => {
+        if (!fitAddonRef.current || !xtermRef.current) return
+        fitAddonRef.current.fit()
+        const { rows, cols } = xtermRef.current
         sshClientRef.current?.resize(rows, cols)
-      }, 50)
-      return () => clearTimeout(timer)
-    }, [viewportHeight, loading])
+      }
+      const obs = new ResizeObserver(refit)
+      obs.observe(el)
+      return () => obs.disconnect()
+    }, [])
 
     const handlePasswordSubmit = useCallback((password: string) => {
       if (sshClientRef.current) {
