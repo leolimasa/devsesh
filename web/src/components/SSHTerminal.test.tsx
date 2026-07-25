@@ -178,6 +178,12 @@ describe("SSHTerminal", () => {
     await waitFor(() => {
       expect(mockExec).toHaveBeenCalledWith("tmux attach -t my-session-uuid")
     })
+    // After attaching, the pty must be resized to the settled terminal size so
+    // tmux draws correctly on first load (not only after a later resize).
+    await waitFor(() => {
+      expect(mockFit).toHaveBeenCalled()
+      expect(mockResize).toHaveBeenCalledWith(24, 80)
+    })
   })
 
   it("uses session name for tmux attach command", async () => {

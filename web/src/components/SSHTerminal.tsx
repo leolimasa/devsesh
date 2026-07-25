@@ -386,6 +386,19 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       if (status === "connected" && sshClientRef.current && !hasExecutedRef.current) {
         hasExecutedRef.current = true
         sshClientRef.current.exec(`tmux attach -t ${sessionName}`)
+        // The pty was opened while the terminal container was still hidden and
+        // its size was still settling (visual-viewport height + measured
+        // top-bar height arrive after first paint), so it has a stale size and
+        // tmux would draw at the wrong size until the next resize event. Now
+        // that we're connected and the layout has settled, re-fit and push the
+        // real size to the pty so it's correct on first load.
+        requestAnimationFrame(() => {
+          if (fitAddonRef.current && xtermRef.current) {
+            fitAddonRef.current.fit()
+            const { rows, cols } = xtermRef.current
+            sshClientRef.current?.resize(rows, cols)
+          }
+        })
       }
     }, [status, sessionName])
 
