@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import { isActive } from "@/lib/session"
+import { isActive, statusMetadata } from "@/lib/session"
 import type { Session } from "@/types/api"
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -59,5 +59,28 @@ describe("isActive", () => {
       ended_at: "2024-01-01T00:00:06Z",
     })
     expect(isActive(session)).toBe(false)
+  })
+})
+
+describe("statusMetadata", () => {
+  it("returns the status value from metadata JSON", () => {
+    expect(statusMetadata(JSON.stringify({ name: "s", status: "running tests" }))).toBe("running tests")
+  })
+
+  it("returns null when there is no status key", () => {
+    expect(statusMetadata(JSON.stringify({ name: "s", cwd: "/tmp" }))).toBeNull()
+  })
+
+  it("returns null for empty status", () => {
+    expect(statusMetadata(JSON.stringify({ status: "" }))).toBeNull()
+  })
+
+  it("returns null for null / invalid metadata", () => {
+    expect(statusMetadata(null)).toBeNull()
+    expect(statusMetadata("not json")).toBeNull()
+  })
+
+  it("coerces non-string status values to string", () => {
+    expect(statusMetadata(JSON.stringify({ status: 42 }))).toBe("42")
   })
 })

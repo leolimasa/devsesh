@@ -190,6 +190,89 @@ test.describe('Session Integration Tests', () => {
     }
   });
 
+  test('Status metadata appears live on the dashboard via websocket (no reload)', async ({ page }) => {
+    const server = await startServer();
+    const testEmail = `test-${Date.now()}@example.com`;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-ws-status-dash-'));
+    const configPath = path.join(tempDir, 'config.yml');
+    const sessionDir = path.join(tempDir, 'sessions');
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
+    try {
+      const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
+
+      // Load the dashboard ONCE and keep it open (never reload) so we exercise
+      // live websocket delivery, not a fresh REST fetch.
+      await page.goto(`${server.url}/dashboard`);
+      await expect(page.getByRole('heading', { name: 'Sessions' })).toBeVisible({ timeout: 5000 });
+
+      tmuxSessionName = `ws-status-dash-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
+      sessionProcess.process.on('error', (err) => console.log('Session process error:', err));
+
+      sessionId = await waitForSessionFile(sessionDir, 15000);
+      await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
+
+      // Row appears live (ws 'start'), no reload. Status column starts empty.
+      const row = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() });
+      await expect(row).toBeVisible({ timeout: 15000 });
+      await expect(row.locator('[data-status]')).toHaveText('-', { timeout: 10000 });
+
+      // Set the `status` metadata via the session YAML. The watcher syncs it,
+      // the server broadcasts a 'meta' websocket event, and the dashboard must
+      // reflect it WITHOUT a reload.
+      updateSessionYamlFile(sessionDir, sessionId, 'status', 'running tests');
+      await expect(row.locator('[data-status]')).toHaveText('running tests', { timeout: 15000 });
+      console.log('Status updated live on dashboard via websocket');
+    } finally {
+      if (tmuxSessionName) await killTmuxSession(tmuxSessionName);
+      await stopServer(server);
+      if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Status metadata appears live on the session detail page via websocket (no reload)', async ({ page }) => {
+    const server = await startServer();
+    const testEmail = `test-${Date.now()}@example.com`;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devsesh-ws-status-detail-'));
+    const configPath = path.join(tempDir, 'config.yml');
+    const sessionDir = path.join(tempDir, 'sessions');
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    let sessionId: string | null = null;
+    let tmuxSessionName: string | null = null;
+    try {
+      const token = await setupPairedCli(page, server.url, testEmail, configPath, sessionDir);
+
+      tmuxSessionName = `ws-status-detail-${Date.now()}`;
+      const sessionProcess = spawnDevseshStart(tmuxSessionName, configPath, sessionDir, server.url);
+      sessionProcess.process.on('error', (err) => console.log('Session process error:', err));
+
+      sessionId = await waitForSessionFile(sessionDir, 15000);
+      await waitForSessionInApi(server.url, token, tmuxSessionName!, 60000);
+
+      // Open the detail page ONCE and keep it open (no reload).
+      await page.goto(`${server.url}/sessions/${sessionId}`);
+      await expect(page).toHaveURL(new RegExp(`/sessions/${sessionId}`), { timeout: 10000 });
+
+      // The dedicated Status field starts empty.
+      const statusField = page.locator('h3:text-is("Status") + p');
+      await expect(statusField).toHaveText('-', { timeout: 10000 });
+
+      // Set status via YAML -> watcher -> server -> ws 'meta'. The detail page
+      // must reflect it WITHOUT a reload.
+      updateSessionYamlFile(sessionDir, sessionId, 'status', 'deploying');
+      await expect(statusField).toHaveText('deploying', { timeout: 15000 });
+      console.log('Status updated live on detail page via websocket');
+    } finally {
+      if (tmuxSessionName) await killTmuxSession(tmuxSessionName);
+      await stopServer(server);
+      if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('devsesh set updates metadata on web', async ({ page }) => {
     const server = await startServer();
     const testEmail = `test-${Date.now()}@example.com`;
@@ -370,10 +453,10 @@ test.describe('Session Integration Tests', () => {
       await expect(dashboardActiveStatus).toBeVisible({ timeout: 5000 });
       console.log('Session shows as Active on dashboard');
 
-      // Verify the ping is not "Never" on dashboard. Columns (ID removed):
-      // Name(0) Host(1) Started(2) Last Ping(3) Status(4) Metadata(5) delete(6).
+      // Verify the ping is not "Never" on dashboard. Columns:
+      // Name(0) Status(1) Host(2) Started(3) Last Ping(4) Activity(5) Metadata(6) delete(7).
       const dashboardRow = page.locator('tr', { has: page.getByText(tmuxSessionName!, { exact: true }).first() });
-      const pingCell = dashboardRow.locator('td').nth(3);
+      const pingCell = dashboardRow.locator('td').nth(4);
       const pingText = await pingCell.textContent();
       console.log('Dashboard ping text:', pingText);
       expect(pingText).not.toBe('Never');

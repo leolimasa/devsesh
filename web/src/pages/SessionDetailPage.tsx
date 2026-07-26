@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { isActive } from "@/lib/session"
+import { isActive, statusMetadata } from "@/lib/session"
 import { getSession } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useQuickKeys } from "@/hooks/useQuickKeys"
@@ -49,6 +49,10 @@ function SessionDetails({ session }: { session: Session }) {
           <p>{session.name || "-"}</p>
         </div>
         <div>
+          <h3 className="text-sm font-medium text-muted-foreground">Status</h3>
+          <p data-status className="font-medium">{statusMetadata(session.metadata) || "-"}</p>
+        </div>
+        <div>
           <h3 className="text-sm font-medium text-muted-foreground">Host</h3>
           <p>{session.host?.label || session.host?.hostname || "-"}</p>
         </div>
@@ -73,7 +77,7 @@ function SessionDetails({ session }: { session: Session }) {
           <p>{session.user_id}</p>
         </div>
         <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Status</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">Activity</h3>
           <p>{active ? "Active" : "Inactive"}</p>
         </div>
       </div>

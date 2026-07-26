@@ -24,7 +24,7 @@ import { listSessions, deleteStaleSessions, deleteSession, getSSHCAPublicKey } f
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useAuth } from "@/contexts/AuthContext"
 import type { Session } from "@/types/api"
-import { isActive } from "@/lib/session"
+import { isActive, statusMetadata } from "@/lib/session"
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
@@ -49,7 +49,8 @@ function parseMetadata(metadata: string | null): string {
   if (!metadata) return "-"
   try {
     const parsed = JSON.parse(metadata)
-    return Object.keys(parsed).filter(k => k !== "session_id" && k !== "name" && k !== "start_time")
+    // `status` is surfaced as its own column, so keep it out of the blob.
+    return Object.keys(parsed).filter(k => k !== "session_id" && k !== "name" && k !== "start_time" && k !== "status")
       .map(k => `${k}: ${parsed[k]}`)
       .join(", ") || "-"
   } catch {
@@ -227,10 +228,11 @@ export default function DashboardPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Host</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Last Ping</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Activity</TableHead>
                   <TableHead>Metadata</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
@@ -240,6 +242,9 @@ export default function DashboardPage() {
                   <TableRow key={session.id} className="cursor-pointer">
                     <Link to={`/sessions/${session.id}`} className="contents">
                       <TableCell className="font-medium">{session.name || "-"}</TableCell>
+                      <TableCell data-status className="font-medium max-w-[240px] truncate">
+                        {statusMetadata(session.metadata) || "-"}
+                      </TableCell>
                       <TableCell>{session.host?.label || session.host?.hostname || "-"}</TableCell>
                       <TableCell>{formatDate(session.started_at)}</TableCell>
                       <TableCell>{formatRelativeTime(session.last_ping_at)}</TableCell>
@@ -283,6 +288,7 @@ export default function DashboardPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="text-sm space-y-1">
+                    <p data-status className="font-medium"><span className="text-muted-foreground font-normal">Status:</span> {statusMetadata(session.metadata) || "-"}</p>
                     <p><span className="text-muted-foreground">Host:</span> {session.host?.label || session.host?.hostname || "-"}</p>
                     <p><span className="text-muted-foreground">Started:</span> {formatDate(session.started_at)}</p>
                     <p><span className="text-muted-foreground">Last Ping:</span> {formatRelativeTime(session.last_ping_at)}</p>

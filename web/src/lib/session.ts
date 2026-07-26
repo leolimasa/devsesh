@@ -12,3 +12,17 @@ export function isActive(session: Session): boolean {
   const diffMs = Date.now() - new Date(session.last_activity_at).getTime()
   return diffMs < 5000
 }
+
+// The `status` metadata key is a free-text status a session reports about
+// itself (e.g. an AI agent setting `devsesh set status "waiting for input"`).
+// It's surfaced as a first-class field, so read it out of the metadata JSON.
+export function statusMetadata(metadata: string | null): string | null {
+  if (!metadata) return null
+  try {
+    const parsed = JSON.parse(metadata)
+    const s = parsed?.status
+    return s == null || s === "" ? null : String(s)
+  } catch {
+    return null
+  }
+}
