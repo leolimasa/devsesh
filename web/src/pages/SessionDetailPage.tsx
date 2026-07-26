@@ -10,6 +10,7 @@ import { SessionTopBar } from "@/components/SessionTopBar"
 import { QuickKeysOverlay } from "@/components/QuickKeysOverlay"
 import { SessionDetails, SessionDetailPanel } from "@/components/SessionDetailPanel"
 import { useVisualViewport } from "@/hooks/useVisualViewport"
+import { isStandalone } from "@/lib/utils"
 import type { TerminalHandle } from "@/components/SSHTerminal"
 import type { Session, SessionUpdate, ConnectionStatus } from "@/types/api"
 import { Menu } from "lucide-react"
@@ -112,6 +113,31 @@ export default function SessionDetailPage() {
   const handleSelectSession = useCallback((sessionId: string) => {
     navigate(`/sessions/${sessionId}`)
   }, [navigate])
+
+  // Keep the latest sessions list available to the (stable) key handler without
+  // re-registering the listener on every websocket update.
+  const sessionsRef = useRef<Session[]>(sessions)
+  useEffect(() => { sessionsRef.current = sessions }, [sessions])
+
+  // PWA-only shortcut: Ctrl+1..9 jumps to the Nth session in the Sessions list
+  // (same 1-based index the user sees). Gated to standalone mode because a
+  // normal browser tab reserves Ctrl+Number for tab switching. Capture-phase +
+  // stopImmediatePropagation so xterm never sees the key.
+  useEffect(() => {
+    if (!isStandalone()) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return
+      const match = /^Digit([1-9])$/.exec(e.code)
+      if (!match) return
+      const target = sessionsRef.current[Number(match[1]) - 1]
+      if (!target) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      if (target.id !== id) navigate(`/sessions/${target.id}`)
+    }
+    window.addEventListener("keydown", onKeyDown, { capture: true })
+    return () => window.removeEventListener("keydown", onKeyDown, { capture: true })
+  }, [navigate, id])
 
   if (loading) {
     return (

@@ -14,3 +14,15 @@ export function isDesktopViewport(): boolean {
   }
   return window.matchMedia("(min-width: 768px)").matches
 }
+
+// True when the app is running as an installed PWA (standalone window) rather
+// than in a browser tab. Used to gate keyboard shortcuts (e.g. Ctrl+Number)
+// that the browser reserves in a normal tab but the app owns in standalone.
+export function isStandalone(): boolean {
+  if (typeof window === "undefined") return false
+  const mm = typeof window.matchMedia === "function" &&
+    window.matchMedia("(display-mode: standalone)").matches
+  // iOS Safari exposes navigator.standalone instead of the display-mode query.
+  const iosStandalone = (window.navigator as unknown as { standalone?: boolean }).standalone === true
+  return mm || iosStandalone
+}

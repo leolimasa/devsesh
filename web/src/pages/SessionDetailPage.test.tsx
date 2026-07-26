@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor, fireEvent } from "@testing-library/react"
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { AuthProvider } from "@/contexts/AuthContext"
 import SessionDetailPage from "@/pages/SessionDetailPage"
@@ -507,5 +507,76 @@ describe("SessionDetailPage", () => {
     await waitFor(() => {
       expect(api.getSession).toHaveBeenCalledWith("session-2")
     })
+  })
+
+  // --- PWA Ctrl+Number session switching ---
+
+  // Simulate installed-PWA (standalone) vs browser-tab by stubbing matchMedia.
+  function setStandalone(on: boolean) {
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("display-mode: standalone") ? on : false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia
+  }
+
+  function pressCtrlDigit(n: number) {
+    act(() => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { ctrlKey: true, code: `Digit${n}`, bubbles: true, cancelable: true })
+      )
+    })
+  }
+
+  async function renderWithSessions(ids: string[]) {
+    vi.mocked(api.getSession).mockImplementation((sid: string) =>
+      Promise.resolve(makeSession({ id: sid, name: sid }))
+    )
+    vi.mocked(api.listSessions).mockResolvedValue(ids.map((sid) => makeSession({ id: sid, name: sid })))
+    renderSessionDetailPage(ids[0])
+    // Ensure the sessions list is loaded (so the shortcut has data).
+    const sessionsTab = await screen.findByRole("tab", { name: "Sessions" })
+    fireEvent.click(sessionsTab)
+    await screen.findByTestId(`session-item-${ids[ids.length - 1]}`)
+  }
+
+  it("Ctrl+2 switches to the 2nd session when running as a PWA", async () => {
+    setStandalone(true)
+    await renderWithSessions(["session-1", "session-2", "session-3"])
+
+    vi.mocked(api.getSession).mockClear()
+    pressCtrlDigit(2)
+
+    await waitFor(() => {
+      expect(api.getSession).toHaveBeenCalledWith("session-2")
+    })
+  })
+
+  it("does not intercept Ctrl+Number in a normal browser tab", async () => {
+    setStandalone(false)
+    await renderWithSessions(["session-1", "session-2", "session-3"])
+
+    vi.mocked(api.getSession).mockClear()
+    pressCtrlDigit(2)
+
+    // No navigation happened.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(api.getSession).not.toHaveBeenCalledWith("session-2")
+  })
+
+  it("ignores an out-of-range index (Ctrl+9 with only 3 sessions)", async () => {
+    setStandalone(true)
+    await renderWithSessions(["session-1", "session-2", "session-3"])
+
+    vi.mocked(api.getSession).mockClear()
+    pressCtrlDigit(9)
+
+    await new Promise((r) => setTimeout(r, 50))
+    expect(api.getSession).not.toHaveBeenCalled()
   })
 })

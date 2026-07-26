@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"path"
 	"strconv"
@@ -41,6 +42,10 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	hub := sessions.NewHub()
 	enrollmentHub := auth.NewEnrollmentHub()
 	mux := http.NewServeMux()
+
+	// Serve the PWA manifest with the correct MIME type (Go's mime package
+	// doesn't know .webmanifest by default).
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 
 	webContent, _ := fs.Sub(web.FS, "dist")
 	webFS := http.FileServer(http.FS(webContent))
