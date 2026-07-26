@@ -123,16 +123,11 @@ export async function stopServer(instance: ServerInstance): Promise<void> {
   if (fs.existsSync(tempDir)) {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
-
-  const defaultSessionDir = path.join(os.homedir(), '.devsesh', 'sessions');
-  if (fs.existsSync(defaultSessionDir)) {
-    const files = fs.readdirSync(defaultSessionDir);
-    for (const file of files) {
-      if (file.endsWith('.yml')) {
-        fs.unlinkSync(path.join(defaultSessionDir, file));
-      }
-    }
-  }
+  // NOTE: Do NOT clean up ~/.devsesh/sessions here. The server is fully
+  // redirected to the per-run temp session dir via DEVSESH_SESSION_DIR (removed
+  // with tempDir above), so there is nothing of ours to clean in the real home
+  // dir — and deleting *.yml there wipes the developer's live local sessions
+  // (the dashboard state for currently-running devsesh sessions).
 }
 
 /**
