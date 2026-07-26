@@ -163,7 +163,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen p-4">
-      <div className="max-w-6xl mx-auto space-y-4">
+      <div className="space-y-4">
         <div className="flex flex-row justify-between items-center gap-4">
           <h1 className="text-2xl font-bold">Sessions</h1>
 
