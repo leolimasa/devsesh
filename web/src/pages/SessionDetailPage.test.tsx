@@ -13,6 +13,7 @@ vi.mock("@/hooks/useSessionUpdates", () => ({
 
 vi.mock("@/lib/api", () => ({
   getSession: vi.fn(),
+  listSessions: vi.fn().mockResolvedValue([]),
   listQuickKeys: vi.fn().mockResolvedValue([]),
 }))
 
@@ -131,14 +132,15 @@ describe("SessionDetailPage", () => {
     renderSessionDetailPage("session-1")
 
     await waitFor(() => {
-      // Session name appears in both top bar and details panel
-      expect(screen.getAllByText("Test Session").length).toBe(2)
+      // Session name appears in the top bar, the panel header, and the
+      // Details-tab "Name" field.
+      expect(screen.getAllByText("Test Session").length).toBe(3)
       // Session hash as a field in details
       expect(screen.getByText("session-1")).toBeInTheDocument()
       // Host name in details
       expect(screen.getByText("My Host")).toBeInTheDocument()
-      // Session details panel is present
-      expect(screen.getByText("Details")).toBeInTheDocument()
+      // The Details tab button is present in the panel's tab switcher.
+      expect(screen.getByRole("tab", { name: "Details" })).toBeInTheDocument()
     })
   })
 
@@ -409,6 +411,99 @@ describe("SessionDetailPage", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Connect")).toBeInTheDocument()
+    })
+  })
+
+  // --- Desktop details panel (0016) ---
+
+  const hostFixture = {
+    id: 1,
+    label: "My Host",
+    hostname: "localhost",
+    ssh_user: "root",
+    ssh_port: 22,
+    ssh_principal: "",
+    user_id: 1,
+    created_at: "2024-01-01T00:00:00Z",
+    updated_at: "2024-01-01T00:00:00Z",
+  }
+
+  function makeSession(over: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: "session-1",
+      user_id: 1,
+      host_id: 1,
+      name: "Test Session",
+      started_at: "2024-01-01T00:00:00Z",
+      last_ping_at: "2024-01-01T00:04:00Z",
+      last_activity_at: null,
+      ended_at: null,
+      metadata: null,
+      host: hostFixture,
+      ...over,
+    }
+  }
+
+  it("shows the session name as the panel header with status beneath it", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(
+      makeSession({ metadata: JSON.stringify({ status: "deploying" }) })
+    )
+
+    renderSessionDetailPage("session-1")
+
+    await waitFor(() => {
+      // Panel header uses the session name; there is no "Details" heading.
+      expect(screen.getByRole("heading", { name: "Test Session" })).toBeInTheDocument()
+      // Self-reported status shows via the data-status marker.
+      const statusEls = document.querySelectorAll("[data-status]")
+      expect(
+        Array.from(statusEls).some((el) => el.textContent === "deploying")
+      ).toBe(true)
+    })
+  })
+
+  it("switches to the Sessions tab and lists sessions with index + status", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(makeSession())
+    vi.mocked(api.listSessions).mockResolvedValue([
+      makeSession({ id: "session-1", name: "Test Session", metadata: JSON.stringify({ status: "idle" }) }),
+      makeSession({ id: "session-2", name: "Other Session", metadata: JSON.stringify({ status: "busy" }) }),
+    ])
+
+    renderSessionDetailPage("session-1")
+
+    // Open the Sessions tab.
+    const sessionsTab = await screen.findByRole("tab", { name: "Sessions" })
+    fireEvent.click(sessionsTab)
+
+    await waitFor(() => {
+      expect(screen.getByText("Other Session")).toBeInTheDocument()
+      // 1-based indices are rendered.
+      expect(screen.getByText("1")).toBeInTheDocument()
+      expect(screen.getByText("2")).toBeInTheDocument()
+      // Per-session status subline.
+      expect(screen.getByText("busy")).toBeInTheDocument()
+    })
+  })
+
+  it("navigates to a session's detail URL when clicked in the Sessions tab", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(makeSession())
+    vi.mocked(api.listSessions).mockResolvedValue([
+      makeSession({ id: "session-1", name: "Test Session" }),
+      makeSession({ id: "session-2", name: "Other Session" }),
+    ])
+
+    renderSessionDetailPage("session-1")
+
+    const sessionsTab = await screen.findByRole("tab", { name: "Sessions" })
+    fireEvent.click(sessionsTab)
+
+    const otherRow = await screen.findByText("Other Session")
+    vi.mocked(api.getSession).mockClear()
+    fireEvent.click(otherRow)
+
+    // Selecting a session refetches it by its id (route param changed).
+    await waitFor(() => {
+      expect(api.getSession).toHaveBeenCalledWith("session-2")
     })
   })
 })

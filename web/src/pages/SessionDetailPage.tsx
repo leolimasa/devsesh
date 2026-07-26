@@ -1,96 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { isActive, statusMetadata } from "@/lib/session"
-import { getSession } from "@/lib/api"
+import { getSession, listSessions } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useQuickKeys } from "@/hooks/useQuickKeys"
 import { SSHTerminal } from "@/components/SSHTerminal"
 import { SessionTopBar } from "@/components/SessionTopBar"
 import { QuickKeysOverlay } from "@/components/QuickKeysOverlay"
+import { SessionDetails, SessionDetailPanel } from "@/components/SessionDetailPanel"
 import { useVisualViewport } from "@/hooks/useVisualViewport"
 import type { TerminalHandle } from "@/components/SSHTerminal"
-import type { Session, ConnectionStatus } from "@/types/api"
+import type { Session, SessionUpdate, ConnectionStatus } from "@/types/api"
 import { Menu } from "lucide-react"
 
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleString()
-}
-
-function formatJson(json: string | null): string {
-  if (!json) return "-"
-  try {
-    return JSON.stringify(JSON.parse(json), null, 2)
-  } catch {
-    return json
-  }
-}
-
 type Status = ConnectionStatus
-
-function SessionDetails({ session }: { session: Session }) {
-  const active = isActive(session)
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h2 className="text-lg font-semibold">Details</h2>
-        <Badge variant={active ? "success" : "secondary"}>
-          {active ? "Active" : "Inactive"}
-        </Badge>
-      </div>
-
-      <div className="space-y-3">
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Name</h3>
-          <p>{session.name || "-"}</p>
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Status</h3>
-          <p data-status className="font-medium">{statusMetadata(session.metadata) || "-"}</p>
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Host</h3>
-          <p>{session.host?.label || session.host?.hostname || "-"}</p>
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Session Hash</h3>
-          <p className="font-mono text-sm break-all">{session.id}</p>
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Started</h3>
-          <p>{formatDate(session.started_at)}</p>
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Last Ping</h3>
-          <p>{session.last_ping_at ? formatDate(session.last_ping_at) : "-"}</p>
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Ended</h3>
-          <p>{session.ended_at ? formatDate(session.ended_at) : "-"}</p>
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">User ID</h3>
-          <p>{session.user_id}</p>
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-muted-foreground">Activity</h3>
-          <p>{active ? "Active" : "Inactive"}</p>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-sm font-medium text-muted-foreground mb-1">Metadata</h3>
-        <pre className="bg-muted p-3 rounded-md overflow-x-auto text-xs whitespace-pre-wrap">
-          {formatJson(session.metadata)}
-        </pre>
-      </div>
-    </div>
-  )
-}
 
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -98,6 +22,9 @@ export default function SessionDetailPage() {
   const terminalRef = useRef<TerminalHandle>(null)
   const topBarRef = useRef<HTMLDivElement>(null)
   const [session, setSession] = useState<Session | null>(null)
+  // Full list of sessions, shown in the desktop panel's "Sessions" tab. Seeded
+  // from listSessions() and kept live via the session-updates WebSocket.
+  const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [status, setStatus] = useState<Status>("disconnected")
@@ -143,13 +70,48 @@ export default function SessionDetailPage() {
     loadSession()
   }, [loadSession])
 
-  const handleUpdate = useCallback((update: { session_id: string; session: Session }) => {
+  // Load the full session list once for the Sessions tab. Mirrors
+  // DashboardPage.loadSessions; the WebSocket keeps it fresh afterwards.
+  const loadSessions = useCallback(async () => {
+    try {
+      const data = await listSessions()
+      setSessions(data ?? [])
+    } catch (err) {
+      console.error("Failed to load sessions:", err)
+      setSessions([])
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSessions()
+  }, [loadSessions])
+
+  const handleUpdate = useCallback((update: SessionUpdate) => {
+    // Keep the currently-viewed session in sync.
     if (update.session_id === id) {
       setSession(update.session)
     }
+    // Reconcile the Sessions-tab list from every event, using the same
+    // upsert/remove rules as the dashboard so all listed sessions stay live.
+    setSessions((prev) => {
+      if (update.event === "end") {
+        return prev.filter((s) => s.id !== update.session.id)
+      }
+      const exists = prev.some((s) => s.id === update.session.id)
+      if (exists) {
+        return prev.map((s) => (s.id === update.session.id ? update.session : s))
+      }
+      return [update.session, ...prev]
+    })
   }, [id])
 
   useSessionUpdates(handleUpdate)
+
+  // Navigate to another session's detail URL. The route param change drives
+  // loadSession (refetch) and, if the host differs, SSHTerminal reconnects.
+  const handleSelectSession = useCallback((sessionId: string) => {
+    navigate(`/sessions/${sessionId}`)
+  }, [navigate])
 
   if (loading) {
     return (
@@ -235,13 +197,23 @@ export default function SessionDetailPage() {
       <div className="flex flex-1 min-h-0">
         {session.host && (
           <div className="hidden md:block w-72 border-r bg-card p-4 overflow-y-auto flex-shrink-0">
-            <SessionDetails session={session} />
+            <SessionDetailPanel
+              session={session}
+              sessions={sessions}
+              currentId={session.id}
+              onSelectSession={handleSelectSession}
+            />
           </div>
         )}
 
         <div className="flex-1 min-w-0 min-h-0">
           {session.host ? (
             <SSHTerminal
+              // NOTE: deliberately NOT keyed on session.id. Switching sessions
+              // on the same host must REUSE the existing (already authenticated)
+              // SSH connection — the terminal re-attaches tmux to the new
+              // session over the same connection rather than reconnecting and
+              // re-authenticating. See SSHTerminal's tmux-attach effect.
               ref={terminalRef}
               host={session.host}
               sessionName={session.name || session.id}
