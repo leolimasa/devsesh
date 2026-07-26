@@ -117,6 +117,10 @@ describe("SSHTerminal", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockInit.mockResolvedValue(undefined)
+    // Default each test to a mobile viewport so the mount-time auto-focus
+    // (desktop only) doesn't leak across tests. Tests that need desktop opt in
+    // via setDesktopViewport(true) before render.
+    setDesktopViewport(false)
   })
 
   it("renders loading state initially", () => {
@@ -258,6 +262,7 @@ describe("SSHTerminal", () => {
   })
 
   it("does NOT refocus the terminal after a quick key on mobile", async () => {
+    // Mobile viewport is the beforeEach default, so no mount-time auto-focus.
     const ref = createRef<TerminalHandle>()
     render(<SSHTerminal ref={ref} host={mockHost} sessionName="test-session-id" />)
 
@@ -267,9 +272,22 @@ describe("SSHTerminal", () => {
 
     // On mobile, refocusing xterm's textarea would pop the on-screen keyboard,
     // so the quick key is sent but focus is left alone.
-    setDesktopViewport(false)
     ref.current!.sendKeys([{ type: "combo", ctrl: true, alt: false, shift: false, key: "c" }])
     expect(mockSendInput).toHaveBeenCalled()
+    expect(mockFocus).not.toHaveBeenCalled()
+  })
+
+  it("auto-focuses the terminal on load on desktop", () => {
+    setDesktopViewport(true)
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
+    // Terminal grabs focus on mount so the user can type immediately.
+    expect(mockFocus).toHaveBeenCalled()
+  })
+
+  it("does NOT auto-focus the terminal on load on mobile", () => {
+    // Mobile viewport is the beforeEach default. Auto-focusing would pop the
+    // on-screen keyboard before the user taps into the terminal.
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
     expect(mockFocus).not.toHaveBeenCalled()
   })
 

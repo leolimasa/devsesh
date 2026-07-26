@@ -298,7 +298,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         // Keep the block cursor a solid block even when the terminal isn't
         // focused. By default an unfocused block renders as a faint hollow
         // outline, which reads as the cursor "disappearing" in neovim normal
-        // mode. (We intentionally do NOT auto-focus the terminal.)
+        // mode.
         cursorInactiveStyle: "block",
         fontSize: 14,
         fontFamily: "'JetBrainsMono Nerd Font Mono', monospace",
@@ -318,6 +318,13 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       term.open(terminalRef.current)
       fitAddon.fit()
+
+      // Auto-focus on page load so the user can start typing immediately —
+      // desktop only. On mobile, focusing xterm's textarea pops the on-screen
+      // keyboard, which is unwanted before the user taps into the terminal.
+      if (isDesktopViewport()) {
+        term.focus()
+      }
 
       // The Nerd Font is a web font (font-display: swap), so the first fit may
       // measure the fallback metrics. Re-fit and push the size once the font is
