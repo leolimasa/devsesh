@@ -184,7 +184,7 @@ function SessionListItem({
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{session.name || session.id}</span>
-        <span data-status className="block truncate text-xs text-muted-foreground">
+        <span data-status className="block text-xs text-muted-foreground line-clamp-3">
           {statusMetadata(session.metadata) || "-"}
         </span>
       </span>
@@ -236,15 +236,9 @@ export function SessionDetailPanel({
 
   return (
     <div className="space-y-4" data-testid="session-detail-panel">
-      <div>
-        <h2 data-testid="panel-session-name" className="text-lg font-semibold break-all">
-          {session.name || session.id}
-        </h2>
-        <p data-testid="panel-status" data-status className="text-sm text-muted-foreground">
-          {statusMetadata(session.metadata) || "-"}
-        </p>
-      </div>
-
+      {/* The current session's name and status are intentionally NOT repeated
+          here — they already appear in the Details tab and in the Sessions
+          list (the current row is highlighted). */}
       <PanelTabs active={activeTab} onChange={setActiveTab} />
 
       {activeTab === "sessions" ? (

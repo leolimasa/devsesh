@@ -558,7 +558,7 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
         await item.click()
 
         await expect(page).toHaveURL(new RegExp(`/sessions/${t.id}`), { timeout: 10000 })
-        await expect(page.getByTestId('panel-session-name')).toHaveText(t.name, { timeout: 10000 })
+        await expect(page.getByTestId(`session-item-${t.id}`)).toHaveAttribute('aria-current', 'true', { timeout: 10000 })
 
         // No re-authentication: the unlock dialog must NOT reappear.
         await expect(unlockDialog).toBeHidden()
@@ -718,7 +718,7 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
         await expect(item).toBeVisible({ timeout: 10000 })
         await item.click()
         await expect(page).toHaveURL(new RegExp(`/sessions/${v.id}`), { timeout: 10000 })
-        await expect(page.getByTestId('panel-session-name')).toHaveText(v.name, { timeout: 10000 })
+        await expect(page.getByTestId(`session-item-${v.id}`)).toHaveAttribute('aria-current', 'true', { timeout: 10000 })
         // No re-auth on any switch.
         await expect(unlockDialog).toBeHidden()
         // Real output proving we're truly on the right host.

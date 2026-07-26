@@ -132,9 +132,9 @@ describe("SessionDetailPage", () => {
     renderSessionDetailPage("session-1")
 
     await waitFor(() => {
-      // Session name appears in the top bar, the panel header, and the
-      // Details-tab "Name" field.
-      expect(screen.getAllByText("Test Session").length).toBe(3)
+      // Session name appears in the top bar and the Details-tab "Name" field
+      // (the panel no longer repeats it in a header).
+      expect(screen.getAllByText("Test Session").length).toBe(2)
       // Session hash as a field in details
       expect(screen.getByText("session-1")).toBeInTheDocument()
       // Host name in details
@@ -444,7 +444,7 @@ describe("SessionDetailPage", () => {
     }
   }
 
-  it("shows the session name as the panel header with status beneath it", async () => {
+  it("does not repeat the current session name/status in a panel header", async () => {
     vi.mocked(api.getSession).mockResolvedValue(
       makeSession({ metadata: JSON.stringify({ status: "deploying" }) })
     )
@@ -452,14 +452,16 @@ describe("SessionDetailPage", () => {
     renderSessionDetailPage("session-1")
 
     await waitFor(() => {
-      // Panel header uses the session name; there is no "Details" heading.
-      expect(screen.getByRole("heading", { name: "Test Session" })).toBeInTheDocument()
-      // Self-reported status shows via the data-status marker.
-      const statusEls = document.querySelectorAll("[data-status]")
-      expect(
-        Array.from(statusEls).some((el) => el.textContent === "deploying")
-      ).toBe(true)
+      // The redundant panel header (name + status) was removed; the panel
+      // starts with the tab switcher.
+      expect(screen.queryByTestId("panel-session-name")).not.toBeInTheDocument()
+      expect(screen.queryByTestId("panel-status")).not.toBeInTheDocument()
     })
+    // Status still surfaces in the Details tab's Status field.
+    const statusEls = document.querySelectorAll("[data-status]")
+    expect(
+      Array.from(statusEls).some((el) => el.textContent === "deploying")
+    ).toBe(true)
   })
 
   it("switches to the Sessions tab and lists sessions with index + status", async () => {

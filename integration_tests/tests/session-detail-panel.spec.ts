@@ -53,11 +53,11 @@ test.describe('Session detail panel (desktop)', () => {
       const panel = page.getByTestId('session-detail-panel');
       await expect(panel).toBeVisible({ timeout: 10000 });
 
-      // Panel header: session name (replaces the old "Details" heading) and the
-      // status line beneath it (empty -> "-").
-      await expect(page.getByTestId('panel-session-name')).toHaveText(tmuxSessionName);
-      await expect(page.getByTestId('panel-status')).toHaveText('-');
-      // The standalone "Details" heading must be gone from the desktop panel
+      // The panel no longer repeats the current session's name/status in a
+      // header — that info lives in the Details tab and the Sessions list.
+      await expect(page.getByTestId('panel-session-name')).toHaveCount(0);
+      await expect(page.getByTestId('panel-status')).toHaveCount(0);
+      // The standalone "Details" heading must also be gone from the panel
       // (exact match: the session name may itself contain "details").
       await expect(panel.getByRole('heading', { name: 'Details', exact: true })).toHaveCount(0);
 
@@ -70,11 +70,9 @@ test.describe('Session detail panel (desktop)', () => {
       await expect(page.locator('h3:text-is("Host") + p')).not.toHaveText('-');
 
       // Drive a status change via the session YAML -> watcher -> server -> ws
-      // 'meta'. Both the Details "Status" field AND the panel header status line
-      // must update WITHOUT a reload.
+      // 'meta'. The Details "Status" field must update WITHOUT a reload.
       updateSessionYamlFile(sessionDir, sessionId!, 'status', 'deploying');
       await expect(page.locator('h3:text-is("Status") + p')).toHaveText('deploying', { timeout: 15000 });
-      await expect(page.getByTestId('panel-status')).toHaveText('deploying', { timeout: 15000 });
     } finally {
       if (tmuxSessionName) await killTmuxSession(tmuxSessionName);
       await stopServer(server);
@@ -147,11 +145,11 @@ test.describe('Session detail panel (desktop)', () => {
       await sendTmuxCommand(nameB, 'echo panel-noise');
       await expect(itemB.locator('[aria-label="active"]')).toHaveCount(1, { timeout: 15000 });
 
-      // Clicking session B's row loads B's detail URL, and the panel header
-      // follows the newly-selected session.
+      // Clicking session B's row loads B's detail URL, and B becomes the
+      // highlighted (current) row in the Sessions list.
       await itemB.click();
       await expect(page).toHaveURL(new RegExp(`/sessions/${idB}`), { timeout: 10000 });
-      await expect(page.getByTestId('panel-session-name')).toHaveText(nameB, { timeout: 10000 });
+      await expect(page.getByTestId(`session-item-${idB}`)).toHaveAttribute('aria-current', 'true', { timeout: 10000 });
     } finally {
       for (const name of tmuxNames) await killTmuxSession(name);
       await stopServer(server);
