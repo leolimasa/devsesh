@@ -12,13 +12,17 @@ import (
 )
 
 type WSTransport struct {
-	ws         js.Value
-	readBuf    *bytes.Buffer
-	readCh     chan []byte
-	closed     bool
-	mu         sync.Mutex
-	openDone   chan struct{}
-	readCond   *sync.Cond
+	ws       js.Value
+	readBuf  *bytes.Buffer
+	readCh   chan []byte
+	closed   bool
+	mu       sync.Mutex
+	// opened is signaled exactly once: nil when the socket opens, or an error
+	// if it errors/closes before opening. This ensures a (re)connect while the
+	// network is down fails fast instead of blocking forever.
+	opened    chan error
+	closeOnce sync.Once
+	readCond  *sync.Cond
 }
 
 type AuthMessage struct {
@@ -38,11 +42,19 @@ var _ net.Conn = (*WSTransport)(nil)
 
 func NewWSTransportWithAuth(wsURL string, token string) (*WSTransport, error) {
 	t := &WSTransport{
-		readBuf:  bytes.NewBuffer(nil),
-		readCh:   make(chan []byte, 100),
-		openDone: make(chan struct{}),
+		readBuf: bytes.NewBuffer(nil),
+		readCh:  make(chan []byte, 100),
+		opened:  make(chan error, 1),
 	}
 	t.readCond = sync.NewCond(&t.mu)
+
+	// signalOpened delivers the open result exactly once (later calls are no-ops).
+	signalOpened := func(err error) {
+		select {
+		case t.opened <- err:
+		default:
+		}
+	}
 
 	ws := js.Global().Get("WebSocket").New(wsURL)
 	t.ws = ws
@@ -53,7 +65,7 @@ func NewWSTransportWithAuth(wsURL string, token string) (*WSTransport, error) {
 		authMsg := AuthMessage{Type: "auth", Token: token}
 		authJSON, _ := json.Marshal(authMsg)
 		ws.Call("send", string(authJSON))
-		close(t.openDone)
+		signalOpened(nil)
 		return nil
 	}))
 
@@ -90,6 +102,7 @@ func NewWSTransportWithAuth(wsURL string, token string) (*WSTransport, error) {
 		t.closed = true
 		t.readCond.Broadcast()
 		t.mu.Unlock()
+		signalOpened(fmt.Errorf("websocket error"))
 		return nil
 	}))
 
@@ -98,11 +111,24 @@ func NewWSTransportWithAuth(wsURL string, token string) (*WSTransport, error) {
 		t.closed = true
 		t.readCond.Broadcast()
 		t.mu.Unlock()
-		close(t.readCh)
+		t.closeOnce.Do(func() { close(t.readCh) })
+		signalOpened(fmt.Errorf("websocket closed"))
 		return nil
 	}))
 
-	<-t.openDone
+	// Wait for the socket to open, fail, or time out — never block forever. A
+	// reconnect attempted while the network is down errors here so the caller
+	// can retry, instead of wedging the connection at "connecting".
+	select {
+	case err := <-t.opened:
+		if err != nil {
+			ws.Call("close")
+			return nil, err
+		}
+	case <-time.After(15 * time.Second):
+		ws.Call("close")
+		return nil, fmt.Errorf("websocket open timed out")
+	}
 	return t, nil
 }
 

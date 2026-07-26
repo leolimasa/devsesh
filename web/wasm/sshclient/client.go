@@ -372,10 +372,73 @@ func Connect(this js.Value, args []js.Value) interface{} {
 		c.connecting = false
 		mu.Unlock()
 
+		startKeepalive(c, client)
 		emitStatus(key, "connected")
 	}()
 
 	return nil
+}
+
+// startKeepalive periodically probes a connection with an SSH keepalive request.
+// A healthy sshd replies (even with a request-failure), proving the link is
+// alive; on a silently dead / half-open socket — where the browser never fires
+// onclose/offline — no reply arrives, so we tear the pooled connection down and
+// report an error, which drives a reconnect.
+func startKeepalive(c *hostConn, client *ssh.Client) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				js.Global().Get("console").Call("error", "[SSH WASM] PANIC in keepalive:", fmt.Sprint(r))
+			}
+		}()
+
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			mu.Lock()
+			current := c.client == client
+			key := c.key
+			mu.Unlock()
+			if !current {
+				return // this connection was replaced or closed
+			}
+
+			// SendRequest blocks until a reply or a transport error; bound it so
+			// a half-open socket (no reply, no error) is still detected.
+			done := make(chan error, 1)
+			go func() {
+				_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+				done <- err
+			}()
+
+			var kaErr error
+			select {
+			case kaErr = <-done:
+			case <-time.After(10 * time.Second):
+				kaErr = fmt.Errorf("keepalive timeout")
+			}
+			if kaErr == nil {
+				continue
+			}
+
+			// Dead connection: tear it down so the next Connect re-handshakes,
+			// and report the error (for the active host) to trigger reconnect.
+			mu.Lock()
+			if c.client == client {
+				c.connected = false
+				c.client = nil
+				if c.transport != nil {
+					c.transport.Close()
+					c.transport = nil
+				}
+			}
+			mu.Unlock()
+			client.Close()
+			emitStatus(key, "error", "connection lost (keepalive failed)")
+			return
+		}
+	}()
 }
 
 // closeConn tears down a hostConn's channel/client/transport. Caller holds mu.
@@ -572,6 +635,22 @@ func Exec(this js.Value, args []js.Value) interface{} {
 		if err != nil && !wasSwitching {
 			// Don't report error for normal exit
 			if _, ok := err.(*ssh.ExitError); !ok {
+				// A non-exit session failure means the underlying connection is
+				// almost certainly gone (e.g. a network drop). Tear this host's
+				// pooled connection down so the next Connect() re-handshakes
+				// instead of reusing a dead/zombie client (which would otherwise
+				// leave the terminal wedged at "connecting").
+				mu.Lock()
+				c.connected = false
+				if c.client != nil {
+					c.client.Close()
+					c.client = nil
+				}
+				if c.transport != nil {
+					c.transport.Close()
+					c.transport = nil
+				}
+				mu.Unlock()
 				emitStatus(key, "error", "session error: "+err.Error())
 			}
 		}

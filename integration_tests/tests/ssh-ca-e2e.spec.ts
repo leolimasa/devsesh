@@ -470,6 +470,137 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
     }
   })
 
+  // After a network drop (wifi goes away and comes back), the terminal must
+  // reconnect and become usable again on its OWN — no manual disconnect/connect,
+  // and no re-auth prompt (the FROST cert is already unlocked). Reproduces the
+  // production bug where a reconnect got stuck permanently at "connecting…".
+  test('recovers automatically after a network drop without a manual reconnect', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+
+    const clientCount = (): number => {
+      try {
+        const out = execInContainer(CONTAINER_NAME, `tmux list-clients -t testsession 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+    const waitForClient = async (): Promise<boolean> => {
+      for (let i = 0; i < 45; i++) {
+        if (clientCount() > 0) return true
+        await page.waitForTimeout(1000)
+      }
+      return false
+    }
+
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+      await connectWithCertificateOnly(page)
+
+      // Terminal is a live shell before the drop.
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 })
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo BEFORE_$(whoami)', { delay: 15 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('BEFORE_testuser', { timeout: 10000 })
+      expect(await waitForClient(), 'attached before drop').toBe(true)
+
+      // Reproduce the wifi-flap: a (re)connect attempt happens while the network
+      // is down. Drop the live connection, go offline, then reconnect — the WS
+      // can't open, and the buggy transport blocks forever at "connecting…".
+      await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible({ timeout: 10000 })
+
+      await context.setOffline(true)
+      await page.getByRole('button', { name: 'Connect', exact: true }).click()
+      // Let the offline reconnect attempt happen (and, in the buggy build, wedge).
+      await page.waitForTimeout(5000)
+
+      // Wifi comes back. From here on the app must recover on its OWN — no more
+      // manual disconnect/connect — and with no re-auth prompt (FROST unlocked).
+      await context.setOffline(false)
+
+      const unlockDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+      expect(await waitForClient(), 'terminal re-attaches automatically after the network returns').toBe(true)
+      await expect(unlockDialog).toBeHidden()
+
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo AFTER_$(whoami)', { delay: 15 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('AFTER_testuser', { timeout: 30000 })
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
+  // A silently half-open connection — the WebSocket stays "open" but no data
+  // flows and the browser never fires onclose/offline — must still be detected
+  // (by the SSH keepalive) and recovered from, without a manual reconnect. We
+  // simulate it by freezing the first SSH WebSocket (dropping all frames both
+  // ways) while leaving it open; the reconnect's fresh socket is let through.
+  test('recovers from a silently half-open connection via SSH keepalive', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+
+    let frozen = false
+    let firstWs: unknown = null
+    await context.routeWebSocket(/\/hosts\/\d+\/ssh/, (ws) => {
+      const server = ws.connectToServer()
+      if (!firstWs) firstWs = ws
+      const blocked = () => frozen && ws === firstWs
+      ws.onMessage((m) => { if (!blocked()) server.send(m) })
+      server.onMessage((m) => { if (!blocked()) ws.send(m) })
+    })
+
+    const clientCount = (): number => {
+      try {
+        const out = execInContainer(CONTAINER_NAME, `tmux list-clients -t testsession 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+    const waitForClients = async (want: 'some' | 'none'): Promise<boolean> => {
+      for (let i = 0; i < 60; i++) {
+        const n = clientCount()
+        if (want === 'some' && n > 0) return true
+        if (want === 'none' && n === 0) return true
+        await page.waitForTimeout(1000)
+      }
+      return false
+    }
+
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+      await connectWithCertificateOnly(page)
+
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 })
+      expect(await waitForClients('some'), 'attached before freeze').toBe(true)
+
+      // Freeze the live socket: it stays open, but nothing flows in either
+      // direction — a true half-open link. Only the keepalive can notice.
+      frozen = true
+
+      // The keepalive (15s tick + 10s reply timeout) tears the dead connection
+      // down — so the old tmux client detaches — and the reconnect's fresh
+      // socket (forwarded) re-attaches, with no manual action and no re-auth.
+      const unlockDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+      expect(await waitForClients('none'), 'keepalive tears the dead link down (old client detaches)').toBe(true)
+      expect(await waitForClients('some'), 'terminal re-attaches after the keepalive-driven reconnect').toBe(true)
+      await expect(unlockDialog).toBeHidden()
+
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo KEEPALIVE_$(whoami)', { delay: 15 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('KEEPALIVE_testuser', { timeout: 30000 })
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
   // Switching devsesh sessions via the sidebar must re-attach the terminal to
   // the newly-selected session AUTOMATICALLY — reusing the already-established
   // (certificate-authenticated) SSH connection, WITHOUT re-authenticating — and

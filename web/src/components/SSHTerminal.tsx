@@ -284,6 +284,29 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     useEffect(() => { maybeReconnectRef.current = maybeReconnect }, [maybeReconnect])
 
+    // Recover promptly when the network comes back (e.g. wifi returns). A drop
+    // can leave the active connection wedged; on `online` (or the tab becoming
+    // visible again) force a fresh reconnect: drop any stale/zombie pooled
+    // connection first so connect() re-handshakes instead of reusing it.
+    useEffect(() => {
+      const recover = () => {
+        if (!mountedRef.current || !host) return
+        if (statusRef.current === "connected") return
+        if (hostKey && sshClientRef.current) {
+          try { sshClientRef.current.disconnect(hostKey) } catch { /* ignore */ }
+        }
+        reconnectAttemptRef.current = 0
+        doConnect()
+      }
+      const onVisible = () => { if (document.visibilityState === "visible") recover() }
+      window.addEventListener("online", recover)
+      document.addEventListener("visibilitychange", onVisible)
+      return () => {
+        window.removeEventListener("online", recover)
+        document.removeEventListener("visibilitychange", onVisible)
+      }
+    }, [host, hostKey, doConnect])
+
     // Imperative handle for parent
     useImperativeHandle(ref, () => ({
       connect: doConnect,
