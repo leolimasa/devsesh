@@ -2,9 +2,10 @@ import { getSSHWebSocketURL, getToken } from "./api"
 
 declare global {
   interface Window {
-    sshConnect: (wsURL: string, user: string, token: string) => void
-    sshDisconnect: () => void
-    sshExec: (command: string) => void
+    sshConnect: (hostKey: string, wsURL: string, user: string, token: string) => void
+    sshDisconnect: (hostKey: string) => void
+    sshDisconnectAll: () => void
+    sshExec: (hostKey: string, command: string) => void
     sshSendInput: (data: Uint8Array | string) => void
     sshResize: (rows: number, cols: number) => void
     sshSetPasswordCallback: (callback: () => void) => void
@@ -157,7 +158,10 @@ export class SSHClient extends EventEmitter {
     })
   }
 
-  connect(hostId: number, user: string): void {
+  // Activate (or establish) the pooled connection for a host. hostKey uniquely
+  // identifies the host so the wasm client can reuse an existing connection —
+  // switching sessions on the same host does NOT reconnect or re-authenticate.
+  connect(hostKey: string, hostId: number, user: string): void {
     if (!this.wasmReady) {
       throw new Error("WASM not initialized")
     }
@@ -169,16 +173,24 @@ export class SSHClient extends EventEmitter {
 
     this.status = "connecting"
     const wsURL = getSSHWebSocketURL(hostId)
-    window.sshConnect(wsURL, user, token)
+    window.sshConnect(hostKey, wsURL, user, token)
   }
 
-  disconnect(): void {
-    window.sshDisconnect()
+  // Tear down one host's pooled connection.
+  disconnect(hostKey: string): void {
+    window.sshDisconnect(hostKey)
     this.status = "disconnected"
   }
 
-  exec(command: string): void {
-    window.sshExec(command)
+  // Tear down every pooled connection (e.g. when leaving the terminal).
+  disconnectAll(): void {
+    window.sshDisconnectAll()
+    this.status = "disconnected"
+  }
+
+  // Run a command (a tmux attach) on a host's pooled connection.
+  exec(hostKey: string, command: string): void {
+    window.sshExec(hostKey, command)
   }
 
   sendInput(data: Uint8Array | string): void {

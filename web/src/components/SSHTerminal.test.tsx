@@ -37,6 +37,7 @@ vi.mock("@xterm/addon-fit", () => {
 const mockInit = vi.fn().mockResolvedValue(undefined)
 const mockConnect = vi.fn()
 const mockDisconnect = vi.fn()
+const mockDisconnectAll = vi.fn()
 const mockExec = vi.fn()
 const mockSendInput = vi.fn()
 const mockResize = vi.fn()
@@ -53,6 +54,7 @@ vi.mock("@/lib/ssh-client", () => {
       init = mockInit
       connect = mockConnect
       disconnect = mockDisconnect
+      disconnectAll = mockDisconnectAll
       exec = mockExec
       sendInput = mockSendInput
       resize = mockResize
@@ -133,7 +135,8 @@ describe("SSHTerminal", () => {
 
     await waitFor(() => {
       expect(mockInit).toHaveBeenCalled()
-      expect(mockConnect).toHaveBeenCalledWith(1, "testuser")
+      // connect(hostKey, hostId, user) — hostKey is the stringified host id.
+      expect(mockConnect).toHaveBeenCalledWith("1", 1, "testuser")
     })
   })
 
@@ -146,7 +149,7 @@ describe("SSHTerminal", () => {
     render(<SSHTerminal host={hostWithoutUser} sessionName="test-session-id" />)
 
     await waitFor(() => {
-      expect(mockConnect).toHaveBeenCalledWith(1, "root")
+      expect(mockConnect).toHaveBeenCalledWith("1", 1, "root")
     })
   })
 
@@ -167,7 +170,7 @@ describe("SSHTerminal", () => {
     statusCallback("connected")
 
     await waitFor(() => {
-      expect(mockExec).toHaveBeenCalledWith("tmux attach -t my-session-uuid")
+      expect(mockExec).toHaveBeenCalledWith("1", "tmux attach -t my-session-uuid")
     })
   })
 
@@ -189,7 +192,7 @@ describe("SSHTerminal", () => {
     statusCallback("connected")
 
     await waitFor(() => {
-      expect(mockExec).toHaveBeenCalledWith(`tmux attach -t ${sessionName}`)
+      expect(mockExec).toHaveBeenCalledWith("1", `tmux attach -t ${sessionName}`)
     })
   })
 
@@ -371,6 +374,7 @@ describe("SSHTerminal", () => {
 
     unmount()
 
-    expect(mockDisconnect).toHaveBeenCalled()
+    // Unmount tears down every pooled connection.
+    expect(mockDisconnectAll).toHaveBeenCalled()
   })
 })

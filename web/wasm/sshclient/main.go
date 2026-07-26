@@ -16,6 +16,7 @@ func main() {
 
 	js.Global().Set("sshConnect", js.FuncOf(Connect))
 	js.Global().Set("sshDisconnect", js.FuncOf(Disconnect))
+	js.Global().Set("sshDisconnectAll", js.FuncOf(DisconnectAll))
 	js.Global().Set("sshExec", js.FuncOf(Exec))
 	js.Global().Set("sshSendInput", js.FuncOf(SendInput))
 	js.Global().Set("sshResize", js.FuncOf(Resize))

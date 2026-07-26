@@ -49,6 +49,12 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     const fitAddonRef = useRef<FitAddon | null>(null)
     const sshClientRef = useRef<SSHClient | null>(null)
     const [status, setStatus] = useState<Status>("disconnected")
+    // Mirrors the wasm-reported status synchronously so effects can gate on the
+    // real connection state without waiting for a React re-render.
+    const statusRef = useRef<Status>("disconnected")
+    // Flips true once the wasm client is initialized, so the connect effect
+    // knows it can start connecting.
+    const [ready, setReady] = useState(false)
     const [showPasswordDialog, setShowPasswordDialog] = useState(false)
     const [showWebAuthnDialog, setShowWebAuthnDialog] = useState(false)
     const [webAuthnAuthenticating, setWebAuthnAuthenticating] = useState(false)
@@ -59,6 +65,10 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     const reconnectAttemptRef = useRef(0)
     const hasExecutedRef = useRef(false)
     const mountedRef = useRef(true)
+    // Ref indirection so the (mount-once) status callback always calls the
+    // latest reconnect logic, which closes over the current host.
+    const maybeReconnectRef = useRef<() => void>(() => {})
+    const attachTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     // Track true unmount (this effect's cleanup only runs when the component
     // is actually destroyed, not when host.id / ssh_user change). Used to stop
@@ -233,22 +243,30 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       }
     }, [])
 
-    // Internal disconnect that tracks user intent
+    // Stable key identifying this session's host in the wasm connection pool.
+    const hostKey = host ? String(host.id) : ""
+
+    // Internal disconnect that tracks user intent (disconnects the current host).
     const doDisconnect = useCallback(() => {
       userDisconnectedRef.current = true
-      if (sshClientRef.current) {
-        try { sshClientRef.current.disconnect() } catch { /* ignore */ }
+      if (sshClientRef.current && hostKey) {
+        try { sshClientRef.current.disconnect(hostKey) } catch { /* ignore */ }
       }
+      statusRef.current = "disconnected"
       setStatus("disconnected")
       hasExecutedRef.current = false
-    }, [])
+    }, [hostKey])
 
-    // Internal connect
+    // Internal connect: activate (or establish) the pooled connection for this
+    // host. Switching to a host we're already connected to reuses it — no
+    // re-auth. We force status back to "connecting" so the attach effect waits
+    // for a real "connected" before running `tmux attach`.
     const doConnect = useCallback(() => {
       if (!mountedRef.current || !host || !sshClientRef.current) return
       userDisconnectedRef.current = false
       const sshUser = host.ssh_user || "root"
-      sshClientRef.current.connect(host.id, sshUser)
+      sshClientRef.current.connect(String(host.id), host.id, sshUser)
+      statusRef.current = "connecting"
       setStatus("connecting")
     }, [host])
 
@@ -263,6 +281,8 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         doConnect()
       }, backoff)
     }, [doConnect])
+
+    useEffect(() => { maybeReconnectRef.current = maybeReconnect }, [maybeReconnect])
 
     // Imperative handle for parent
     useImperativeHandle(ref, () => ({
@@ -286,11 +306,12 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       },
     }), [doConnect, doDisconnect])
 
-    // --- Main lifecycle: create terminal, SSH client, wire events ---
+    // --- Create the terminal + SSH client ONCE. The connection pool lives in
+    // the wasm client and is keyed by host, so we do NOT tear it down when the
+    // host or session changes — only on unmount (disconnectAll). ---
     useEffect(() => {
       if (!terminalRef.current) return
 
-      // Fresh lifecycle: re-enable auto-reconnect for this client instance.
       userDisconnectedRef.current = false
 
       const term = new XTerm({
@@ -347,11 +368,12 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       })
 
       client.on("status", (newStatus: string, _err?: string) => {
+        statusRef.current = newStatus as Status
         setStatus(newStatus as Status)
-        // On unsolicited drop, try auto-reconnect
+        // On unsolicited drop, try auto-reconnect the active host.
         if (newStatus === "disconnected" || newStatus === "error") {
           if (!userDisconnectedRef.current) {
-            maybeReconnect()
+            maybeReconnectRef.current()
           }
         }
         if (newStatus === "connected") {
@@ -376,12 +398,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       client.init()
         .then(() => {
           setLoading(false)
-          // Auto-connect if host is present
-          if (host) {
-            const sshUser = host.ssh_user || "root"
-            client.connect(host.id, sshUser)
-            setStatus("connecting")
-          }
+          setReady(true)
         })
         .catch(() => {
           setLoading(false)
@@ -396,37 +413,49 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       return () => {
         // Mark this teardown as intentional so the "disconnected" event that
-        // disconnect() may emit does not schedule a reconnect.
+        // disconnect may emit does not schedule a reconnect. Tear down every
+        // pooled connection so no host is left connected after we leave.
         userDisconnectedRef.current = true
         if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
-        try { client.disconnect() } catch { /* ignore */ }
+        if (attachTimeoutRef.current) clearTimeout(attachTimeoutRef.current)
+        try { client.disconnectAll() } catch { /* ignore */ }
         try { term.dispose() } catch { /* ignore */ }
       }
-      // Deliberately re-create terminal only on host.id and ssh_user changes
+      // Mount once — the pooled connection survives host/session changes.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [host?.id, host?.ssh_user])
+    }, [])
 
-    // --- tmux attach when connected ---
+    // --- Connect/activate the pooled connection for the current host. Fires
+    // once the wasm client is ready and whenever the host changes. Reusing a
+    // host we're already connected to does NOT re-authenticate. ---
     useEffect(() => {
-      if (status === "connected" && sshClientRef.current && !hasExecutedRef.current) {
-        hasExecutedRef.current = true
-        sshClientRef.current.exec(`tmux attach -t ${sessionName}`)
-        // The pty was opened at the default size while the terminal container
-        // was still hidden/settling (its width/height aren't known until the
-        // layout settles after first paint), so tmux would draw at the wrong
-        // size until the next resize event. Once attached, fit to the real
-        // container and push the size so it's correct on first load. The short
-        // delay lets tmux finish attaching so the resize triggers a redraw.
-        const t = setTimeout(() => {
-          if (fitAddonRef.current && xtermRef.current && sshClientRef.current) {
-            fitAddonRef.current.fit()
-            const { rows, cols } = xtermRef.current
-            sshClientRef.current.resize(rows, cols)
-          }
-        }, 300)
-        return () => clearTimeout(t)
-      }
-    }, [status, sessionName])
+      if (!ready || !host) return
+      doConnect()
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ready, host?.id, host?.ssh_user])
+
+    // --- Attach tmux, and re-attach when the session (or host) changes. Gated
+    // on the LIVE status (statusRef) so it never runs against a half-open
+    // connection: for a brand-new host it waits for "connected"; for a same-host
+    // session switch it fires immediately and the wasm client preempts the old
+    // `tmux attach` on the same connection (no reconnect/re-auth). ---
+    useEffect(() => {
+      if (statusRef.current !== "connected" || !sshClientRef.current || !hostKey) return
+      hasExecutedRef.current = true
+      sshClientRef.current.exec(hostKey, `tmux attach -t ${sessionName}`)
+      // The pty was opened at the default size while the terminal container
+      // was still hidden/settling, so fit to the real container and push the
+      // size once tmux has attached so it's correct on first paint.
+      if (attachTimeoutRef.current) clearTimeout(attachTimeoutRef.current)
+      attachTimeoutRef.current = setTimeout(() => {
+        if (fitAddonRef.current && xtermRef.current && sshClientRef.current) {
+          fitAddonRef.current.fit()
+          const { rows, cols } = xtermRef.current
+          sshClientRef.current.resize(rows, cols)
+        }
+      }, 300)
+      return () => { if (attachTimeoutRef.current) clearTimeout(attachTimeoutRef.current) }
+    }, [status, sessionName, hostKey])
 
     // --- Keep the terminal fitted to its container ---
     // Re-fit when the visual viewport (keyboard), the loading->visible
@@ -463,11 +492,12 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       hasExecutedRef.current = false
       if (sshClientRef.current) {
         sshClientRef.current.rejectPassword()
-        sshClientRef.current.disconnect()
+        if (hostKey) sshClientRef.current.disconnect(hostKey)
         setShowPasswordDialog(false)
+        statusRef.current = "disconnected"
         setStatus("disconnected")
       }
-    }, [])
+    }, [hostKey])
 
     return (
       <div className="flex flex-col h-full">

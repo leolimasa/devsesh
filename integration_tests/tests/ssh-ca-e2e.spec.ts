@@ -37,9 +37,12 @@ import {
   getSSHServerLogs,
   getContainerLogs,
   hasTmuxSession,
+  createTmuxSession,
+  execInContainer,
 } from '../helpers/ssh-container'
 import { spawnDevseshStart, killTmuxSession, waitForSessionInApi } from '../helpers/session'
 import { spawnDevseshLogin, extractPairingCode, waitForCliSuccess } from '../helpers/cli'
+import { enterPairingCode } from '../helpers/pairing'
 import * as path from 'path'
 import * as os from 'os'
 import * as fs from 'fs'
@@ -463,6 +466,273 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
 
       throw error
     } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
+  // Switching devsesh sessions via the sidebar must re-attach the terminal to
+  // the newly-selected session AUTOMATICALLY — reusing the already-established
+  // (certificate-authenticated) SSH connection, WITHOUT re-authenticating — and
+  // it must keep working across many back-and-forth switches. This reproduces
+  // the production bug where switching re-authenticated every time and then
+  // failed after a few switches.
+  test('switching sessions via sidebar re-attaches automatically without re-auth (many times)', async ({ page, context }) => {
+    test.setTimeout(240000)
+    let ctx: SSHCATestContext | null = null
+    let bPingInterval: NodeJS.Timeout | null = null
+    const nameB = 'ca-switch-b'
+
+    // Count tmux clients attached to a session inside the container.
+    const clientCount = (tmuxName: string): number => {
+      try {
+        const out = execInContainer(CONTAINER_NAME, `tmux list-clients -t ${tmuxName} 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+    const waitForClients = async (tmuxName: string, want: 'some' | 'none'): Promise<number> => {
+      for (let i = 0; i < 30; i++) {
+        const n = clientCount(tmuxName)
+        if (want === 'some' && n > 0) return n
+        if (want === 'none' && n === 0) return n
+        await page.waitForTimeout(1000)
+      }
+      return clientCount(tmuxName)
+    }
+
+    try {
+      // Session A reuses the container's pre-created 'testsession'.
+      ctx = await setupSSHCATestEnvironment(page, context)
+      const idA = ctx.sessionId // named 'testsession'
+      const tmuxA = 'testsession'
+
+      // Session B: a second tmux session in the container + a devsesh session on
+      // the SAME (certificate-only) host.
+      createTmuxSession(ctx.container.name, nameB)
+      spawnDevseshStart(nameB, ctx.configPath, ctx.sessionDir, ctx.server.url)
+      const sessionB = await waitForSessionInApi(ctx.server.url, ctx.token, nameB, 15000)
+      const idB = sessionB.id
+      bPingInterval = setInterval(async () => {
+        try {
+          await fetch(`${ctx!.server.url}/api/v1/sessions/${idB}/ping`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${ctx!.token}` },
+          })
+        } catch {}
+      }, 2000)
+
+      // Connect session A with certificate auth — this is the ONE and only time
+      // the "Unlock SSH Certificate" dialog should ever appear.
+      await navigateToSession(page, ctx.server.url, idA)
+      await connectWithCertificateOnly(page)
+      expect(await waitForClients(tmuxA, 'some'), 'terminal attaches to A on first connect').toBeGreaterThan(0)
+
+      // Confirm the terminal is a real, working shell for A.
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 })
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo SHELL_OK_A', { delay: 30 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('SHELL_OK_A', { timeout: 10000 })
+
+      const unlockDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+
+      // Switch back and forth several times via the Sessions tab. Each switch
+      // must: follow the URL/header, NOT show the unlock dialog (no re-auth),
+      // and auto-attach the terminal to the target session's tmux.
+      const targets = [
+        { id: idB, name: nameB, tmux: nameB, other: tmuxA },
+        { id: idA, name: 'testsession', tmux: tmuxA, other: nameB },
+        { id: idB, name: nameB, tmux: nameB, other: tmuxA },
+        { id: idA, name: 'testsession', tmux: tmuxA, other: nameB },
+        { id: idB, name: nameB, tmux: nameB, other: tmuxA },
+      ]
+
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i]
+        console.log(`[switch ${i + 1}] -> ${t.name}`)
+
+        await page.getByRole('tab', { name: 'Sessions' }).click()
+        const item = page.getByTestId(`session-item-${t.id}`)
+        await expect(item).toBeVisible({ timeout: 10000 })
+        await item.click()
+
+        await expect(page).toHaveURL(new RegExp(`/sessions/${t.id}`), { timeout: 10000 })
+        await expect(page.getByTestId('panel-session-name')).toHaveText(t.name, { timeout: 10000 })
+
+        // No re-authentication: the unlock dialog must NOT reappear.
+        await expect(unlockDialog).toBeHidden()
+
+        // The terminal auto-attaches to the target and leaves the other — with
+        // NO dialog interaction. If a re-auth were required, the attach would
+        // never happen and this would fail.
+        expect(await waitForClients(t.tmux, 'some'), `terminal auto-attaches to ${t.name}`).toBeGreaterThan(0)
+        expect(await waitForClients(t.other, 'none'), `terminal leaves ${t.other}`).toBe(0)
+
+        // The connection is never re-authenticated mid-run.
+        await expect(unlockDialog).toBeHidden()
+      }
+
+      // Final sanity: the terminal still works as a live shell after all the
+      // switching (currently on session B).
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo SHELL_OK_B_FINAL', { delay: 30 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('SHELL_OK_B_FINAL', { timeout: 10000 })
+    } finally {
+      if (bPingInterval) clearInterval(bPingInterval)
+      try { killTmuxSession(nameB) } catch { /* ignore */ }
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
+  // Switching between sessions on DIFFERENT hosts must connect to the correct
+  // host (not reattach tmux on the wrong connection), do so automatically
+  // (certificate issued silently once per host — no unlock dialog after the
+  // first), and REUSE the pooled connections on repeat visits (each host is
+  // authenticated exactly once no matter how often you switch). Verified with
+  // real terminal output: a host-specific flag file + a live-shell echo.
+  test('switching sessions across different hosts connects to the right host and reuses pooled connections', async ({ page, context }) => {
+    test.setTimeout(300000)
+    let ctx: SSHCATestContext | null = null
+    let container2: SSHContainer | null = null
+    let bPingInterval: NodeJS.Timeout | null = null
+    const HOST2_FLAG = 'HOST2_FLAG_67890'
+    const nameB = 'host2-sess'
+    const CONTAINER2 = 'devsesh-ssh-ca-test-2'
+
+    const clientCount = (containerName: string, tmuxName: string): number => {
+      try {
+        const out = execInContainer(containerName, `tmux list-clients -t ${tmuxName} 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+    const waitForClient = async (containerName: string, tmuxName: string): Promise<void> => {
+      for (let i = 0; i < 30; i++) {
+        if (clientCount(containerName, tmuxName) > 0) return
+        await page.waitForTimeout(1000)
+      }
+    }
+    // Count SSH authentications on a host — proves connection reuse (pooling):
+    // a reconnect would add another "Accepted publickey".
+    const acceptedCount = (containerName: string): number => {
+      const logs = getSSHServerLogs(containerName)
+      return (logs.match(/Accepted publickey for testuser/g) || []).length
+    }
+    // Drive a command in the terminal and assert its output — proves a live
+    // shell on the RIGHT host (host-specific flag) with real terminal output.
+    const verifyLiveShell = async (containerName: string, tmuxName: string, flag: string): Promise<void> => {
+      await waitForClient(containerName, tmuxName)
+      await page.waitForSelector('.xterm-screen', { timeout: 15000 })
+      const term = page.locator('.xterm-screen')
+      // A real shell prompt is on screen (bash's default prompt ends in '$').
+      await expect(term).toContainText('$', { timeout: 15000 })
+      await page.locator('.xterm-helper-textarea').focus()
+      // Single space-free token so terminal line-wrapping can't split it.
+      await page.keyboard.type('echo READY_$(whoami)_$(cat /home/testuser/FLAG_FILE)', { delay: 15 })
+      await page.keyboard.press('Enter')
+      await expect(term).toContainText(`READY_testuser_${flag}`, { timeout: 10000 })
+    }
+
+    try {
+      // --- Host 1: session A = 'testsession', flag = FLAG_CONTENT ---
+      ctx = await setupSSHCATestEnvironment(page, context)
+      const idA = ctx.sessionId
+      const flagA = FLAG_CONTENT
+
+      // --- Host 2: a second container sharing the same CA, distinct flag ---
+      container2 = await startSSHContainer({
+        name: CONTAINER2,
+        port: 2233,
+        caPublicKey: ctx.caPublicKey,
+        flagContent: HOST2_FLAG,
+      })
+      createTmuxSession(CONTAINER2, nameB)
+
+      // Pair a second CLI -> creates host 2 for the same (logged-in) user.
+      const config2 = path.join(ctx.tempDir, 'config2.yml')
+      const sessionDir2 = path.join(ctx.tempDir, 'sessions2')
+      fs.mkdirSync(sessionDir2, { recursive: true })
+      const cli2 = spawnDevseshLogin(ctx.server.url, config2, sessionDir2)
+      let code2: string | null = null
+      const t0 = Date.now()
+      while (Date.now() - t0 < 15000) {
+        code2 = extractPairingCode(cli2.stdout)
+        if (code2) break
+        await new Promise((r) => setTimeout(r, 200))
+      }
+      if (!code2) throw new Error('host2 pairing code not found')
+      await enterPairingCode(page, ctx.server.url, code2, true)
+      await waitForCliSuccess(cli2)
+
+      // Point host 2 at container2 (certificate-only, no password).
+      const hosts = await (await fetch(`${ctx.server.url}/api/v1/hosts`, {
+        headers: { Authorization: `Bearer ${ctx.token}` },
+      })).json()
+      const host2 = hosts.find((h: any) => h.id !== ctx!.hostId)
+      if (!host2) throw new Error('host2 not created by pairing')
+      const upd = await fetch(`${ctx.server.url}/api/v1/hosts/${host2.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.token}` },
+        body: JSON.stringify({
+          label: 'Host 2', hostname: 'localhost', ssh_user: 'testuser',
+          ssh_port: container2.port, ssh_principal: 'testuser',
+        }),
+      })
+      expect(upd.ok).toBe(true)
+
+      // Start session B on host 2.
+      spawnDevseshStart(nameB, config2, sessionDir2, ctx.server.url)
+      const sessionB = await waitForSessionInApi(ctx.server.url, ctx.token, nameB, 15000)
+      const idB = sessionB.id
+      bPingInterval = setInterval(async () => {
+        try {
+          await fetch(`${ctx!.server.url}/api/v1/sessions/${idB}/ping`, {
+            method: 'POST', headers: { Authorization: `Bearer ${ctx!.token}` },
+          })
+        } catch {}
+      }, 2000)
+
+      // Connect session A (host1) with certificate — the ONLY unlock dialog.
+      await navigateToSession(page, ctx.server.url, idA)
+      await connectWithCertificateOnly(page)
+      await verifyLiveShell(ctx.container.name, 'testsession', flagA)
+
+      const unlockDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+
+      // Switch across hosts, back and forth. First host2 visit issues a cert
+      // silently (FROST already unlocked). Later visits reuse pooled connections.
+      const visits = [
+        { id: idB, name: nameB, flag: HOST2_FLAG, container: CONTAINER2, tmux: nameB },
+        { id: idA, name: 'testsession', flag: flagA, container: ctx.container.name, tmux: 'testsession' },
+        { id: idB, name: nameB, flag: HOST2_FLAG, container: CONTAINER2, tmux: nameB },
+        { id: idA, name: 'testsession', flag: flagA, container: ctx.container.name, tmux: 'testsession' },
+      ]
+      for (let i = 0; i < visits.length; i++) {
+        const v = visits[i]
+        console.log(`[cross-host switch ${i + 1}] -> ${v.name}`)
+        await page.getByRole('tab', { name: 'Sessions' }).click()
+        const item = page.getByTestId(`session-item-${v.id}`)
+        await expect(item).toBeVisible({ timeout: 10000 })
+        await item.click()
+        await expect(page).toHaveURL(new RegExp(`/sessions/${v.id}`), { timeout: 10000 })
+        await expect(page.getByTestId('panel-session-name')).toHaveText(v.name, { timeout: 10000 })
+        // No re-auth on any switch.
+        await expect(unlockDialog).toBeHidden()
+        // Real output proving we're truly on the right host.
+        await verifyLiveShell(v.container, v.tmux, v.flag)
+        await expect(unlockDialog).toBeHidden()
+      }
+
+      // Pool reuse: each host authenticated exactly once across all the visits.
+      expect(acceptedCount(ctx.container.name), 'host1 authenticated exactly once (pooled)').toBe(1)
+      expect(acceptedCount(CONTAINER2), 'host2 authenticated exactly once (pooled)').toBe(1)
+    } finally {
+      if (bPingInterval) clearInterval(bPingInterval)
+      try { killTmuxSession(nameB) } catch { /* ignore */ }
+      if (container2) await stopSSHContainer(container2)
       if (ctx) await cleanupSSHCATestEnvironment(ctx)
     }
   })
