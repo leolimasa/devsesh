@@ -164,6 +164,30 @@ func SetSessionEnv(sessionName, key, value string) error {
 	return nil
 }
 
+// GetSessionEnvCurrent reads an environment variable from the tmux session the
+// calling process is attached to (via $TMUX). Returns "" when not inside tmux,
+// the variable is unset, or tmux errors. `devsesh watch` records the
+// authoritative DEVSESH_* values in the session environment, so this recovers
+// them for a shell whose own inherited copy is stale or missing -- tmux
+// set-environment can't update a shell that was already running when watch
+// (re)attached.
+func GetSessionEnvCurrent(key string) string {
+	if os.Getenv("TMUX") == "" {
+		return ""
+	}
+	out, err := exec.Command("tmux", "show-environment", key).Output()
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(out))
+	// tmux reports an unset variable as "-KEY".
+	prefix := key + "="
+	if !strings.HasPrefix(line, prefix) {
+		return ""
+	}
+	return strings.TrimPrefix(line, prefix)
+}
+
 // WatchControlMode attaches to an existing tmux session as a read-only control
 // mode client and invokes onActivity for every chunk of pane output the session
 // produces. Control mode gives a second, non-interactive view of the session
