@@ -2,7 +2,6 @@ package auth
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -31,10 +30,7 @@ func GenerateToken(secret string, userID int64, hostID int64, expiry time.Durati
 }
 
 func ValidateToken(secret, tokenStr string) (*Claims, error) {
-	parts := strings.Split(tokenStr, ".")
-	slog.Info("ValidateToken entry", "input_len", len(tokenStr), "parts_count", len(parts))
-	if len(parts) != 3 {
-		slog.Error("Token parts validation", "got", len(parts), "parts", parts)
+	if parts := strings.Split(tokenStr, "."); len(parts) != 3 {
 		return nil, fmt.Errorf("token must have 3 parts, got %d", len(parts))
 	}
 

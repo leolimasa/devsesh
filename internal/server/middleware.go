@@ -3,10 +3,8 @@ package server
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/leolimasa/devsesh/internal/auth"
 	"github.com/leolimasa/devsesh/internal/ctxutil"
@@ -16,59 +14,27 @@ import (
 func RequireJWT(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			slog.Warn("RequireJWT middleware called", "path", r.URL.Path, "secret_length", len(secret))
 			tokenStr := ""
-			tokenSource := ""
 
 			authHeader := r.Header.Get("Authorization")
 			if len(authHeader) >= 7 && authHeader[:7] == "Bearer " {
 				tokenStr = authHeader[7:]
-				tokenSource = "Authorization header"
 			} else if queryToken := r.URL.Query().Get("token"); queryToken != "" {
 				tokenStr = queryToken
-				tokenSource = "query parameter"
 			}
 
 			if tokenStr == "" {
-				slog.Error("JWT validation failed: no token provided", "path", r.URL.Path, "authHeader", authHeader)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-
-			slog.Warn("JWT validation starting - this should always appear", "path", r.URL.Path)
-			slog.Info("JWT validation attempt",
-				"path", r.URL.Path,
-				"token_prefix", func() string {
-					if len(tokenStr) > 20 {
-						return tokenStr[:20] + "..."
-					}
-					return tokenStr
-				}(),
-				"token_length", len(tokenStr),
-				"source", tokenSource)
 
 			claims, err := auth.ValidateToken(secret, tokenStr)
 			if err != nil {
-				slog.Error("failed to validate token",
-					"error", err,
-					"path", r.URL.Path,
-					"secret_length", len(secret),
-					"token_userId_from_header", func() string {
-						parts := strings.Split(tokenStr, ".")
-						if len(parts) != 3 {
-							return "invalid_token_format"
-						}
-						payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-						if err != nil {
-							return "decode_error"
-						}
-						return string(payload)
-					}())
+				slog.Warn("JWT validation failed", "error", err, "path", r.URL.Path)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			slog.Info("JWT validation success", "userId", claims.UserID, "path", r.URL.Path)
 			ctx := context.WithValue(r.Context(), ctxutil.ContextKeyUserID, claims.UserID)
 			ctx = context.WithValue(ctx, ctxutil.ContextKeyHostID, claims.HostID)
 			next.ServeHTTP(w, r.WithContext(ctx))

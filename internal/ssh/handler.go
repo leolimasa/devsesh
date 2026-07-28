@@ -144,7 +144,12 @@ func ProxyHandler(database *sql.DB, cfg config.Config, connMgr *ConnectionManage
 			slog.Error("proxy error", "error", err)
 		}
 
-		wsConn.WriteMessage(websocket.TextMessage, []byte(`{"type": "closed"}`))
+		// Serialize this final write through the proxy's write mutex; the ping and
+		// TCP->WS goroutines may still be draining, and gorilla panics on a
+		// concurrent write to the same connection.
+		if err := proxy.sendControlMessage(ControlMessage{Type: "closed"}); err != nil {
+			slog.Debug("failed to send closed message", "error", err)
+		}
 	}
 }
 
