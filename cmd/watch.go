@@ -59,6 +59,19 @@ func runWatch(sessionName, sessionID string) error {
 		return fmt.Errorf("failed to create sessions directory: %w", err)
 	}
 
+	// Enforce a single watcher per tmux session. `devsesh start` respawns a
+	// watcher whenever it attaches to an existing session (it can't tell whether
+	// the previous one is still alive), so bow out quietly if one already holds
+	// the lock. The lock releases on process exit, so a crashed watcher frees it.
+	lock, ok, err := client.AcquireWatcherLock(sessionsDir, sessionName)
+	if err != nil {
+		return fmt.Errorf("failed to acquire watcher lock: %w", err)
+	}
+	if !ok {
+		return nil
+	}
+	defer lock.Close()
+
 	// A caller (devsesh start) may have already generated the ID and written
 	// the session file. When invoked standalone, generate our own ID, create
 	// the session file, and inject the DEVSESH_* env into the tmux session so

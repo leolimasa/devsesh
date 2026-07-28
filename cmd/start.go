@@ -46,24 +46,22 @@ func runStart(cmd *cobra.Command, args []string) error {
 		sessionName = args[0]
 	}
 
-	// If a tmux session with this name already exists, just attach to it. It is
-	// presumed to already be watched (or the user can run `devsesh watch`); we
-	// must not create a duplicate session or a second watcher.
+	sessionsDir := resolveSessionsDir(cfg)
+	if err := os.MkdirAll(sessionsDir, 0700); err != nil {
+		return fmt.Errorf("failed to create sessions directory: %w", err)
+	}
+
+	// If a tmux session with this name already exists, attach to it -- but first
+	// make sure it has a live watcher. The previous watcher may have died (crash,
+	// reboot) or the session may have been created outside devsesh and never
+	// watched at all; either way it would otherwise show as offline. The watcher
+	// self-dedupes via an flock, so this is a no-op when one is already running.
 	if client.SessionExists(sessionName) {
+		ensureWatcher(sessionsDir, sessionName)
 		return client.AttachSession(sessionName)
 	}
 
 	sessionID := uuid.New().String()
-
-	sessionsDir := cfg.SessionsDir
-	if sessionsDir == "" {
-		if u, err := user.Current(); err == nil {
-			sessionsDir = filepath.Join(u.HomeDir, ".devsesh", "sessions")
-		}
-	}
-	if err := os.MkdirAll(sessionsDir, 0700); err != nil {
-		return fmt.Errorf("failed to create sessions directory: %w", err)
-	}
 
 	sessionFile := filepath.Join(sessionsDir, sessionID+".yml")
 
@@ -99,6 +97,41 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// or the SSH connection drops, only this attach dies; the tmux session and
 	// its watcher keep running.
 	return client.AttachSession(sessionName)
+}
+
+func resolveSessionsDir(cfg *client.ClientConfig) string {
+	if cfg.SessionsDir != "" {
+		return cfg.SessionsDir
+	}
+	if u, err := user.Current(); err == nil {
+		return filepath.Join(u.HomeDir, ".devsesh", "sessions")
+	}
+	return ""
+}
+
+// ensureWatcher (re)starts the watcher for an already-running tmux session. It
+// reuses the session's recorded DEVSESH_SESSION_ID so a revived watcher reports
+// the same server-side session rather than registering a duplicate; if the
+// session was created outside devsesh (no recorded ID) it mints one, writes the
+// session file, and injects the DEVSESH_* env. The spawned watcher self-dedupes
+// via its flock, so calling this when a watcher is already alive does nothing.
+func ensureWatcher(sessionsDir, sessionName string) {
+	sessionID := client.GetSessionEnv(sessionName, "DEVSESH_SESSION_ID")
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+		sessionFile := filepath.Join(sessionsDir, sessionID+".yml")
+		if sf, err := client.NewSessionFile(sessionID, sessionName); err == nil {
+			if err := client.WriteSessionFile(sessionFile, sf); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to write session file: %v\n", err)
+			}
+		}
+		client.SetSessionEnv(sessionName, "DEVSESH_SESSION_ID", sessionID)
+		client.SetSessionEnv(sessionName, "DEVSESH_SESSION_FILE", sessionFile)
+		client.SetSessionEnv(sessionName, "DEVSESH_SESSION_NAME", sessionName)
+	}
+	if err := spawnWatcher(sessionID, sessionName, sessionsDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to start session watcher: %v\n", err)
+	}
 }
 
 // spawnWatcher launches `devsesh watch` as a detached background process. It is

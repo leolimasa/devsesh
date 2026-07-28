@@ -242,8 +242,18 @@ func CreateSession(db *sql.DB, s Session) error {
 		formatted := s.LastActivityAt.UTC().Format(timeFormat)
 		lastActivityAt = &formatted
 	}
+	// Upsert so a watcher respawned by `devsesh start` for a still-running tmux
+	// session revives the existing row (bringing it back online) instead of
+	// failing on the primary-key conflict. started_at is preserved -- the tmux
+	// session did not actually restart.
 	_, err := db.Exec(
-		"INSERT INTO sessions (id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		`INSERT INTO sessions (id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, metadata)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   name = excluded.name,
+		   last_ping_at = excluded.last_ping_at,
+		   last_activity_at = excluded.last_activity_at,
+		   metadata = excluded.metadata`,
 		s.ID, s.UserID, s.HostID, s.Name, s.StartedAt.UTC().Format(timeFormat), lastPingAt, lastActivityAt, s.Metadata,
 	)
 	if err != nil {

@@ -164,6 +164,25 @@ func SetSessionEnv(sessionName, key, value string) error {
 	return nil
 }
 
+// GetSessionEnv reads an environment variable from a named tmux session's
+// environment (as recorded by `-e` at creation or `set-environment`). Unlike
+// GetSessionEnvCurrent it does not require the caller to be attached, so
+// `devsesh start` can recover a running session's DEVSESH_SESSION_ID from
+// outside tmux. Returns "" when the session or variable is absent.
+func GetSessionEnv(sessionName, key string) string {
+	out, err := exec.Command("tmux", "show-environment", "-t", sessionName, key).Output()
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(out))
+	prefix := key + "="
+	// tmux reports an unset variable as "-KEY".
+	if !strings.HasPrefix(line, prefix) {
+		return ""
+	}
+	return strings.TrimPrefix(line, prefix)
+}
+
 // GetSessionEnvCurrent reads an environment variable from the tmux session the
 // calling process is attached to (via $TMUX). Returns "" when not inside tmux,
 // the variable is unset, or tmux errors. `devsesh watch` records the
