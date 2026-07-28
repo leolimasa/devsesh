@@ -95,6 +95,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       let stage = "init"
       const diag: Record<string, unknown> = {
+        clientBuild: "evalByCredential-diag-1",
         hasPublicKeyCredential: typeof window !== "undefined" && "PublicKeyCredential" in window,
         ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
       }
@@ -152,6 +153,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         }
         diag.rpId = options.publicKey.rpId
         diag.allowCredentialsCount = allowCredentials?.length ?? 0
+        diag.prfExtShape = (allowCredentials?.length ?? 0) > 0 ? "evalByCredential" : "eval"
         diag.origin = typeof window !== "undefined" ? window.location.origin : ""
 
         stage = "webauthn-get"
@@ -172,9 +174,13 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         }
 
         const prfOutput = new Uint8Array(extResults.prf.results.first)
+        // Non-sensitive fingerprint of the unlock PRF output, to compare against
+        // the enrollment-time fingerprint when diagnosing the iOS unlock failure.
+        diag.prfFirst4 = Array.from(prfOutput.slice(0, 4)).join(",")
 
         stage = "fetch-master-key"
         const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
+        diag.credentialIdShort = credentialId.slice(0, 12)
         diag.credentialIdLen = credential.rawId.byteLength
         const { encrypted_master_key } = await getMasterKey(credentialId)
         const { data: encryptedPayload } = parseEncryptedMasterKey(new Uint8Array(decodeBase64(encrypted_master_key)))
