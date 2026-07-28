@@ -20,7 +20,7 @@ import { isDesktopViewport } from "@/lib/utils"
 import { getMasterKey } from "@/lib/api"
 import { loginBegin } from "@/lib/api"
 import { clientLog } from "@/lib/api"
-import { deriveMasterKeyFromPrf, getPrfSalt, parseEncryptedMasterKey, decodeBase64 } from "@/lib/crypto/prf"
+import { deriveMasterKeyFromPrf, getPrfSalt, parseEncryptedMasterKey, decodeBase64, buildPrfGetExtension } from "@/lib/crypto/prf"
 import { decodeBase64URL, encodeBase64URL } from "@/lib/crypto/encoding"
 import { decrypt } from "@/lib/crypto/aes"
 import { encodeBase64 } from "@/lib/crypto/encoding"
@@ -141,9 +141,13 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
           userVerification: options.publicKey.userVerification,
           allowCredentials,
           extensions: {
-            prf: {
-              eval: { first: prfSaltBuffer }
-            }
+            // evalByCredential (keyed per credential) so Safari/iOS returns the
+            // same PRF it produced at enrollment; a bare eval with multiple
+            // allowCredentials yields a mismatched PRF and OperationError there.
+            prf: buildPrfGetExtension(
+              (allowCredentials ?? []).map((c) => c.id as ArrayBuffer),
+              prfSaltBuffer
+            )
           } as AuthenticationExtensionsClientInputs
         }
         diag.rpId = options.publicKey.rpId

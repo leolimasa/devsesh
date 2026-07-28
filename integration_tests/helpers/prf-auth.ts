@@ -89,6 +89,28 @@ export async function addPRFConsistencyScript(page: Page): Promise<void> {
             prfToUse = originalExtResults.prf.results.first
           }
 
+          // Test-only simulation of the Safari/iOS PRF quirk: a bare `eval` with
+          // more than one allowCredentials entry returns a PRF that does NOT
+          // match the per-credential value produced at enrollment (the real
+          // iPhone-can't-do-SSH bug). `evalByCredential` is unaffected. Gated by
+          // a localStorage flag so only opted-in tests see it. Chromium's virtual
+          // authenticator can't reproduce this on its own, so we inject it here.
+          try {
+            if (localStorage.getItem('__ios_prf_multicred_sim__') === '1') {
+              const reqPrf = (options?.publicKey?.extensions as { prf?: { eval?: unknown; evalByCredential?: unknown } } | undefined)?.prf
+              const usesEvalByCredential = !!(reqPrf && reqPrf.evalByCredential)
+              const nAllow = options?.publicKey?.allowCredentials?.length || 0
+              if (reqPrf && !usesEvalByCredential && nAllow > 1) {
+                const corrupted = new Uint8Array(prfToUse.slice(0))
+                corrupted[0] ^= 0xff
+                prfToUse = corrupted.buffer
+                console.log('[iOS PRF sim] bare eval + multi allowCredentials -> returning mismatched PRF')
+              }
+            }
+          } catch (e) {
+            console.log('[iOS PRF sim] error:', e)
+          }
+
           // Override getClientExtensionResults to always return the correct PRF
           ;(credential as any).getClientExtensionResults = function() {
             const results = originalGetClientExtensionResults()

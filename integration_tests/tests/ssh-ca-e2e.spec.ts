@@ -20,7 +20,7 @@
  */
 
 import { test, expect, Page, BrowserContext } from '@playwright/test'
-import { startServer, stopServer, ServerInstance } from '../helpers/server'
+import { startServer, stopServer, restartServer, ServerInstance } from '../helpers/server'
 import {
   setupPRFAuthenticator,
   registerUserWithPRF,
@@ -40,6 +40,7 @@ import {
   createTmuxSession,
   execInContainer,
 } from '../helpers/ssh-container'
+import { getUserIdByEmail } from '../helpers/enrollment'
 import { spawnDevseshStart, killTmuxSession, waitForSessionInApi } from '../helpers/session'
 import { spawnDevseshLogin, extractPairingCode, waitForCliSuccess } from '../helpers/cli'
 import { enterPairingCode } from '../helpers/pairing'
@@ -596,6 +597,216 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
       await page.keyboard.type('echo KEEPALIVE_$(whoami)', { delay: 15 })
       await page.keyboard.press('Enter')
       await expect(page.locator('.xterm-screen')).toContainText('KEEPALIVE_testuser', { timeout: 30000 })
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
+  // A full server reboot (apps1 restarting) drops EVERY WebSocket at once and
+  // wipes the server's in-memory proxy state, while the browser keeps its wasm
+  // SSH connection state. The client must auto-reconnect AND restart the SSH
+  // handshake on the fresh transport. Reproduces the production bug where, after
+  // an apps1 reboot, every reconnect stalled forever: the proxy reached the
+  // target (which sent its 22-byte banner) but the client sent ZERO handshake
+  // bytes back, so no session ever re-attached.
+  test('recovers automatically after a full server restart (apps1 reboot)', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+
+    const clientCount = (): number => {
+      try {
+        const out = execInContainer(CONTAINER_NAME, `tmux list-clients -t testsession 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+    const waitForClient = async (): Promise<boolean> => {
+      for (let i = 0; i < 60; i++) {
+        if (clientCount() > 0) return true
+        await page.waitForTimeout(1000)
+      }
+      return false
+    }
+
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+      await connectWithCertificateOnly(page)
+
+      // Live shell before the reboot.
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 })
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo BEFORE_$(whoami)', { delay: 15 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('BEFORE_testuser', { timeout: 10000 })
+      expect(await waitForClient(), 'attached before restart').toBe(true)
+
+      // Reboot the server in place (same port + DB → token/session/host survive).
+      // Every WebSocket drops; the page must recover on its OWN, with no re-auth.
+      ctx.server = await restartServer(ctx.server)
+
+      const unlockDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+      expect(await waitForClient(), 'terminal re-attaches automatically after the server reboot').toBe(true)
+      await expect(unlockDialog).toBeHidden()
+
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo AFTER_$(whoami)', { delay: 15 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('AFTER_testuser', { timeout: 30000 })
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
+  // Production report (iPhone passkey): the passkey still LOGS IN but no longer
+  // works for SSH certificate auth. Login only needs a WebAuthn assertion, but
+  // SSH cert auth needs THAT passkey's PRF to unlock the master key that decrypts
+  // the FROST client share. When the passkey's stored master-key blob can't be
+  // unlocked into the correct master key, SSH cert auth fails while login is
+  // unaffected. We reproduce that state by corrupting the credential's master-key
+  // blob (leaving the credential itself valid for WebAuthn login/assertion).
+  //
+  // Expected once fixed: the terminal must surface a clear, actionable "this
+  // passkey can't unlock SSH" error instead of silently failing / looping.
+  test('a passkey that still logs in fails SSH cert auth when its master-key blob is unusable (iPhone repro)', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+
+    const clientCount = (): number => {
+      try {
+        const out = execInContainer(CONTAINER_NAME, `tmux list-clients -t testsession 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+
+      // Put the passkey into the broken state: corrupt its encrypted master-key
+      // blob so the PRF can no longer unlock the master key (AES-GCM auth fails).
+      // The credential stays valid for login; only the SSH/FROST path breaks.
+      const userId = await getUserIdByEmail(ctx.server.dbPath, ctx.email)
+      expect(userId, 'user should exist').not.toBeNull()
+      {
+        const Database = require('better-sqlite3')
+        const db = new Database(ctx.server.dbPath)
+        try {
+          const row = db
+            .prepare(
+              'SELECT rowid AS rid, encrypted_master_key AS mk FROM webauthn_credentials ' +
+                'WHERE user_id = ? ORDER BY rowid LIMIT 1'
+            )
+            .get(userId)
+          expect(row?.mk, 'passkey should have a master-key blob').toBeTruthy()
+          // Blob layout: 1 version + 12 nonce + ciphertext + 16 tag. Flip the
+          // ciphertext/tag (leave version+nonce) so decrypt fails cleanly.
+          const bad = Buffer.from(row.mk)
+          for (let i = 13; i < bad.length; i++) bad[i] ^= 0xff
+          db.prepare('UPDATE webauthn_credentials SET encrypted_master_key = ? WHERE rowid = ?').run(
+            bad,
+            row.rid
+          )
+        } finally {
+          db.close()
+        }
+      }
+
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+
+      // Drive SSH certificate auth: the unlock dialog appears (login-style
+      // assertion still works), but unlocking the master key now fails.
+      const dialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+      await dialog.waitFor({ state: 'visible', timeout: 30000 })
+      await page.locator('button:has-text("Authenticate")').click()
+
+      // Reproduction: SSH cert auth fails -> the terminal never reaches
+      // "Connected" and no shell attaches in the container. (In production the
+      // user sees this as SSH "not working" for that passkey.)
+      const connected = await page
+        .getByText('Connected', { exact: true })
+        .waitFor({ state: 'visible', timeout: 25000 })
+        .then(() => true)
+        .catch(() => false)
+      expect(connected, 'SSH cert auth must fail when the master-key blob is unusable').toBe(false)
+
+      let attached = false
+      for (let i = 0; i < 6; i++) {
+        if (clientCount() > 0) {
+          attached = true
+          break
+        }
+        await page.waitForTimeout(1000)
+      }
+      expect(attached, 'no shell should attach when SSH cert auth fails').toBe(false)
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
+  // Regression test for the iPhone bug: SSH cert auth must work for a passkey
+  // even when the account has MULTIPLE passkeys and the platform (Safari/iOS)
+  // diverges the PRF for a bare `eval` with >1 allowCredentials. We simulate that
+  // platform quirk (helpers/prf-auth.ts, gated by localStorage) and make the
+  // assertion offer 2 credentials. With a bare `eval` the simulated PRF is
+  // mismatched -> master-key unlock throws OperationError -> never connects
+  // (fails). With `evalByCredential` the per-credential PRF is correct -> the
+  // terminal connects. This locks in the evalByCredential fix.
+  test('SSH cert auth survives Safari/iOS multi-credential PRF (evalByCredential regression)', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+
+    const clientCount = (): number => {
+      try {
+        const out = execInContainer(CONTAINER_NAME, `tmux list-clients -t testsession 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+    const waitForClient = async (): Promise<boolean> => {
+      for (let i = 0; i < 45; i++) {
+        if (clientCount() > 0) return true
+        await page.waitForTimeout(1000)
+      }
+      return false
+    }
+
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+
+      // Make the assertion offer more than one credential (a realistic account
+      // with several passkeys): inject a second credential row so the SSH-unlock
+      // get() has allowCredentials.length > 1 and trips the simulated quirk.
+      const userId = await getUserIdByEmail(ctx.server.dbPath, ctx.email)
+      expect(userId, 'user should exist').not.toBeNull()
+      {
+        const Database = require('better-sqlite3')
+        const crypto = require('crypto')
+        const db = new Database(ctx.server.dbPath)
+        try {
+          const id2 = `second-passkey-${crypto.randomBytes(6).toString('hex')}`
+          db.prepare(
+            'INSERT INTO webauthn_credentials ' +
+              '(id, user_id, public_key, sign_count, encrypted_master_key, backup_eligible, backup_state) ' +
+              'VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).run(id2, userId, Buffer.from([0x01, 0x02, 0x03]), 0, crypto.randomBytes(61), 1, 1)
+        } finally {
+          db.close()
+        }
+      }
+
+      // Enable the Safari/iOS multi-credential PRF divergence simulation.
+      await page.evaluate(() => localStorage.setItem('__ios_prf_multicred_sim__', '1'))
+
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+
+      // Must connect: with evalByCredential the per-credential PRF is correct.
+      // (With a bare eval the simulated PRF is mismatched and this fails.)
+      await connectWithCertificateOnly(page)
+      expect(await waitForClient(), 'terminal must attach after multi-credential cert auth').toBe(true)
     } finally {
       if (ctx) await cleanupSSHCATestEnvironment(ctx)
     }

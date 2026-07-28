@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { getToken, getMasterKey, getEnrollmentWebSocketURL } from "@/lib/api"
 import { spake2Init, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
-import { deriveMasterKeyFromPrf, decodeBase64, decodeBase64URL, encodeBase64, encodeBase64URL, parseEncryptedMasterKey, getPrfSalt } from "@/lib/crypto/prf"
+import { deriveMasterKeyFromPrf, decodeBase64, decodeBase64URL, encodeBase64, encodeBase64URL, parseEncryptedMasterKey, getPrfSalt, buildPrfGetExtension } from "@/lib/crypto/prf"
 
 type Status = "idle" | "authenticating" | "connecting" | "handshaking" | "transferring" | "success" | "error"
 
@@ -103,20 +103,22 @@ export default function AddPasskeyPage() {
         prfSalt.byteOffset,
         prfSalt.byteOffset + prfSalt.byteLength
       )
+      const mappedAllowCredentials = pkOpts.allowCredentials?.map(cred => ({
+        ...cred,
+        id: decodeBase64URL(cred.id)
+      }))
       const adjustedOptions = {
         ...pkOpts,
         challenge: decodeBase64URL(pkOpts.challenge),
-        allowCredentials: pkOpts.allowCredentials?.map(cred => ({
-          ...cred,
-          id: decodeBase64URL(cred.id)
-        })),
+        allowCredentials: mappedAllowCredentials,
         extensions: {
           ...pkOpts.extensions,
-          prf: {
-            eval: {
-              first: prfSaltBuffer
-            }
-          }
+          // evalByCredential so Safari/iOS returns the enrollment-time PRF (a bare
+          // eval with multiple allowCredentials mismatches -> OperationError).
+          prf: buildPrfGetExtension(
+            (mappedAllowCredentials ?? []).map(c => c.id as ArrayBuffer),
+            prfSaltBuffer
+          )
         }
       }
 

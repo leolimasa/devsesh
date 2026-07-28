@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { createPasskeyEnrollment, enrollmentBegin, enrollmentComplete, getEnrollmentWebSocketURL } from "@/lib/api"
 import { spake2InitB, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
-import { encodeBase64, decodeBase64, decodeBase64URL, deriveMasterKeyFromPrf, formatEncryptedMasterKey, getPrfSalt } from "@/lib/crypto/prf"
+import { encodeBase64, decodeBase64, decodeBase64URL, deriveMasterKeyFromPrf, formatEncryptedMasterKey, getPrfSalt, buildPrfGetExtension } from "@/lib/crypto/prf"
 
 // Convert base64url to ArrayBuffer
 function base64urlToBuffer(base64url: string): ArrayBuffer {
@@ -305,11 +305,9 @@ export default function RegisterPasskeyPage() {
           }],
           userVerification: 'required',
           extensions: {
-            prf: {
-              eval: {
-                first: prfSaltBuffer
-              }
-            }
+            // evalByCredential (keyed to this new credential) so the PRF matches
+            // what the SSH-unlock get() will later request per-credential.
+            prf: buildPrfGetExtension([credential.rawId], prfSaltBuffer)
           } as AuthenticationExtensionsClientInputs
         }
 

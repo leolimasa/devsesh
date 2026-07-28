@@ -100,6 +100,52 @@ export async function startServer(options: ServerOptions = {}): Promise<ServerIn
   };
 }
 
+/**
+ * Restart the server in place: kill the process but KEEP the db, session dir,
+ * and port. Because the JWT secret is persisted in the db (server_config), the
+ * client's token, host, and session all survive, so the page can auto-reconnect
+ * to the same URL -- faithfully reproducing an apps1-style server reboot (every
+ * WebSocket drops and server-side proxy state is wiped, while the browser keeps
+ * its wasm SSH connection state).
+ */
+export async function restartServer(
+  instance: ServerInstance,
+  options: ServerOptions = {},
+): Promise<ServerInstance> {
+  instance.process.kill('SIGTERM');
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(() => {
+      instance.process.kill('SIGKILL');
+      resolve();
+    }, 5000);
+    instance.process.on('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+
+  const devseshProcess = spawnDevsesh(['server'], {
+    DEVSESH_DB_PATH: instance.dbPath,
+    DEVSESH_PORT: instance.port.toString(),
+    DEVSESH_HOST: 'localhost',
+    DEVSESH_RP_ID: 'localhost',
+    DEVSESH_RP_ORIGIN: instance.url,
+    DEVSESH_ALLOW_USER_CREATION: 'true',
+    DEVSESH_SESSION_DIR: instance.sessionDir,
+  });
+
+  devseshProcess.process.stdout?.on('data', (data: Buffer) => {
+    console.log('[SERVER stdout]:', data.toString().trim());
+  });
+  devseshProcess.process.stderr?.on('data', (data: Buffer) => {
+    console.log('[SERVER stderr]:', data.toString().trim());
+  });
+
+  await waitForServer(instance.url, options.timeout);
+
+  return { ...instance, process: devseshProcess.process };
+}
+
 export async function stopServer(instance: ServerInstance): Promise<void> {
   instance.process.kill('SIGTERM');
 
