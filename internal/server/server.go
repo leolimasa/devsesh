@@ -92,6 +92,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("POST /api/v1/auth/passkeys/enrollment/{code}/begin", auth.EnrollmentBeginHandler(wa, database, cs))
 	mux.Handle("POST /api/v1/auth/passkeys/enrollment/{code}/complete", auth.EnrollmentCompleteHandler(wa, database, cs))
 	mux.Handle("GET /api/v1/auth/master-key", jwtMiddleware(http.HandlerFunc(auth.GetMasterKeyHandler(database))))
+	mux.Handle("POST /api/v1/auth/master-key", jwtMiddleware(http.HandlerFunc(auth.AddMasterKeyBlobHandler(database))))
 	mux.Handle("POST /api/v1/auth/passkeys/auth-begin", jwtMiddleware(http.HandlerFunc(auth.AuthBeginWithJWTHandler(wa, database, cs))))
 	mux.Handle("POST /api/v1/auth/passkeys/auth-finish", jwtMiddleware(http.HandlerFunc(auth.AuthFinishWithJWTHandler(wa, database, cs, cfg))))
 

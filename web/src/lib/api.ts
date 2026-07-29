@@ -215,13 +215,37 @@ export async function enrollmentComplete(
   })
 }
 
-// Fetch the encrypted master key. Pass the base64url-encoded credential id of the
-// passkey that just authenticated: each passkey wraps the master key with its own
-// PRF output, so the server must return that specific credential's blob (omitting
-// it falls back to the first credential, which only decrypts on one device).
-export async function getMasterKey(credentialId?: string): Promise<{ encrypted_master_key: string }> {
+// Fetch the master-key blobs for the passkey that just authenticated. A synced
+// passkey has a device-specific PRF, so it carries one wrapped blob per device;
+// the caller tries each until one decrypts with this device's PRF. Pass the
+// base64url credential id from the assertion.
+export async function getMasterKey(
+  credentialId?: string
+): Promise<{ blobs: string[]; encrypted_master_key?: string }> {
   const query = credentialId ? `?credential_id=${encodeURIComponent(credentialId)}` : ""
-  return fetchApi<{ encrypted_master_key: string }>(`/auth/master-key${query}`)
+  const resp = await fetchApi<{ blobs?: string[]; encrypted_master_key?: string }>(
+    `/auth/master-key${query}`
+  )
+  // Tolerate an older single-blob response shape.
+  const blobs = resp.blobs && resp.blobs.length > 0
+    ? resp.blobs
+    : resp.encrypted_master_key
+      ? [resp.encrypted_master_key]
+      : []
+  return { blobs, encrypted_master_key: resp.encrypted_master_key }
+}
+
+// Append a per-device wrapped master key to an existing passkey — how a device
+// that shares a synced passkey but has its own PRF provisions its blob without
+// minting a new passkey. wrappedMasterKey is base64 (version||nonce||ciphertext).
+export async function addMasterKeyBlob(
+  credentialId: string,
+  wrappedMasterKey: string
+): Promise<void> {
+  await fetchApi<void>(`/auth/master-key`, {
+    method: "POST",
+    body: JSON.stringify({ credential_id: credentialId, wrapped_master_key: wrappedMasterKey }),
+  })
 }
 
 export function getEnrollmentWebSocketURL(code: string, token?: string): string {

@@ -240,25 +240,27 @@ export default function AddPasskeyPage() {
             updateStatus("transferring")
 
             try {
-              // Fetch the master key wrapped for THIS credential — each passkey
-              // wraps it with its own PRF output, so a fixed blob only decrypts on
-              // one device. credential.rawId identifies the authenticating passkey.
-              const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
-              const masterKeyResp = await getMasterKey(credentialId)
-              const encryptedMasterKeyBytes = decodeBase64(masterKeyResp.encrypted_master_key)
-              
-              // Master key MUST be encrypted with PRF
-              const { data: masterKeyData, isEncrypted } = parseEncryptedMasterKey(encryptedMasterKeyBytes)
-              
-              if (!isEncrypted) {
-                throw new Error('Master key is not encrypted with PRF. PRF is required.')
-              }
-              
               if (!prfKeyDerived) {
                 throw new Error("No PRF key available for decrypting master key")
               }
-              
-              const decryptedMasterKey = await decrypt(prfKeyDerived, masterKeyData.slice(0, 12), masterKeyData.slice(12))
+              // This passkey may have a wrapped master key per device (synced
+              // passkeys have a device-specific PRF). Try each blob with this
+              // device's PRF; the AES-GCM tag validates the one wrapped here.
+              const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
+              const { blobs } = await getMasterKey(credentialId)
+              let decryptedMasterKey: Uint8Array | null = null
+              for (const blob of blobs) {
+                try {
+                  const { data } = parseEncryptedMasterKey(decodeBase64(blob))
+                  decryptedMasterKey = await decrypt(prfKeyDerived, data.slice(0, 12), data.slice(12))
+                  break
+                } catch {
+                  // Wrong device's blob — try the next.
+                }
+              }
+              if (!decryptedMasterKey) {
+                throw new Error("This device can't unlock the master key with this passkey.")
+              }
 
               const { ciphertext, nonce } = await encrypt(key, decryptedMasterKey)
 

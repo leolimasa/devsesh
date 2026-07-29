@@ -111,6 +111,29 @@ export async function addPRFConsistencyScript(page: Page): Promise<void> {
             console.log('[iOS PRF sim] error:', e)
           }
 
+          // Test-only device-specific PRF simulation. Real iCloud-synced passkeys
+          // produce a different PRF per device for the same credential; Chromium's
+          // virtual authenticator produces the same. When `__prf_device_id__` is
+          // set, XOR the (credential-stable) PRF with a deterministic per-device
+          // pattern so switching the id simulates switching devices — used to test
+          // per-device master-key blobs. No flag → unchanged (default behavior).
+          try {
+            const deviceId = localStorage.getItem('__prf_device_id__')
+            if (deviceId) {
+              let h = 2166136261 >>> 0
+              for (let i = 0; i < deviceId.length; i++) {
+                h = ((h ^ deviceId.charCodeAt(i)) * 16777619) >>> 0
+              }
+              const pat = [h & 0xff, (h >>> 8) & 0xff, (h >>> 16) & 0xff, (h >>> 24) & 0xff]
+              const arr = new Uint8Array(prfToUse.slice(0))
+              for (let i = 0; i < arr.length; i++) arr[i] ^= pat[i % 4]
+              prfToUse = arr.buffer
+              console.log('[PRF device sim] device-specific PRF for device:', deviceId)
+            }
+          } catch (e) {
+            console.log('[PRF device sim] error:', e)
+          }
+
           // Override getClientExtensionResults to always return the correct PRF
           ;(credential as any).getClientExtensionResults = function() {
             const results = originalGetClientExtensionResults()

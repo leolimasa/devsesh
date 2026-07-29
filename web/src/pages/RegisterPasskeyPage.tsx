@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { browserSupportsWebAuthn, bufferToBase64URLString } from "@simplewebauthn/browser"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { createPasskeyEnrollment, enrollmentBegin, enrollmentComplete, getEnrollmentWebSocketURL, clientLog } from "@/lib/api"
+import { createPasskeyEnrollment, enrollmentBegin, enrollmentComplete, getEnrollmentWebSocketURL, addMasterKeyBlob } from "@/lib/api"
 import { spake2InitB, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
 import { encodeBase64, decodeBase64, decodeBase64URL, deriveMasterKeyFromPrf, formatEncryptedMasterKey, getPrfSalt, buildPrfGetExtension } from "@/lib/crypto/prf"
@@ -243,6 +243,57 @@ export default function RegisterPasskeyPage() {
         prfSalt.byteOffset + prfSalt.byteLength
       )
 
+      // If this device already has a passkey for this account, it shares the
+      // synced credential but has its OWN device-specific PRF. Add a per-device
+      // master-key blob for that existing passkey instead of minting a new
+      // passkey (a new passkey becomes the newest synced credential and shadows
+      // other devices). Discoverable get() (no allowCredentials) so iOS offers
+      // the local synced passkey rather than the QR/security-key path.
+      try {
+        const assertion = (await navigator.credentials.get({
+          publicKey: {
+            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            rpId: options.rp.id || window.location.hostname,
+            userVerification: "required",
+            extensions: {
+              prf: { eval: { first: prfSaltBuffer } },
+            } as AuthenticationExtensionsClientInputs,
+          },
+        })) as PublicKeyCredential | null
+        const prfOut = (
+          assertion?.getClientExtensionResults() as {
+            prf?: { results?: { first?: ArrayBuffer } }
+          }
+        )?.prf?.results?.first
+        if (assertion && prfOut) {
+          const prfKey = await deriveMasterKeyFromPrf(new Uint8Array(prfOut))
+          const enc = await encrypt(prfKey, masterKey)
+          const combined = new Uint8Array(12 + enc.ciphertext.length)
+          combined.set(enc.nonce, 0)
+          combined.set(enc.ciphertext, 12)
+          await addMasterKeyBlob(
+            bufferToBase64URLString(assertion.rawId),
+            encodeBase64(formatEncryptedMasterKey(combined))
+          )
+          // Tell Machine A (which supplied the master key) we're done.
+          const confData = new TextEncoder().encode("received")
+          const conf = await encrypt(sessionKey, confData)
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: "encrypted_payload",
+              nonce: encodeBase64(conf.nonce),
+              ciphertext: encodeBase64(conf.ciphertext),
+            }))
+          }
+          updateStatus("success")
+          setTimeout(() => navigate("/"), 1500)
+          return
+        }
+      } catch {
+        // No existing passkey on this device (or the user dismissed it) — fall
+        // through to creating a brand-new passkey below.
+      }
+
       // Convert JSON options to native WebAuthn format
       const publicKeyOptions: PublicKeyCredentialCreationOptions = {
         challenge: base64urlToBuffer(options.challenge),
@@ -328,17 +379,6 @@ export default function RegisterPasskeyPage() {
       if (!prfOutput) {
         throw new Error('WebAuthn PRF extension is required for passkey registration. Your authenticator must support the PRF/hmac-secret extension.')
       }
-
-      // Diagnostic: record the enrollment-time PRF fingerprint + credential id so
-      // it can be compared against the SSH-unlock fingerprint for this passkey.
-      clientLog({
-        event: "passkey-enroll-prf",
-        clientBuild: "evalByCredential-diag-1",
-        credentialIdShort: credential.id.slice(0, 12),
-        prfFirst4: Array.from(prfOutput.slice(0, 4)).join(","),
-        prfFromCreate: !!extResults?.prf?.results?.first,
-        ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
-      }).catch(() => {})
 
       const prfKey = await deriveMasterKeyFromPrf(prfOutput)
       const encrypted = await encrypt(prfKey, masterKey)

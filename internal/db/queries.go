@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"time"
@@ -711,6 +712,53 @@ func GetCredentialWithMasterKey(db *sql.DB, credID string) (*WebAuthnCredential,
 
 	c.CreatedAt, _ = parseTime(createdAt)
 	return &c, nil
+}
+
+// GetCredentialKeyBlobs returns every per-device wrapped master key stored for a
+// credential. A synced passkey has one blob per device (its device-specific PRF
+// wrapping); the client tries each until one decrypts. Ordered newest-first so a
+// freshly provisioned device's blob is tried early.
+func GetCredentialKeyBlobs(db *sql.DB, credID string) ([][]byte, error) {
+	rows, err := db.Query(
+		"SELECT wrapped_master_key FROM credential_key_blobs WHERE credential_id = ? ORDER BY id DESC",
+		credID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get credential key blobs: %w", err)
+	}
+	defer rows.Close()
+
+	var blobs [][]byte
+	for rows.Next() {
+		var b []byte
+		if err := rows.Scan(&b); err != nil {
+			return nil, fmt.Errorf("scan credential key blob: %w", err)
+		}
+		blobs = append(blobs, b)
+	}
+	return blobs, rows.Err()
+}
+
+// AddCredentialKeyBlob appends a per-device wrapped master key to a credential,
+// deduping byte-identical blobs so re-provisioning the same device is a no-op.
+func AddCredentialKeyBlob(db *sql.DB, credID string, blob []byte) error {
+	existing, err := GetCredentialKeyBlobs(db, credID)
+	if err != nil {
+		return err
+	}
+	for _, e := range existing {
+		if bytes.Equal(e, blob) {
+			return nil
+		}
+	}
+	_, err = db.Exec(
+		"INSERT INTO credential_key_blobs (credential_id, wrapped_master_key) VALUES (?, ?)",
+		credID, blob,
+	)
+	if err != nil {
+		return fmt.Errorf("add credential key blob: %w", err)
+	}
+	return nil
 }
 
 func GetFirstCredentialWithMasterKey(db *sql.DB, userID int64) (*WebAuthnCredential, error) {

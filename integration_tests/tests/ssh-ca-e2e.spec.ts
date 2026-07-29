@@ -885,6 +885,79 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
     }
   })
 
+  // A credential can hold multiple wrapped master keys (one per device, since a
+  // synced passkey's PRF is device-specific). Unlock must TRY EACH blob and use
+  // the one this device's PRF opens, skipping others. We inject a bogus "other
+  // device" blob (ordered newest, so tried first) and confirm unlock still lands
+  // on the real one and connects.
+  test('unlock tries all master-key blobs and skips ones from other devices', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+      await connectWithCertificateOnly(page)
+
+      // Inject a bogus additional blob for this user's credential (simulates a
+      // different device's blob that can't decrypt here). Ordered newest, so
+      // try-all hits it first and must fall through to the real one.
+      const Database = require('better-sqlite3')
+      const crypto = require('crypto')
+      const db = new Database(ctx.server.dbPath, { readonly: true })
+      let credB64: string
+      try {
+        const row = db.prepare('SELECT hex(id) AS h FROM webauthn_credentials WHERE user_id = 1 LIMIT 1').get()
+        credB64 = Buffer.from(row.h, 'hex').toString('base64')
+      } finally {
+        db.close()
+      }
+      const bogus = crypto.randomBytes(61)
+      bogus[0] = 0x01 // valid version byte so it parses, but decrypt fails
+      const postRes = await fetch(`${ctx.server.url}/api/v1/auth/master-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.token}` },
+        body: JSON.stringify({ credential_id: credB64, wrapped_master_key: bogus.toString('base64') }),
+      })
+      expect(postRes.status, 'add bogus blob').toBe(204)
+
+      // Fresh page (drops the cached FROST worker) → a real unlock that must
+      // try-all across [bogus, real] and still connect.
+      await page.reload()
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+      await connectWithCertificateOnly(page)
+      await expect(page.getByText('Connected', { exact: true })).toBeVisible({ timeout: 30000 })
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
+  // When this device's PRF opens none of the stored blobs (a device that shares
+  // the synced passkey but has never wrapped the master key here), unlock must
+  // route to provisioning instead of erroring. We simulate a different device's
+  // PRF for the same credential and assert it navigates to the provision flow.
+  test('unlock with no matching blob routes to device provisioning', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+      // From now on this credential yields a different PRF (simulated "device B"),
+      // so the blob wrapped at registration won't decrypt here.
+      await page.evaluate(() => localStorage.setItem('__prf_device_id__', 'device-B'))
+
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+      // Drive the unlock: dialog appears, click Authenticate.
+      const dialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+      await dialog.waitFor({ state: 'visible', timeout: 30000 })
+      await page.locator('button:has-text("Authenticate")').click()
+
+      // No blob decrypts with device-B's PRF → auto-launch provisioning.
+      await page.waitForURL(/\/passkeys\/enroll/, { timeout: 30000 })
+      expect(page.url()).toContain('reason=ssh-provision')
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
   // Switching devsesh sessions via the sidebar must re-attach the terminal to
   // the newly-selected session AUTOMATICALLY — reusing the already-established
   // (certificate-authenticated) SSH connection, WITHOUT re-authenticating — and

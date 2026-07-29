@@ -39,6 +39,15 @@ type Status = ConnectionStatus
 // manual reconnect. Bounds the churn from a session that can't establish.
 const MAX_RECONNECT_ATTEMPTS = 8
 
+// Thrown by the unlock flow when no stored blob decrypts with this device's PRF:
+// this device has never wrapped the master key and must be provisioned.
+class NeedsProvisionError extends Error {
+  constructor() {
+    super("device not provisioned for SSH")
+    this.name = "NeedsProvisionError"
+  }
+}
+
 interface SSHTerminalProps {
   host: Host | null | undefined
   sessionName: string
@@ -99,7 +108,6 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       let stage = "init"
       const diag: Record<string, unknown> = {
-        clientBuild: "evalByCredential-diag-1",
         hasPublicKeyCredential: typeof window !== "undefined" && "PublicKeyCredential" in window,
         ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
       }
@@ -186,14 +194,28 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
         diag.credentialIdShort = credentialId.slice(0, 12)
         diag.credentialIdLen = credential.rawId.byteLength
-        const { encrypted_master_key } = await getMasterKey(credentialId)
-        const { data: encryptedPayload } = parseEncryptedMasterKey(new Uint8Array(decodeBase64(encrypted_master_key)))
+        const { blobs } = await getMasterKey(credentialId)
 
         stage = "derive-decrypt"
+        // A synced passkey has one wrapped master key per device (device-specific
+        // PRF). Try each blob with this device's PRF; the AES-GCM tag validates
+        // exactly the one wrapped here. If none decrypt, this device has no blob
+        // yet and must be provisioned.
         const prfKey = await deriveMasterKeyFromPrf(prfOutput)
-        const nonce = encryptedPayload.slice(0, 12)
-        const ciphertext = encryptedPayload.slice(12)
-        const masterKey = await decrypt(prfKey, nonce, ciphertext)
+        let masterKey: Uint8Array | null = null
+        for (const blob of blobs) {
+          try {
+            const { data } = parseEncryptedMasterKey(new Uint8Array(decodeBase64(blob)))
+            masterKey = await decrypt(prfKey, data.slice(0, 12), data.slice(12))
+            break
+          } catch {
+            // Wrong device's blob (tag mismatch) — try the next.
+          }
+        }
+        diag.blobCount = blobs.length
+        if (!masterKey) {
+          throw new NeedsProvisionError()
+        }
 
         stage = "init-worker"
         await initWorker(masterKey)
@@ -210,11 +232,15 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         setShowWebAuthnDialog(false)
       } catch (err) {
         const e = err as { name?: string; message?: string; stack?: string }
-        // A failure at derive-decrypt means the selected passkey's PRF can't
-        // unlock its master-key blob on THIS device -- typically an iCloud-synced
-        // passkey enrolled on another device (its PRF is device-specific). Give an
-        // actionable message: the user can tap Authenticate again and pick a
-        // passkey enrolled on this device. Anything else keeps the raw error.
+        // No stored blob decrypts with this device's PRF → this device isn't
+        // provisioned. Auto-launch the "set up this device" flow (option A): it
+        // adds a per-device blob for the existing synced passkey via a working
+        // device, without minting a new passkey.
+        if (err instanceof NeedsProvisionError) {
+          setShowWebAuthnDialog(false)
+          window.location.href = "/passkeys/enroll?reason=ssh-provision"
+          return
+        }
         if (stage === "derive-decrypt" && e?.name === "OperationError") {
           setWebAuthnError(
             "This passkey can't unlock SSH on this device (it was set up on another device). " +

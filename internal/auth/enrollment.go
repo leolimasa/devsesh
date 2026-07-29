@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
@@ -242,7 +243,24 @@ func EnrollmentCompleteHandler(wa *webauthn.WebAuthn, database *sql.DB, cs *Chal
 }
 
 type masterKeyResponse struct {
-	EncryptedMasterKey string `json:"encrypted_master_key"`
+	// All per-device wrapped master keys for the authenticating credential. A
+	// synced passkey has a device-specific PRF, so it carries one blob per
+	// device; the client tries each until one decrypts with this device's PRF.
+	Blobs []string `json:"blobs"`
+	// Legacy single-blob field (= Blobs[0]) for back-compat with a stale client.
+	EncryptedMasterKey string `json:"encrypted_master_key,omitempty"`
+}
+
+// decodeCredentialID decodes a base64url (or std) credential id param to raw
+// bytes; credential ids are stored as string(rawBytes).
+func decodeCredentialID(s string) ([]byte, bool) {
+	if raw, err := base64.RawURLEncoding.DecodeString(s); err == nil {
+		return raw, true
+	}
+	if raw, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return raw, true
+	}
+	return nil, false
 }
 
 func GetMasterKeyHandler(database *sql.DB) http.HandlerFunc {
@@ -253,51 +271,125 @@ func GetMasterKeyHandler(database *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		// Each passkey wraps the master key with its OWN PRF output and stores its
-		// own blob. We must return the blob for the credential that actually
-		// authenticated — returning any other credential's blob makes AES-GCM
-		// decryption fail with OperationError on every device except the one whose
-		// passkey happens to match the legacy "first credential" fallback. The
+		// Resolve the authenticating credential (must belong to this user). The
 		// client passes ?credential_id=<base64url(rawId)> from the assertion.
 		var cred *db.WebAuthnCredential
 		var err error
 		if credIDParam := r.URL.Query().Get("credential_id"); credIDParam != "" {
-			raw, decErr := base64.RawURLEncoding.DecodeString(credIDParam)
-			if decErr != nil {
-				// Tolerate padded / standard-alphabet input as well.
-				raw, decErr = base64.StdEncoding.DecodeString(credIDParam)
-			}
-			if decErr != nil {
+			raw, ok := decodeCredentialID(credIDParam)
+			if !ok {
 				http.Error(w, "invalid credential_id", http.StatusBadRequest)
 				return
 			}
 			cred, err = db.GetCredentialWithMasterKey(database, string(raw))
 			if err != nil {
-				slog.Error("failed to get credential with master key", "error", err, "userId", userID)
+				slog.Error("failed to get credential", "error", err, "userId", userID)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
-			// Never hand back a credential belonging to a different user.
 			if cred != nil && cred.UserID != userID {
 				cred = nil
 			}
 		} else {
 			cred, err = db.GetFirstCredentialWithMasterKey(database, userID)
 			if err != nil {
-				slog.Error("failed to get credential with master key", "error", err, "userId", userID)
+				slog.Error("failed to get credential", "error", err, "userId", userID)
 				http.Error(w, "internal error", http.StatusInternalServerError)
 				return
 			}
 		}
-
-		if cred == nil || cred.EncryptedMasterKey == nil {
+		if cred == nil {
 			http.Error(w, "no encrypted master key found", http.StatusNotFound)
 			return
 		}
 
+		blobs, err := db.GetCredentialKeyBlobs(database, cred.ID)
+		if err != nil {
+			slog.Error("failed to get credential key blobs", "error", err, "userId", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		// Also include the legacy single-blob column (deduped): the new-passkey
+		// path (registration/enrollment) still writes it, so a credential's
+		// original blob lives there while provisioned per-device blobs live in the
+		// table. Merging both means every device's blob is returned.
+		if cred.EncryptedMasterKey != nil {
+			dup := false
+			for _, b := range blobs {
+				if bytes.Equal(b, cred.EncryptedMasterKey) {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				blobs = append(blobs, cred.EncryptedMasterKey)
+			}
+		}
+		if len(blobs) == 0 {
+			http.Error(w, "no encrypted master key found", http.StatusNotFound)
+			return
+		}
+
+		resp := masterKeyResponse{}
+		for _, b := range blobs {
+			resp.Blobs = append(resp.Blobs, base64.StdEncoding.EncodeToString(b))
+		}
+		resp.EncryptedMasterKey = resp.Blobs[0]
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(masterKeyResponse{
-			EncryptedMasterKey: base64.StdEncoding.EncodeToString(cred.EncryptedMasterKey),
-		})
+		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+type addMasterKeyBlobRequest struct {
+	CredentialID     string `json:"credential_id"`
+	WrappedMasterKey string `json:"wrapped_master_key"`
+}
+
+// AddMasterKeyBlobHandler appends a per-device wrapped master key to an existing
+// credential the user owns. This is how a device that shares a synced passkey
+// but has its own device-specific PRF provisions its blob — without minting a
+// new passkey. The server never sees the plaintext master key.
+func AddMasterKeyBlobHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req addMasterKeyBlobRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		raw, ok := decodeCredentialID(req.CredentialID)
+		if !ok {
+			http.Error(w, "invalid credential_id", http.StatusBadRequest)
+			return
+		}
+		blob, err := base64.StdEncoding.DecodeString(req.WrappedMasterKey)
+		if err != nil || len(blob) == 0 || len(blob) > 4096 {
+			http.Error(w, "invalid wrapped_master_key", http.StatusBadRequest)
+			return
+		}
+
+		cred, err := db.GetCredentialWithMasterKey(database, string(raw))
+		if err != nil {
+			slog.Error("failed to get credential", "error", err, "userId", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if cred == nil || cred.UserID != userID {
+			http.Error(w, "credential not found", http.StatusNotFound)
+			return
+		}
+
+		if err := db.AddCredentialKeyBlob(database, cred.ID, blob); err != nil {
+			slog.Error("failed to add credential key blob", "error", err, "userId", userID)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
