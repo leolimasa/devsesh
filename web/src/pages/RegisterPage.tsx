@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { registerBegin, registerFinish, updateSSHCAClientShare } from "@/lib/api"
-import { generateMasterKey, deriveMasterKeyFromPrf, encodeBase64, encodeBase64URL, formatEncryptedMasterKey, getPrfSalt, decodeBase64URL, decodeBase64 } from "@/lib/crypto/prf"
+import { generateMasterKey, deriveMasterKeyFromPrf, encodeBase64, formatEncryptedMasterKey, getPrfSalt, decodeBase64URL, decodeBase64 } from "@/lib/crypto/prf"
 import { encrypt } from "@/lib/crypto/aes"
 import { useAuth } from "@/contexts/AuthContext"
 
@@ -237,12 +237,6 @@ export default function RegisterPage() {
         // Upload the encrypted client share to the server immediately (we're now logged in)
         await updateSSHCAClientShare(encodeBase64(encryptedShare))
       }
-
-      // This passkey was created on THIS device (its master-key blob is wrapped
-      // with this device's PRF), so pin it as the device's SSH-unlock credential.
-      try {
-        localStorage.setItem("ssh-unlock-cred", encodeBase64URL(new Uint8Array(credential.rawId)))
-      } catch { /* ignore */ }
 
       navigate("/dashboard")
     } catch (err) {

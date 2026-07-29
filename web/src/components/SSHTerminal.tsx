@@ -149,13 +149,8 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         // the platform auto-selects it, unlock fails. Pinning to the known-good
         // credential makes each device keep using the passkey that works there,
         // instead of losing SSH whenever a passkey is enrolled elsewhere.
-        // Pin to the credential enrolled on THIS device (set at enrollment, and
-        // refreshed on each successful unlock). Narrowing allowCredentials to that
-        // one id forces Safari to use exactly that passkey -- with a non-empty
-        // allowCredentials there is no iCloud picker to auto-select the wrong
-        // (other-device-wrapped) synced passkey.
-        let effectiveAllow = allowCredentials
         const preferredId = localStorage.getItem(SSH_UNLOCK_CRED_KEY)
+        let effectiveAllow = allowCredentials
         if (preferredId && allowCredentials) {
           const match = allowCredentials.find(
             (c) => encodeBase64URL(new Uint8Array(c.id as ArrayBuffer)) === preferredId
@@ -240,13 +235,14 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
           localStorage.removeItem(SSH_UNLOCK_CRED_KEY)
         }
         // A failure at derive-decrypt means the selected passkey's PRF can't
-        // unlock its master-key blob on THIS device -- an iCloud-synced passkey's
-        // PRF is device-specific, so a passkey enrolled on another device can't
-        // unlock here. Point the user at enrolling a passkey on this device.
+        // unlock its master-key blob on THIS device -- typically an iCloud-synced
+        // passkey enrolled on another device (its PRF is device-specific). Give an
+        // actionable message: the user can tap Authenticate again and pick a
+        // passkey enrolled on this device. Anything else keeps the raw error.
         if (stage === "derive-decrypt" && e?.name === "OperationError") {
           setWebAuthnError(
-            "No passkey on this device can unlock SSH yet. Enroll a passkey on this device " +
-              "(Settings → Passkeys) — each device needs its own."
+            "This passkey can't unlock SSH on this device (it was set up on another device). " +
+              "Tap Authenticate again and choose a passkey created on this device, or enroll one here."
           )
         } else {
           const name = e?.name ? `${e.name}: ` : ""
