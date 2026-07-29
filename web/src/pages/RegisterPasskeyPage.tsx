@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { createPasskeyEnrollment, enrollmentBegin, enrollmentComplete, getEnrollmentWebSocketURL } from "@/lib/api"
 import { spake2InitB, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
-import { encodeBase64, decodeBase64, decodeBase64URL, deriveMasterKeyFromPrf, formatEncryptedMasterKey, getPrfSalt, buildPrfGetExtension } from "@/lib/crypto/prf"
+import { encodeBase64, encodeBase64URL, decodeBase64, decodeBase64URL, deriveMasterKeyFromPrf, formatEncryptedMasterKey, getPrfSalt, buildPrfGetExtension } from "@/lib/crypto/prf"
 
 // Convert base64url to ArrayBuffer
 function base64urlToBuffer(base64url: string): ArrayBuffer {
@@ -360,6 +360,15 @@ export default function RegisterPasskeyPage() {
       }
 
       await enrollmentComplete(code, credentialJSON, encodeBase64(newMasterKey))
+
+      // This passkey was just created on THIS device, so its master-key blob is
+      // wrapped with this device's PRF and will unlock SSH here. Pin it as this
+      // device's SSH-unlock credential so unlock uses it directly (Safari's PRF
+      // is device-specific; a synced passkey enrolled elsewhere can't unlock
+      // here). Keep the key in sync with SSHTerminal's SSH_UNLOCK_CRED_KEY.
+      try {
+        localStorage.setItem("ssh-unlock-cred", encodeBase64URL(new Uint8Array(credential.rawId)))
+      } catch { /* ignore */ }
 
       // Confirm to Machine A (encrypted with the session key) that we're done.
       const confirmationData = new TextEncoder().encode("received")
