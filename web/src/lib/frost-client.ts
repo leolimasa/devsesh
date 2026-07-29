@@ -145,8 +145,11 @@ export class FROSTClient {
     encryptedShare: Uint8Array,
     masterKey: Uint8Array
   ): Promise<void> {
+    // Respawn if the worker was dropped (iOS suspends Web Workers on background;
+    // the worker also self-closes on its inactivity timer). Re-unlocking must get
+    // a fresh worker rather than fail with "Worker not spawned".
     if (!this.worker) {
-      throw new Error('Worker not spawned')
+      this.spawnWorker()
     }
 
     const config = await getSSHCAConfig()
@@ -423,6 +426,33 @@ export class FROSTClient {
    */
   isActive(): boolean {
     return this.isInitialized && this.worker !== null
+  }
+
+  /**
+   * Verifies the worker is genuinely responsive, not just referenced.
+   *
+   * isActive() only checks that a worker handle exists, but iOS silently kills
+   * Web Workers when the PWA is backgrounded (no onerror fires) and the worker
+   * self-closes on its inactivity timer — leaving a stale handle that reports
+   * active while messages to it hang for the full 30s timeout. This pings the
+   * worker (status) with a short timeout; on no response it drops the stale
+   * handle so isActive() reports false and the next unlock respawns a fresh
+   * worker. Returns true only when the worker actually answered.
+   */
+  async ensureAlive(): Promise<boolean> {
+    if (!this.isInitialized || !this.worker) {
+      return false
+    }
+    try {
+      await this.sendToWorker({ type: 'status' }, 2500)
+      return true
+    } catch {
+      try { this.worker?.terminate() } catch { /* ignore */ }
+      this.worker = null
+      this.isInitialized = false
+      this.initTime = null
+      return false
+    }
   }
 
   /**

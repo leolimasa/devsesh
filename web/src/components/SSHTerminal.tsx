@@ -78,7 +78,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       return () => { mountedRef.current = false }
     }, [])
 
-    const { isActive, initWorker, requestCert } = useFROST()
+    const { initWorker, requestCert, ensureAlive } = useFROST()
     const { height: viewportHeight } = useVisualViewport()
 
     const handleCertificateRequestRef = useRef<() => Promise<void>>(() => Promise.resolve())
@@ -227,7 +227,12 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       if (!client) return
 
       try {
-        if (!isActive) {
+        // Authoritatively verify the FROST worker is alive rather than trusting
+        // the polled isActive flag, which stays stale-true when iOS kills the
+        // worker on background. If it's gone, prompt a re-unlock (one tap)
+        // instead of hanging on a dead worker.
+        const alive = await ensureAlive()
+        if (!alive) {
           setShowWebAuthnDialog(true)
           return
         }
@@ -236,10 +241,20 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         const privateKeyBase64 = encodeBase64(result.userPrivateKey)
         client.resolveCertificate(result.certificate, privateKeyBase64)
       } catch (err) {
-        console.error("[SSHTerminal] Certificate request failed:", err)
-        client.rejectCertificate()
+        // Any cert-request failure on reconnect (dead worker, expired session,
+        // signing-ws hiccup) must stay RECOVERABLE: surface the unlock dialog so
+        // a single tap re-authenticates, rather than failing the reconnect with a
+        // generic error (the "fails to reconnect when I come back" report).
+        const e = err as { name?: string; message?: string }
+        clientLog({
+          event: "ssh-cert-request-error",
+          errorName: e?.name ?? null,
+          errorMessage: e?.message ?? String(err),
+          ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }).catch(() => {})
+        setShowWebAuthnDialog(true)
       }
-    }, [isActive, requestCert, host?.id])
+    }, [ensureAlive, requestCert, host?.id])
 
     useEffect(() => {
       handleCertificateRequestRef.current = handleCertificateRequest

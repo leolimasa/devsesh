@@ -812,6 +812,79 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
     }
   })
 
+  // Reproduces "fails to reconnect when I come back to the app": iOS silently
+  // kills Web Workers when the PWA is backgrounded, so the FROST worker dies
+  // while the polled isActive flag stays stale-true. On return, the reconnect's
+  // certificate request must NOT hang on the dead worker and fail with a generic
+  // error -- ensureAlive() must detect the dead worker and surface the re-unlock
+  // dialog, and a single re-auth must restore the session.
+  test('recovers with a re-unlock prompt when the FROST worker dies while backgrounded', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+
+    // Track every spawned Web Worker so we can kill the FROST worker mid-session,
+    // exactly as iOS does on background (terminate() fires no onerror).
+    await context.addInitScript(() => {
+      const RealWorker = window.Worker
+      ;(window as unknown as { __workers: Worker[] }).__workers = []
+      ;(window as unknown as { __killWorkers: () => void }).__killWorkers = () => {
+        for (const w of (window as unknown as { __workers: Worker[] }).__workers) {
+          try { w.terminate() } catch { /* ignore */ }
+        }
+      }
+      ;(window as unknown as { Worker: unknown }).Worker = class extends RealWorker {
+        constructor(url: string | URL, opts?: WorkerOptions) {
+          super(url, opts)
+          ;(window as unknown as { __workers: Worker[] }).__workers.push(this as unknown as Worker)
+        }
+      }
+    })
+
+    const clientCount = (): number => {
+      try {
+        const out = execInContainer(CONTAINER_NAME, `tmux list-clients -t testsession 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+    const waitForClient = async (): Promise<boolean> => {
+      for (let i = 0; i < 45; i++) {
+        if (clientCount() > 0) return true
+        await page.waitForTimeout(1000)
+      }
+      return false
+    }
+
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+      await connectWithCertificateOnly(page)
+      expect(await waitForClient(), 'attached before backgrounding').toBe(true)
+
+      // Simulate iOS killing the FROST worker while the PWA was backgrounded,
+      // then a reconnect on return. The reconnect's certificate request is the
+      // path that must cope with the now-dead worker.
+      await page.evaluate(() => (window as unknown as { __killWorkers: () => void }).__killWorkers())
+      await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible({ timeout: 10000 })
+      await page.getByRole('button', { name: 'Connect', exact: true }).click()
+
+      // The reconnect must detect the dead worker (ensureAlive) and prompt a
+      // re-unlock rather than hanging on it. Before the fix this stayed stuck
+      // ("connecting") for 30s and then failed with a generic error.
+      const dialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+      await expect(dialog).toBeVisible({ timeout: 20000 })
+
+      // One re-auth restores the session.
+      await page.locator('button:has-text("Authenticate")').click()
+      await page.getByText('Connected', { exact: true }).waitFor({ state: 'visible', timeout: 60000 })
+      expect(await waitForClient(), 'terminal re-attaches after re-unlock').toBe(true)
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
   // Switching devsesh sessions via the sidebar must re-attach the terminal to
   // the newly-selected session AUTOMATICALLY — reusing the already-established
   // (certificate-authenticated) SSH connection, WITHOUT re-authenticating — and

@@ -38,6 +38,7 @@ interface FROSTContextType {
    */
   initWorker: (masterKey: Uint8Array) => Promise<void>
   requestCert: (hostId: number) => Promise<CertificateResult>
+  ensureAlive: () => Promise<boolean>
   terminate: () => Promise<void>
 }
 
@@ -106,6 +107,15 @@ export function FROSTProvider({ children }: { children: ReactNode }) {
     return result
   }, [])
 
+  // Authoritative liveness check (see FROSTClient.ensureAlive). Updates isActive
+  // so the UI reflects a worker that was killed while backgrounded.
+  const ensureAlive = useCallback(async () => {
+    if (!clientRef.current) return false
+    const alive = await clientRef.current.ensureAlive()
+    setIsActive(alive)
+    return alive
+  }, [])
+
   const terminate = useCallback(async () => {
     if (clientRef.current) {
       await clientRef.current.terminate()
@@ -122,6 +132,7 @@ export function FROSTProvider({ children }: { children: ReactNode }) {
         remainingTime,
         initWorker,
         requestCert,
+        ensureAlive,
         terminate,
       }}
     >
