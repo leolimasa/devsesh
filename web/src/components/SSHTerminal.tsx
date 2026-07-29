@@ -35,6 +35,10 @@ export type TerminalHandle = {
 
 type Status = ConnectionStatus
 
+// Ceiling on consecutive auto-reconnect attempts before we stop and require a
+// manual reconnect. Bounds the churn from a session that can't establish.
+const MAX_RECONNECT_ATTEMPTS = 8
+
 interface SSHTerminalProps {
   host: Host | null | undefined
   sessionName: string
@@ -206,8 +210,20 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         setShowWebAuthnDialog(false)
       } catch (err) {
         const e = err as { name?: string; message?: string; stack?: string }
-        const name = e?.name ? `${e.name}: ` : ""
-        setWebAuthnError(err instanceof Error ? `${name}${err.message}` : "Authentication failed")
+        // A failure at derive-decrypt means the selected passkey's PRF can't
+        // unlock its master-key blob on THIS device -- typically an iCloud-synced
+        // passkey enrolled on another device (its PRF is device-specific). Give an
+        // actionable message: the user can tap Authenticate again and pick a
+        // passkey enrolled on this device. Anything else keeps the raw error.
+        if (stage === "derive-decrypt" && e?.name === "OperationError") {
+          setWebAuthnError(
+            "This passkey can't unlock SSH on this device (it was set up on another device). " +
+              "Tap Authenticate again and choose a passkey created on this device, or enroll one here."
+          )
+        } else {
+          const name = e?.name ? `${e.name}: ` : ""
+          setWebAuthnError(err instanceof Error ? `${name}${err.message}` : "Authentication failed")
+        }
         clientLog({
           event: "ssh-unlock-error",
           stage,
@@ -295,9 +311,21 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       setStatus("connecting")
     }, [host])
 
-    // Auto-reconnect on unsolicited drop
+    // Auto-reconnect on unsolicited drop, with a ceiling. A session that can't
+    // establish (e.g. a passkey that can't unlock, or a dead upstream) must NOT
+    // retry forever: unbounded reconnects churn WebSocket/proxy connections that
+    // leak memory in the caddy/tailscale layer and pin the UI in a permanent
+    // reconnect loop. After MAX_RECONNECT_ATTEMPTS we stop and surface the manual
+    // Connect button. The counter resets to 0 on a successful connect and on an
+    // explicit recover (network back / tab visible), so legitimate transient
+    // drops still recover automatically.
     const maybeReconnect = useCallback(() => {
       if (userDisconnectedRef.current || !mountedRef.current) return
+      if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        statusRef.current = "error"
+        setStatus("error")
+        return
+      }
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
       const backoff = Math.min(1000 * Math.pow(2, reconnectAttemptRef.current), 10000)
       reconnectTimeoutRef.current = setTimeout(() => {
