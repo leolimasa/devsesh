@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { browserSupportsWebAuthn, bufferToBase64URLString } from "@simplewebauthn/browser"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { createPasskeyEnrollment, enrollmentBegin, enrollmentComplete, getEnrollmentWebSocketURL, clientLog } from "@/lib/api"
+import { createPasskeyEnrollment, enrollmentBegin, enrollmentComplete, getEnrollmentWebSocketURL } from "@/lib/api"
 import { spake2InitB, spake2Finish, encodeMessage, decodeMessage } from "@/lib/crypto/spake2"
 import { deriveKey, encrypt, decrypt } from "@/lib/crypto/aes"
 import { encodeBase64, decodeBase64, decodeBase64URL, deriveMasterKeyFromPrf, formatEncryptedMasterKey, getPrfSalt, buildPrfGetExtension } from "@/lib/crypto/prf"
@@ -328,17 +328,6 @@ export default function RegisterPasskeyPage() {
       if (!prfOutput) {
         throw new Error('WebAuthn PRF extension is required for passkey registration. Your authenticator must support the PRF/hmac-secret extension.')
       }
-
-      // Diagnostic: record the enrollment-time PRF fingerprint + credential id so
-      // it can be compared against the SSH-unlock fingerprint for this passkey.
-      clientLog({
-        event: "passkey-enroll-prf",
-        clientBuild: "evalByCredential-diag-1",
-        credentialIdShort: credential.id.slice(0, 12),
-        prfFirst4: Array.from(prfOutput.slice(0, 4)).join(","),
-        prfFromCreate: !!extResults?.prf?.results?.first,
-        ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
-      }).catch(() => {})
 
       const prfKey = await deriveMasterKeyFromPrf(prfOutput)
       const encrypted = await encrypt(prfKey, masterKey)
