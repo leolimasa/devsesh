@@ -39,10 +39,6 @@ type Status = ConnectionStatus
 // manual reconnect. Bounds the churn from a session that can't establish.
 const MAX_RECONNECT_ATTEMPTS = 8
 
-// localStorage key: the credential id (base64url) that last unlocked SSH on this
-// device. Pins future unlocks to the passkey that actually works here.
-const SSH_UNLOCK_CRED_KEY = "ssh-unlock-cred"
-
 interface SSHTerminalProps {
   host: Host | null | undefined
   sessionName: string
@@ -103,6 +99,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       let stage = "init"
       const diag: Record<string, unknown> = {
+        clientBuild: "evalByCredential-diag-1",
         hasPublicKeyCredential: typeof window !== "undefined" && "PublicKeyCredential" in window,
         ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
       }
@@ -142,40 +139,25 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
           transports: cred.transports,
         }))
 
-        // Prefer the credential that last unlocked SSH successfully on THIS
-        // device. A passkey's PRF-wrapped master-key blob only decrypts on the
-        // device whose PRF wrapped it, so an iCloud-synced passkey enrolled on
-        // another device (e.g. the phone) shows up here but can't unlock -- and if
-        // the platform auto-selects it, unlock fails. Pinning to the known-good
-        // credential makes each device keep using the passkey that works there,
-        // instead of losing SSH whenever a passkey is enrolled elsewhere.
-        const preferredId = localStorage.getItem(SSH_UNLOCK_CRED_KEY)
-        let effectiveAllow = allowCredentials
-        if (preferredId && allowCredentials) {
-          const match = allowCredentials.find(
-            (c) => encodeBase64URL(new Uint8Array(c.id as ArrayBuffer)) === preferredId
-          )
-          if (match) effectiveAllow = [match]
-        }
-
         const publicKeyOptions: PublicKeyCredentialRequestOptions = {
           challenge: challengeBuffer,
           timeout: options.publicKey.timeout,
           rpId: options.publicKey.rpId,
           userVerification: options.publicKey.userVerification,
-          allowCredentials: effectiveAllow,
+          allowCredentials,
           extensions: {
             // evalByCredential (keyed per credential) so Safari/iOS returns the
             // same PRF it produced at enrollment; a bare eval with multiple
             // allowCredentials yields a mismatched PRF and OperationError there.
             prf: buildPrfGetExtension(
-              (effectiveAllow ?? []).map((c) => c.id as ArrayBuffer),
+              (allowCredentials ?? []).map((c) => c.id as ArrayBuffer),
               prfSaltBuffer
             )
           } as AuthenticationExtensionsClientInputs
         }
         diag.rpId = options.publicKey.rpId
-        diag.allowCredentialsCount = effectiveAllow?.length ?? 0
+        diag.allowCredentialsCount = allowCredentials?.length ?? 0
+        diag.prfExtShape = (allowCredentials?.length ?? 0) > 0 ? "evalByCredential" : "eval"
         diag.origin = typeof window !== "undefined" ? window.location.origin : ""
 
         stage = "webauthn-get"
@@ -196,9 +178,13 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         }
 
         const prfOutput = new Uint8Array(extResults.prf.results.first)
+        // Non-sensitive fingerprint of the unlock PRF output, to compare against
+        // the enrollment-time fingerprint when diagnosing the iOS unlock failure.
+        diag.prfFirst4 = Array.from(prfOutput.slice(0, 4)).join(",")
 
         stage = "fetch-master-key"
         const credentialId = encodeBase64URL(new Uint8Array(credential.rawId))
+        diag.credentialIdShort = credentialId.slice(0, 12)
         diag.credentialIdLen = credential.rawId.byteLength
         const { encrypted_master_key } = await getMasterKey(credentialId)
         const { data: encryptedPayload } = parseEncryptedMasterKey(new Uint8Array(decodeBase64(encrypted_master_key)))
@@ -208,10 +194,6 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         const nonce = encryptedPayload.slice(0, 12)
         const ciphertext = encryptedPayload.slice(12)
         const masterKey = await decrypt(prfKey, nonce, ciphertext)
-
-        // This credential's blob decrypted here, so it's the known-good passkey
-        // for this device -- remember it so future unlocks pin to it.
-        localStorage.setItem(SSH_UNLOCK_CRED_KEY, credentialId)
 
         stage = "init-worker"
         await initWorker(masterKey)
@@ -228,12 +210,6 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         setShowWebAuthnDialog(false)
       } catch (err) {
         const e = err as { name?: string; message?: string; stack?: string }
-        // The pinned credential didn't work here (its blob wouldn't decrypt, or
-        // it isn't present on this device) -- drop the pin so the next attempt
-        // offers all passkeys again and can land on a working one.
-        if (stage === "derive-decrypt" || stage === "webauthn-get") {
-          localStorage.removeItem(SSH_UNLOCK_CRED_KEY)
-        }
         // A failure at derive-decrypt means the selected passkey's PRF can't
         // unlock its master-key blob on THIS device -- typically an iCloud-synced
         // passkey enrolled on another device (its PRF is device-specific). Give an
