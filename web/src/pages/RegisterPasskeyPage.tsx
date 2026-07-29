@@ -480,7 +480,17 @@ export default function RegisterPasskeyPage() {
             <div className="space-y-4">
               <div className="text-center">
                 <p className="text-sm text-muted-foreground mb-2">Your enrollment code:</p>
-                <p className="text-3xl font-mono font-bold tracking-wider">
+                <p
+                  className="text-3xl font-bold tracking-wider"
+                  style={{
+                    // Self-hosted JetBrains Mono (not the generic font-mono
+                    // stack, which is SF Mono on Apple devices where 0 and O
+                    // look identical). "zero" enables its slashed/dotted zero so
+                    // the enrollment code is unambiguous when read aloud/typed.
+                    fontFamily: '"JetBrainsMono Nerd Font Mono", ui-monospace, monospace',
+                    fontFeatureSettings: '"zero" 1',
+                  }}
+                >
                   {code.slice(0, 4)}-{code.slice(4)}
                 </p>
               </div>

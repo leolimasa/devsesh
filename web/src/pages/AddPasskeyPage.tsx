@@ -366,6 +366,12 @@ export default function AddPasskeyPage() {
                 maxLength={9}
                 disabled={!isIdleOrError}
                 required
+                // Match the display font on the other device so the typed code
+                // reads the same — JetBrains Mono with a slashed zero (0 vs O).
+                style={{
+                  fontFamily: '"JetBrainsMono Nerd Font Mono", ui-monospace, monospace',
+                  fontFeatureSettings: '"zero" 1',
+                }}
               />
             </div>
 
