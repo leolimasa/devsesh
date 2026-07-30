@@ -332,9 +332,18 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       if (!mountedRef.current || !host || !sshClientRef.current) return
       userDisconnectedRef.current = false
       const sshUser = host.ssh_user || "root"
-      sshClientRef.current.connect(String(host.id), host.id, sshUser)
+      // Set "connecting" BEFORE connect(): for a host we're already pooled-
+      // connected to, connect() reuses it and fires the "connected" status
+      // callback SYNCHRONOUSLY (client.go reuse path). If we forced "connecting"
+      // *after* the call we'd clobber that "connected", and since wasm never
+      // re-emits it for a reused connection the status would be pinned at
+      // "connecting" forever — the attach effect would never run and the
+      // terminal would never update (the A->B->A stuck-in-Connecting bug). For a
+      // brand-new host, connect() emits asynchronously, so "connecting" here is
+      // still correct and the later "connected" fires the attach.
       statusRef.current = "connecting"
       setStatus("connecting")
+      sshClientRef.current.connect(String(host.id), host.id, sshUser)
     }, [host])
 
     // Auto-reconnect on unsolicited drop, with a ceiling. A session that can't

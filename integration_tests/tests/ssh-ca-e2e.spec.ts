@@ -1212,6 +1212,14 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
         // Real output proving we're truly on the right host.
         await verifyLiveShell(v.container, v.tmux, v.flag)
         await expect(unlockDialog).toBeHidden()
+        // Status must SETTLE to "Connected" — not stay pinned at "Connecting...".
+        // Returning to a pooled host reuses its connection, which fires
+        // "connected" synchronously; if the client clobbers that back to
+        // "connecting" the terminal keeps working off the stale background
+        // session (so output checks still pass) but the status is stuck. This
+        // asserts the fix: the reused connection's status is reflected.
+        await expect(page.getByText('Connected', { exact: true })).toBeVisible({ timeout: 15000 })
+        await expect(page.getByText('Connecting...', { exact: true })).toBeHidden()
       }
 
       // Pool reuse: each host authenticated exactly once across all the visits.
