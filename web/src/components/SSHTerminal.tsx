@@ -554,9 +554,16 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       if (statusRef.current !== "connected" || !sshClientRef.current || !hostKey) return
       hasExecutedRef.current = true
       sshClientRef.current.exec(hostKey, `tmux attach -t ${sessionName}`)
-      // The pty was opened at the default size while the terminal container
-      // was still hidden/settling, so fit to the real container and push the
-      // size once tmux has attached so it's correct on first paint.
+      // Desktop: focus the terminal so the user can type immediately after
+      // opening or switching a session. Pure DOM focus — no fit/resize here (a
+      // synchronous fit in the switch path can measure a bad size and wedge the
+      // wasm client). On mobile we skip it — focusing xterm's textarea pops the
+      // on-screen keyboard before the user taps in.
+      if (isDesktopViewport()) xtermRef.current?.focus()
+      // The pty now opens at the last-known terminal size (the wasm client
+      // remembers it), so tmux draws full-size on attach. Re-fit once after it
+      // settles to correct any residual container-height change (e.g. the top
+      // bar re-measuring); this deferred fit is safe because layout has settled.
       if (attachTimeoutRef.current) clearTimeout(attachTimeoutRef.current)
       attachTimeoutRef.current = setTimeout(() => {
         if (fitAddonRef.current && xtermRef.current && sshClientRef.current) {

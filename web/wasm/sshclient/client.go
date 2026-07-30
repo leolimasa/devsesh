@@ -50,6 +50,15 @@ var (
 	// resize and (gated) output route to this connection.
 	activeKey string
 
+	// Last terminal size pushed from JS via Resize (which the terminal already
+	// calls on mount/viewport changes). New ptys open at this size so tmux draws
+	// full-size immediately on attach/session-switch instead of at the default
+	// 24x80 and then jumping (the small-then-grow flash). This is only ever the
+	// size xterm is already rendering at, so it can't over/undersize the pty.
+	// Seeded with the SSH defaults until the first resize. Guarded by mu.
+	lastRows = 24
+	lastCols = 80
+
 	passwordCallback       js.Value
 	outputCallback         js.Value
 	statusCallback         js.Value
@@ -577,7 +586,9 @@ func Exec(this js.Value, args []js.Value) interface{} {
 			ssh.TTY_OP_OSPEED: 115200,
 		}
 
-		err = session.RequestPty("xterm-256color", 24, 80, modes)
+		// mu is already held here (see the Lock above); read the last-known size
+		// directly so the new pty opens at the terminal's real dimensions.
+		err = session.RequestPty("xterm-256color", lastRows, lastCols, modes)
 		if err != nil {
 			session.Close()
 			mu.Unlock()
@@ -770,6 +781,12 @@ func Resize(this js.Value, args []js.Value) interface{} {
 
 	mu.Lock()
 	defer mu.Unlock()
+
+	// Remember the size (even with no active session) so the next pty opens at
+	// these dimensions and tmux draws full-size on attach — no small-then-grow.
+	if rows > 0 && cols > 0 {
+		lastRows, lastCols = rows, cols
+	}
 
 	if c := pool[activeKey]; c != nil && c.session != nil {
 		c.session.WindowChange(rows, cols)
