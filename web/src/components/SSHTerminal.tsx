@@ -553,22 +553,10 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       if (statusRef.current !== "connected" || !sshClientRef.current || !hostKey) return
       hasExecutedRef.current = true
-      // Fit and push the size to the client BEFORE attaching so the new pty is
-      // opened at the real terminal dimensions (the wasm client remembers the
-      // last size). Otherwise tmux draws at the default 24x80 for a beat and
-      // then jumps to full size — the small-then-grow flash on session switch.
-      if (fitAddonRef.current && xtermRef.current) {
-        try { fitAddonRef.current.fit() } catch { /* ignore */ }
-        const { rows, cols } = xtermRef.current
-        sshClientRef.current.resize(rows, cols)
-      }
       sshClientRef.current.exec(hostKey, `tmux attach -t ${sessionName}`)
-      // Desktop: focus the terminal so the user can type immediately after
-      // opening or switching a session. On mobile we skip it — focusing xterm's
-      // textarea pops the on-screen keyboard before the user taps in.
-      if (isDesktopViewport()) xtermRef.current?.focus()
-      // Re-fit once more after tmux settles, in case the container height
-      // changed during the switch (e.g. the top bar height re-measured).
+      // The pty was opened at the default size while the terminal container
+      // was still hidden/settling, so fit to the real container and push the
+      // size once tmux has attached so it's correct on first paint.
       if (attachTimeoutRef.current) clearTimeout(attachTimeoutRef.current)
       attachTimeoutRef.current = setTimeout(() => {
         if (fitAddonRef.current && xtermRef.current && sshClientRef.current) {
