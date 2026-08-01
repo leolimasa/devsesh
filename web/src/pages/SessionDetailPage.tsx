@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { getSession, listSessions } from "@/lib/api"
+import { getSession, listSessions, reorderSessions } from "@/lib/api"
+import { sortBySeq } from "@/lib/session"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useQuickKeys } from "@/hooks/useQuickKeys"
 import { SSHTerminal } from "@/components/SSHTerminal"
@@ -114,10 +115,25 @@ export default function SessionDetailPage() {
     navigate(`/sessions/${sessionId}`)
   }, [navigate])
 
-  // Keep the latest sessions list available to the (stable) key handler without
-  // re-registering the listener on every websocket update.
-  const sessionsRef = useRef<Session[]>(sessions)
-  useEffect(() => { sessionsRef.current = sessions }, [sessions])
+  // The Sessions tab and the Ctrl+N shortcut both use the user's chosen order.
+  const orderedSessions = useMemo(() => sortBySeq(sessions), [sessions])
+
+  // Persist a drag reorder: optimistically renumber local state, then save.
+  const handleReorderSessions = useCallback((ids: string[]) => {
+    setSessions((prev) => {
+      const byId = new Map(prev.map((s) => [s.id, s]))
+      return ids.map((sid, i) => ({ ...(byId.get(sid) as Session), seq: i }))
+    })
+    reorderSessions(ids).catch((err) => {
+      console.error("Failed to reorder sessions:", err)
+      loadSessions()
+    })
+  }, [loadSessions])
+
+  // Keep the latest ordered sessions available to the (stable) key handler
+  // without re-registering the listener on every websocket update.
+  const sessionsRef = useRef<Session[]>(orderedSessions)
+  useEffect(() => { sessionsRef.current = orderedSessions }, [orderedSessions])
 
   // PWA-only shortcut: Ctrl+1..9 jumps to the Nth session in the Sessions list
   // (same 1-based index the user sees). Gated to standalone mode because a
@@ -225,9 +241,10 @@ export default function SessionDetailPage() {
           <div className="hidden md:block w-72 border-r bg-card p-4 overflow-y-auto flex-shrink-0">
             <SessionDetailPanel
               session={session}
-              sessions={sessions}
+              sessions={orderedSessions}
               currentId={session.id}
               onSelectSession={handleSelectSession}
+              onReorderSessions={handleReorderSessions}
             />
           </div>
         )}

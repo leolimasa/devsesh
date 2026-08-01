@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Link } from "react-router-dom"
+import { GripVertical } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -20,8 +21,11 @@ import {
   SheetClose,
 } from "@/components/ui/sheet"
 import { Menu } from "lucide-react"
-import { listSessions, deleteStaleSessions, deleteSession, getSSHCAPublicKey } from "@/lib/api"
+import { listSessions, deleteStaleSessions, deleteSession, getSSHCAPublicKey, reorderSessions } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
+import { useDragReorder } from "@/hooks/useDragReorder"
+import { sortBySeq } from "@/lib/session"
+import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
 import type { Session } from "@/types/api"
 import { isActive, statusMetadata } from "@/lib/session"
@@ -93,6 +97,25 @@ export default function DashboardPage() {
   }, [])
 
   useSessionUpdates(handleUpdate)
+
+  // Render in the user's chosen order.
+  const orderedSessions = useMemo(() => sortBySeq(sessions), [sessions])
+
+  // Apply a drag reorder: optimistically renumber local state so the list
+  // reflows immediately, then persist. On failure, reload to resync with the
+  // server rather than leave a wrong order on screen.
+  const handleReorder = useCallback((ids: string[]) => {
+    setSessions((prev) => {
+      const byId = new Map(prev.map((s) => [s.id, s]))
+      return ids.map((id, i) => ({ ...(byId.get(id) as Session), seq: i }))
+    })
+    reorderSessions(ids).catch((err) => {
+      console.error("Failed to reorder sessions:", err)
+      loadSessions()
+    })
+  }, [loadSessions])
+
+  const dnd = useDragReorder(orderedSessions.map((s) => s.id), handleReorder)
 
   const handleDeleteStale = async () => {
     try {
@@ -227,6 +250,7 @@ export default function DashboardPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8" aria-label="Reorder" />
                   <TableHead>Name</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Host</TableHead>
@@ -238,8 +262,23 @@ export default function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sessions.map((session) => (
-                  <TableRow key={session.id} className="cursor-pointer">
+                {orderedSessions.map((session) => (
+                  <TableRow
+                    key={session.id}
+                    className={cn(
+                      "cursor-pointer",
+                      dnd.draggingId === session.id && "opacity-40",
+                      dnd.overId === session.id && "border-t-2 border-t-primary"
+                    )}
+                    {...dnd.dropTargetProps(session.id)}
+                  >
+                    <TableCell
+                      className="w-8 cursor-grab text-muted-foreground active:cursor-grabbing"
+                      aria-label="Drag to reorder"
+                      {...dnd.dragHandleProps(session.id)}
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </TableCell>
                     <Link to={`/sessions/${session.id}`} className="contents">
                       <TableCell className="font-medium">{session.name || "-"}</TableCell>
                       <TableCell data-status className="font-medium max-w-[240px] truncate">
@@ -275,12 +314,28 @@ export default function DashboardPage() {
         )}
 
         <div className="md:hidden space-y-4">
-          {sessions.map((session) => (
-            <div key={session.id} className="relative">
+          {orderedSessions.map((session) => (
+            <div
+              key={session.id}
+              className={cn(
+                "relative",
+                dnd.draggingId === session.id && "opacity-40",
+                dnd.overId === session.id && "ring-2 ring-primary rounded-lg"
+              )}
+              {...dnd.dropTargetProps(session.id)}
+            >
+              <button
+                type="button"
+                aria-label="Drag to reorder"
+                className="absolute top-2 left-2 z-10 text-muted-foreground cursor-grab active:cursor-grabbing touch-none"
+                {...dnd.dragHandleProps(session.id)}
+              >
+                <GripVertical className="h-5 w-5" />
+              </button>
               <Link to={`/sessions/${session.id}`}>
                 <Card>
                   <CardHeader className="pb-2">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center pl-7">
                       <CardTitle className="text-lg">{session.name || "-"}</CardTitle>
                       <Badge variant={isActive(session) ? "success" : "secondary"}>
                         {isActive(session) ? "Active" : "Inactive"}

@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -31,8 +32,8 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first migration run: %v", err)
 	}
-	if len(applied) != 20 {
-		t.Errorf("expected 20 migrations applied, got %d", len(applied))
+	if len(applied) != 21 {
+		t.Errorf("expected 21 migrations applied, got %d", len(applied))
 	}
 
 	applied, err = RunMigrations(db)
@@ -229,6 +230,65 @@ func TestSessionCRUD(t *testing.T) {
 	}
 	if *sessions[0].Metadata != newMeta {
 		t.Errorf("expected metadata '%s', got '%s'", newMeta, *sessions[0].Metadata)
+	}
+}
+
+func TestSessionSeqAndReorder(t *testing.T) {
+	db := openTestDB(t)
+	_, _ = RunMigrations(db)
+
+	userID, _ := CreateUser(db, "seq@example.com")
+	base := time.Now()
+
+	// Three sessions created in order a, b, c -> seq 0, 1, 2 (append to end).
+	for i, id := range []string{"a", "b", "c"} {
+		if err := CreateSession(db, Session{
+			ID: id, UserID: userID, HostID: 1, Name: id, StartedAt: base.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatalf("create %s: %v", id, err)
+		}
+	}
+
+	order := func() []string {
+		sessions, err := GetSessionsByUserID(db, userID)
+		if err != nil {
+			t.Fatalf("get sessions: %v", err)
+		}
+		ids := make([]string, len(sessions))
+		for i, s := range sessions {
+			ids[i] = s.ID
+		}
+		return ids
+	}
+
+	// Insertion order preserved via seq.
+	if got := order(); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Fatalf("initial order = %v, want [a b c]", got)
+	}
+
+	// Reorder to c, a, b and confirm it persists.
+	if err := ReorderSessions(db, userID, []string{"c", "a", "b"}); err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+	if got := order(); !reflect.DeepEqual(got, []string{"c", "a", "b"}) {
+		t.Fatalf("after reorder = %v, want [c a b]", got)
+	}
+
+	// Reorder is scoped to the user: another user's ids can't renumber ours.
+	otherID, _ := CreateUser(db, "seq-other@example.com")
+	if err := ReorderSessions(db, otherID, []string{"c", "a", "b"}); err != nil {
+		t.Fatalf("reorder other user: %v", err)
+	}
+	if got := order(); !reflect.DeepEqual(got, []string{"c", "a", "b"}) {
+		t.Fatalf("order changed by another user = %v, want [c a b]", got)
+	}
+
+	// A revived session (ON CONFLICT) keeps its seq -- reorder survives respawn.
+	if err := CreateSession(db, Session{ID: "a", UserID: userID, HostID: 1, Name: "a-revived", StartedAt: base}); err != nil {
+		t.Fatalf("revive a: %v", err)
+	}
+	if got := order(); !reflect.DeepEqual(got, []string{"c", "a", "b"}) {
+		t.Fatalf("order after revive = %v, want [c a b]", got)
 	}
 }
 

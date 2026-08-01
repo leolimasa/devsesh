@@ -160,6 +160,15 @@ export async function deleteSession(id: string): Promise<void> {
   })
 }
 
+// Persist a new session display order. `sessionIds` is the full list in the
+// desired order; the server writes each session's `seq` to its position.
+export async function reorderSessions(sessionIds: string[]): Promise<void> {
+  await fetchApi<unknown>("/sessions/reorder", {
+    method: "POST",
+    body: JSON.stringify({ session_ids: sessionIds }),
+  })
+}
+
 export async function listPasskeys(): Promise<Passkey[]> {
   return fetchApi<Passkey[]>("/auth/passkeys")
 }

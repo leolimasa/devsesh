@@ -275,6 +275,34 @@ func GetSessionHandler(database *sql.DB) http.HandlerFunc {
 	}
 }
 
+// ReorderHandler persists a new session display order. Body: {"session_ids":
+// [...]} in the desired order. Scoped to the authenticated user.
+func ReorderHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req struct {
+			SessionIDs []string `json:"session_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		if err := db.ReorderSessions(database, userID, req.SessionIDs); err != nil {
+			slog.Error("failed to reorder sessions", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func DeleteStaleHandler(database *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := UserIDFromContext(r.Context()); !ok {

@@ -11,9 +11,11 @@
  * with its own header, so it is unaffected by this panel.
  */
 import { useState } from "react"
+import { GripVertical } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { isActive, statusMetadata } from "@/lib/session"
+import { useDragReorder } from "@/hooks/useDragReorder"
 import type { Session } from "@/types/api"
 
 function formatDate(dateStr: string): string {
@@ -152,27 +154,44 @@ function SessionListItem({
   session,
   isCurrent,
   onSelect,
+  dnd,
 }: {
   index: number
   session: Session
   isCurrent: boolean
   onSelect: (sessionId: string) => void
+  dnd: ReturnType<typeof useDragReorder>
 }) {
   const active = isActive(session)
   return (
-    <button
-      type="button"
-      data-testid={`session-item-${session.id}`}
-      onClick={() => onSelect(session.id)}
-      aria-current={isCurrent ? "true" : undefined}
+    <div
       className={cn(
-        "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent",
-        isCurrent && "bg-accent"
+        "flex items-stretch rounded-md transition-colors",
+        dnd.draggingId === session.id && "opacity-40",
+        dnd.overId === session.id && "ring-2 ring-primary"
       )}
+      {...dnd.dropTargetProps(session.id)}
     >
-      <span className="w-5 shrink-0 text-sm tabular-nums text-muted-foreground">
-        {index}
+      <span
+        aria-label="Drag to reorder"
+        className="flex shrink-0 cursor-grab items-center px-1 text-muted-foreground active:cursor-grabbing"
+        {...dnd.dragHandleProps(session.id)}
+      >
+        <GripVertical className="h-4 w-4" />
       </span>
+      <button
+        type="button"
+        data-testid={`session-item-${session.id}`}
+        onClick={() => onSelect(session.id)}
+        aria-current={isCurrent ? "true" : undefined}
+        className={cn(
+          "flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent",
+          isCurrent && "bg-accent"
+        )}
+      >
+        <span className="w-5 shrink-0 text-sm tabular-nums text-muted-foreground">
+          {index}
+        </span>
       <span
         // Activity indicator: green when active (terminal output seen in the
         // last 5s), gray otherwise.
@@ -182,13 +201,14 @@ function SessionListItem({
         )}
         aria-label={active ? "active" : "inactive"}
       />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate font-medium">{session.name || session.id}</span>
-        <span data-status className="block text-xs text-muted-foreground line-clamp-3">
-          {statusMetadata(session.metadata) || "-"}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium">{session.name || session.id}</span>
+          <span data-status className="block text-xs text-muted-foreground line-clamp-3">
+            {statusMetadata(session.metadata) || "-"}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+    </div>
   )
 }
 
@@ -197,11 +217,14 @@ function SessionsList({
   sessions,
   currentId,
   onSelect,
+  onReorder,
 }: {
   sessions: Session[]
   currentId: string
   onSelect: (sessionId: string) => void
+  onReorder: (ids: string[]) => void
 }) {
+  const dnd = useDragReorder(sessions.map((s) => s.id), onReorder)
   if (sessions.length === 0) {
     return <p className="text-sm text-muted-foreground">No sessions</p>
   }
@@ -214,6 +237,7 @@ function SessionsList({
           session={session}
           isCurrent={session.id === currentId}
           onSelect={onSelect}
+          dnd={dnd}
         />
       ))}
     </div>
@@ -226,11 +250,13 @@ export function SessionDetailPanel({
   sessions,
   currentId,
   onSelectSession,
+  onReorderSessions,
 }: {
   session: Session
   sessions: Session[]
   currentId: string
   onSelectSession: (sessionId: string) => void
+  onReorderSessions: (ids: string[]) => void
 }) {
   const [activeTab, setActiveTab] = useState<PanelTab>("details")
 
@@ -242,7 +268,12 @@ export function SessionDetailPanel({
       <PanelTabs active={activeTab} onChange={setActiveTab} />
 
       {activeTab === "sessions" ? (
-        <SessionsList sessions={sessions} currentId={currentId} onSelect={onSelectSession} />
+        <SessionsList
+          sessions={sessions}
+          currentId={currentId}
+          onSelect={onSelectSession}
+          onReorder={onReorderSessions}
+        />
       ) : (
         <SessionDetails session={session} showHeader={false} />
       )}

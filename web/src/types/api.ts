@@ -21,6 +21,9 @@ export interface Session {
   last_activity_at: string | null;
   ended_at: string | null;
   metadata: string | null;
+  // User-controlled display order (ascending). Always present from the API;
+  // optional here only so older test fixtures don't need to set it.
+  seq?: number;
 }
 
 export interface SessionUpdate {

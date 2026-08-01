@@ -73,6 +73,9 @@ type Session struct {
 	LastActivityAt *time.Time `json:"last_activity_at"`
 	EndedAt        *time.Time `json:"ended_at"`
 	Metadata       *string    `json:"metadata"`
+	// Seq is the user-controlled display order (ascending). New sessions append
+	// to the end; drag-to-reorder rewrites it. See ReorderSessions.
+	Seq int `json:"seq"`
 }
 
 func GetConfigValue(db *sql.DB, key string) (string, error) {
@@ -247,15 +250,19 @@ func CreateSession(db *sql.DB, s Session) error {
 	// session revives the existing row (bringing it back online) instead of
 	// failing on the primary-key conflict. started_at is preserved -- the tmux
 	// session did not actually restart.
+	// New rows get seq = max(seq)+1 for the user so they append to the end of
+	// the ordered list. A revived row (ON CONFLICT) keeps its existing seq -- the
+	// UPDATE clause deliberately omits seq so a drag order survives a respawn.
 	_, err := db.Exec(
-		`INSERT INTO sessions (id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, metadata)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO sessions (id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, metadata, seq)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT MAX(seq) FROM sessions WHERE user_id = ?), -1) + 1
+		 WHERE true
 		 ON CONFLICT(id) DO UPDATE SET
 		   name = excluded.name,
 		   last_ping_at = excluded.last_ping_at,
 		   last_activity_at = excluded.last_activity_at,
 		   metadata = excluded.metadata`,
-		s.ID, s.UserID, s.HostID, s.Name, s.StartedAt.UTC().Format(timeFormat), lastPingAt, lastActivityAt, s.Metadata,
+		s.ID, s.UserID, s.HostID, s.Name, s.StartedAt.UTC().Format(timeFormat), lastPingAt, lastActivityAt, s.Metadata, s.UserID,
 	)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
@@ -309,7 +316,7 @@ func UpdateSessionMeta(db *sql.DB, id, metadata string) error {
 
 func GetSessionsByUserID(db *sql.DB, userID int64) ([]Session, error) {
 	rows, err := db.Query(
-		"SELECT id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, ended_at, metadata FROM sessions WHERE user_id = ? ORDER BY started_at DESC",
+		"SELECT id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, ended_at, metadata, seq FROM sessions WHERE user_id = ? ORDER BY seq ASC, started_at DESC",
 		userID,
 	)
 	if err != nil {
@@ -322,7 +329,7 @@ func GetSessionsByUserID(db *sql.DB, userID int64) ([]Session, error) {
 		var s Session
 		var startedAt string
 		var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
-		if err := rows.Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata); err != nil {
+		if err := rows.Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq); err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}
 		s.StartedAt, _ = parseTime(startedAt)
@@ -356,13 +363,13 @@ func GetSession(db *sql.DB, id string) (*Session, error) {
 	var hostSSHPort sql.NullInt64
 	var hostCreatedAt, hostUpdatedAt sql.NullString
 	err := db.QueryRow(`
-		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata,
+		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata, s.seq,
 		       h.id, h.label, h.hostname, h.ssh_user, h.ssh_port, h.ssh_principal, h.user_id, h.created_at, h.updated_at
 		FROM sessions s
 		LEFT JOIN hosts h ON s.host_id = h.id
 		WHERE s.id = ?`,
 		id,
-	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata,
+	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq,
 		&hostID, &hostLabel, &hostHostname, &hostSSHUser, &hostSSHPort, &hostSSHPrincipal, &hostUserID, &hostCreatedAt, &hostUpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -419,6 +426,31 @@ func DeleteSession(db *sql.DB, id string) error {
 		return fmt.Errorf("delete session: %w", err)
 	}
 	return nil
+}
+
+// ReorderSessions rewrites the display order: each session's seq is set to its
+// position in orderedIDs. Scoped to userID so a caller can never renumber
+// another user's sessions (ids that aren't theirs are simply no-ops). Runs in a
+// single transaction so the ordering is applied atomically.
+func ReorderSessions(db *sql.DB, userID int64, orderedIDs []string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("reorder sessions begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare("UPDATE sessions SET seq = ? WHERE id = ? AND user_id = ?")
+	if err != nil {
+		return fmt.Errorf("reorder sessions prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for i, id := range orderedIDs {
+		if _, err := stmt.Exec(i, id, userID); err != nil {
+			return fmt.Errorf("reorder sessions update: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 func DeleteCredential(db *sql.DB, id string) error {
@@ -783,12 +815,12 @@ func GetFirstCredentialWithMasterKey(db *sql.DB, userID int64) (*WebAuthnCredent
 
 func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 	rows, err := db.Query(`
-		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata,
+		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata, s.seq,
 		       h.id, h.label, h.hostname, h.ssh_user, h.ssh_port, h.ssh_principal, h.user_id, h.created_at, h.updated_at
 		FROM sessions s
 		LEFT JOIN hosts h ON s.host_id = h.id
 		WHERE s.user_id = ?
-		ORDER BY s.started_at DESC`,
+		ORDER BY s.seq ASC, s.started_at DESC`,
 		userID,
 	)
 	if err != nil {
@@ -808,7 +840,7 @@ func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 		var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
 
 		if err := rows.Scan(
-			&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata,
+			&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq,
 			&hostID, &hostLabel, &hostHostname, &hostSSHUser, &hostSSHPort, &hostSSHPrincipal, &hostUserID, &hostCreatedAt, &hostUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan session with host: %w", err)

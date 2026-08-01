@@ -1,5 +1,12 @@
 import type { Session } from "@/types/api"
 
+// Sessions render in user-controlled order (the `seq` field, ascending).
+// Returns a new sorted array; a missing seq falls back to 0 so older/partial
+// data still sorts deterministically. Ties keep their relative input order.
+export function sortBySeq(sessions: Session[]): Session[] {
+  return [...sessions].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+}
+
 // A session is "active" when terminal activity (output) has been observed
 // within the last 5 seconds. This is driven by the `last_activity_at` field,
 // which the CLI updates whenever the terminal buffer changes.
