@@ -24,6 +24,7 @@ import { Menu } from "lucide-react"
 import { listSessions, deleteStaleSessions, deleteSession, getSSHCAPublicKey, reorderSessions } from "@/lib/api"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useDragReorder } from "@/hooks/useDragReorder"
+import { usePointerReorder } from "@/hooks/usePointerReorder"
 import { sortBySeq } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
@@ -115,7 +116,16 @@ export default function DashboardPage() {
     })
   }, [loadSessions])
 
-  const dnd = useDragReorder(orderedSessions.map((s) => s.id), handleReorder)
+  // Stable ids array so the reorder hooks don't resync on every render.
+  const orderedIds = useMemo(() => orderedSessions.map((s) => s.id), [orderedSessions])
+  // Desktop table uses native HTML5 drag; the mobile card list uses pointer
+  // events so it also works with touch.
+  const dnd = useDragReorder(orderedIds, handleReorder)
+  const touch = usePointerReorder(orderedIds, handleReorder)
+  const sessionById = useMemo(
+    () => new Map(orderedSessions.map((s) => [s.id, s])),
+    [orderedSessions]
+  )
 
   const handleDeleteStale = async () => {
     try {
@@ -313,22 +323,24 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div className="md:hidden space-y-4">
-          {orderedSessions.map((session) => (
+        <div className="md:hidden space-y-4" ref={touch.containerRef}>
+          {touch.order.map((sid) => {
+            const session = sessionById.get(sid)
+            if (!session) return null
+            return (
             <div
               key={session.id}
+              data-reorder-id={session.id}
               className={cn(
-                "relative",
-                dnd.draggingId === session.id && "opacity-40",
-                dnd.overId === session.id && "ring-2 ring-primary rounded-lg"
+                "relative touch-pan-y transition-shadow",
+                touch.draggingId === session.id && "opacity-60 ring-2 ring-primary rounded-lg"
               )}
-              {...dnd.dropTargetProps(session.id)}
             >
               <button
                 type="button"
                 aria-label="Drag to reorder"
-                className="absolute top-2 left-2 z-10 text-muted-foreground cursor-grab active:cursor-grabbing touch-none"
-                {...dnd.dragHandleProps(session.id)}
+                className="absolute top-2 left-2 z-10 text-muted-foreground cursor-grab active:cursor-grabbing"
+                {...touch.handleProps(session.id)}
               >
                 <GripVertical className="h-5 w-5" />
               </button>
@@ -360,7 +372,8 @@ export default function DashboardPage() {
                 ✕
               </Button>
             </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>
