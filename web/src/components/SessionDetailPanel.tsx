@@ -165,6 +165,12 @@ function SessionListItem({
   const active = isActive(session)
   return (
     <div
+      // The whole row is the "session item": it groups the index, activity dot,
+      // drag handle and the clickable select button. Test/a11y hooks live here
+      // (not on the inner button) so the activity indicator counts as part of
+      // the item.
+      data-testid={`session-item-${session.id}`}
+      aria-current={isCurrent ? "true" : undefined}
       className={cn(
         "flex items-stretch rounded-md transition-colors",
         dnd.draggingId === session.id && "opacity-40",
@@ -172,35 +178,37 @@ function SessionListItem({
       )}
       {...dnd.dropTargetProps(session.id)}
     >
-      <span
-        aria-label="Drag to reorder"
-        className="flex shrink-0 cursor-grab items-center px-1 text-muted-foreground active:cursor-grabbing"
-        {...dnd.dragHandleProps(session.id)}
-      >
-        <GripVertical className="h-4 w-4" />
-      </span>
+      {/* Compact left column: index number and activity dot stacked ABOVE the
+          drag handle, so the row is a single narrow column instead of three. */}
+      <div className="flex shrink-0 flex-col items-center justify-center gap-1 px-1 py-2">
+        <span className="text-sm leading-none tabular-nums text-muted-foreground">
+          {index}
+        </span>
+        <span
+          // Activity indicator: green when active (terminal output seen in the
+          // last 5s), gray otherwise.
+          className={cn(
+            "h-2 w-2 rounded-full",
+            active ? "bg-green-500" : "bg-muted-foreground/40"
+          )}
+          aria-label={active ? "active" : "inactive"}
+        />
+        <span
+          aria-label="Drag to reorder"
+          className="cursor-grab text-muted-foreground active:cursor-grabbing"
+          {...dnd.dragHandleProps(session.id)}
+        >
+          <GripVertical className="h-4 w-4" />
+        </span>
+      </div>
       <button
         type="button"
-        data-testid={`session-item-${session.id}`}
         onClick={() => onSelect(session.id)}
-        aria-current={isCurrent ? "true" : undefined}
         className={cn(
-          "flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent",
+          "flex min-w-0 flex-1 items-center rounded-md px-2 py-2 text-left transition-colors hover:bg-accent",
           isCurrent && "bg-accent"
         )}
       >
-        <span className="w-5 shrink-0 text-sm tabular-nums text-muted-foreground">
-          {index}
-        </span>
-      <span
-        // Activity indicator: green when active (terminal output seen in the
-        // last 5s), gray otherwise.
-        className={cn(
-          "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-          active ? "bg-green-500" : "bg-muted-foreground/40"
-        )}
-        aria-label={active ? "active" : "inactive"}
-      />
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium">{session.name || session.id}</span>
           <span data-status className="block text-xs text-muted-foreground line-clamp-3">
