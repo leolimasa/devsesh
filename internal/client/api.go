@@ -266,3 +266,32 @@ func (c *APIClient) UpdateSessionMeta(sessionID string, meta map[string]any) err
 	
 	return nil
 }
+
+// SendClipboard pushes raw clipboard text (the stdin of `devsesh copy`) to the
+// server for a session, which broadcasts it to the user's browsers. The body is
+// sent as raw UTF-8 text (not JSON) -- the server bounds the size and rejects
+// non-text. A non-204 response surfaces the server's message (e.g. 413/400).
+func (c *APIClient) SendClipboard(sessionID string, content []byte) error {
+	url := c.serverURL + "/api/v1/sessions/" + sessionID + "/clipboard"
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(content))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	if c.jwtToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.jwtToken)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("clipboard push failed (%s): %s", resp.Status, body)
+	}
+	return nil
+}

@@ -103,6 +103,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("POST /api/v1/sessions/{session_id}/meta", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.MetaHandler(database, hub)))))
 	mux.Handle("GET /api/v1/sessions", jwtMiddleware(http.HandlerFunc(sessions.ListHandler(database))))
 	mux.Handle("POST /api/v1/sessions/reorder", jwtMiddleware(http.HandlerFunc(sessions.ReorderHandler(database))))
+	mux.Handle("POST /api/v1/sessions/{session_id}/clipboard", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.ClipboardHandler(database, hub)))))
 	mux.Handle("GET /api/v1/sessions/{session_id}", jwtMiddleware(http.HandlerFunc(sessions.GetSessionHandler(database))))
 	mux.Handle("DELETE /api/v1/sessions/{session_id}", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.DeleteSessionHandler(database, hub)))))
 	mux.Handle("DELETE /api/v1/sessions/stale", jwtMiddleware(http.HandlerFunc(sessions.DeleteStaleHandler(database))))

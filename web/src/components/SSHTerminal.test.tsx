@@ -19,6 +19,8 @@ vi.mock("@xterm/xterm", () => {
       onData = vi.fn()
       dispose = vi.fn()
       focus = mockFocus
+      attachCustomKeyEventHandler = vi.fn()
+      paste = vi.fn()
       rows = 24
       cols = 80
     },

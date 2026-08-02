@@ -22,6 +22,7 @@ func ExecuteWithLogger(logger *slog.Logger) error {
 	rootCmd.AddCommand(NewStartCmd())
 	rootCmd.AddCommand(NewWatchCmd())
 	rootCmd.AddCommand(NewSetCmd())
+	rootCmd.AddCommand(NewCopyCmd())
 	rootCmd.AddCommand(NewStopCmd())
 	rootCmd.AddCommand(NewListCmd())
 	rootCmd.AddCommand(NewAttachCmd())

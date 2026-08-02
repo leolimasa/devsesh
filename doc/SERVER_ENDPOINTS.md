@@ -24,6 +24,7 @@ This document describes all API endpoints available in the devsesh server.
 | POST   | /api/v1/sessions/{session_id}/ping  | Update the last ping time for a session                          |
 | POST   | /api/v1/sessions/{session_id}/end   | Mark a session as ended                                          |
 | POST   | /api/v1/sessions/{session_id}/meta  | Update session metadata                                          |
+| POST   | /api/v1/sessions/{session_id}/clipboard | Push clipboard text (from `devsesh copy`) to the user's browsers as a `clipboard` event; body is raw UTF-8 text, max 256 KB (413 if larger, 400 if not UTF-8) |
 | DELETE | /api/v1/sessions/stale              | Delete all sessions that haven't been pinged for at least 1 hour |
 | GET    | /api/v1/sessions/updates            | WebSocket endpoint for real-time session updates                 |
 | GET    | /api/v1/hosts                       | Get all hosts for the current user                               |

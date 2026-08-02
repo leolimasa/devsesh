@@ -16,7 +16,8 @@ import { useFROST } from "@/contexts/FROSTContext"
 import type { Host } from "@/types/api"
 import type { QuickKeyStep, ConnectionStatus } from "@/types/api"
 import { encodeSpec } from "@/lib/quick-keys"
-import { isDesktopViewport } from "@/lib/utils"
+import { isDesktopViewport, isMac } from "@/lib/utils"
+import { readClipboard, clipboardKeyAction } from "@/lib/clipboard"
 import { getMasterKey } from "@/lib/api"
 import { loginBegin } from "@/lib/api"
 import { clientLog } from "@/lib/api"
@@ -53,10 +54,14 @@ interface SSHTerminalProps {
   sessionName: string
   onStatusChange?: (status: Status) => void
   topBarHeight?: number
+  // Invoked when the clipboard flush hotkey (⌘⇧C / Ctrl+Shift+C) is pressed
+  // while the terminal is focused. The parent writes the pending buffer in the
+  // same synchronous call stack, preserving the user gesture.
+  onClipboardHotkey?: () => void
 }
 
 export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
-  function SSHTerminal({ host, sessionName, onStatusChange, topBarHeight = 0 }, ref) {
+  function SSHTerminal({ host, sessionName, onStatusChange, topBarHeight = 0, onClipboardHotkey }, ref) {
     const terminalRef = useRef<HTMLDivElement>(null)
     const xtermRef = useRef<XTerm | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
@@ -95,6 +100,9 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     const { height: viewportHeight } = useVisualViewport()
 
     const handleCertificateRequestRef = useRef<() => Promise<void>>(() => Promise.resolve())
+    // Ref so the mount-once key handler always calls the latest hotkey callback.
+    const onClipboardHotkeyRef = useRef(onClipboardHotkey)
+    useEffect(() => { onClipboardHotkeyRef.current = onClipboardHotkey }, [onClipboardHotkey])
 
     // Report status changes to parent
     useEffect(() => {
@@ -450,6 +458,26 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
       term.open(terminalRef.current)
       fitAddon.fit()
+
+      // Clipboard shortcuts. attachCustomKeyEventHandler only fires while xterm
+      // has focus, which gives us "terminal is focused" for free. Return false
+      // for handled combos so xterm does NOT also send the bytes to the pty.
+      term.attachCustomKeyEventHandler((e) => {
+        const action = clipboardKeyAction(e, isMac())
+        if (!action) return true
+        e.preventDefault()
+        if (action === "paste") {
+          // Read inside this keydown gesture, then paste via term.paste so the
+          // remote shell's bracketed-paste mode protects against injection. No-op
+          // on empty/denied read.
+          readClipboard().then((text) => { if (text) term.paste(text) }).catch(() => {})
+        } else {
+          // Flush hotkey: call synchronously so the parent's OS-clipboard write
+          // stays within this gesture.
+          onClipboardHotkeyRef.current?.()
+        }
+        return false
+      })
 
       // Auto-focus on page load so the user can start typing immediately —
       // desktop only. On mobile, focusing xterm's textarea pops the on-screen

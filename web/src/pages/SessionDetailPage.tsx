@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { getSession, listSessions, reorderSessions } from "@/lib/api"
 import { sortBySeq } from "@/lib/session"
+import { writeClipboard, clipboardBufferFor, type ClipboardBuffer } from "@/lib/clipboard"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useQuickKeys } from "@/hooks/useQuickKeys"
 import { SSHTerminal } from "@/components/SSHTerminal"
@@ -30,6 +31,10 @@ export default function SessionDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [status, setStatus] = useState<Status>("disconnected")
+  // Pending clipboard buffer from `devsesh copy` for THIS session, awaiting a
+  // user gesture to commit to the OS clipboard. Latest-only (a new push replaces
+  // it). The OS clipboard is untouched until the user acts.
+  const [clipboard, setClipboard] = useState<ClipboardBuffer | null>(null)
   const [showOverlay, setShowOverlay] = useState(false)
   const [topBarHeight, setTopBarHeight] = useState(40)
 
@@ -89,6 +94,15 @@ export default function SessionDetailPage() {
   }, [loadSessions])
 
   const handleUpdate = useCallback((update: SessionUpdate) => {
+    // Clipboard push (from `devsesh copy`): buffer it, but only for the session
+    // this tab is viewing (scoped), and never touch the OS clipboard here.
+    // Latest-only: replaces any pending buffer. These events carry a zero
+    // Session, so return before the session-sync/upsert below.
+    if (update.event === "clipboard") {
+      const buf = clipboardBufferFor(update, id ?? "")
+      if (buf) setClipboard(buf)
+      return
+    }
     // Keep the currently-viewed session in sync.
     if (update.session_id === id) {
       setSession(update.session)
@@ -108,6 +122,28 @@ export default function SessionDetailPage() {
   }, [id])
 
   useSessionUpdates(handleUpdate)
+
+  // Latest clipboard buffer, mirrored to a ref so the gesture handler can read
+  // it and write synchronously without a stale closure or re-created callback.
+  const clipboardRef = useRef(clipboard)
+  useEffect(() => { clipboardRef.current = clipboard }, [clipboard])
+
+  // Commit the buffered text to the OS clipboard. MUST run inside a user gesture
+  // (Copy button click or the flush hotkey): writeClipboard is the FIRST
+  // statement so WebKit keeps the activation (no awaited work before it).
+  const handleCopyClipboard = useCallback(() => {
+    const c = clipboardRef.current
+    if (!c) return
+    writeClipboard(c.text)
+      .then(() => {
+        setClipboard((cur) => (cur ? { ...cur, status: "copied" } : cur))
+        // Show "Copied" briefly, then dismiss.
+        setTimeout(() => setClipboard(null), 1200)
+      })
+      .catch(() => setClipboard((cur) => (cur ? { ...cur, status: "error" } : cur)))
+  }, [])
+
+  const handleDismissClipboard = useCallback(() => setClipboard(null), [])
 
   // Navigate to another session's detail URL. The route param change drives
   // loadSession (refetch) and, if the host differs, SSHTerminal reconnects.
@@ -194,6 +230,9 @@ export default function SessionDetailPage() {
             onConnect={() => terminalRef.current?.connect()}
             onDisconnect={() => terminalRef.current?.disconnect()}
             onBack={() => navigate("/dashboard")}
+            clipboard={clipboard}
+            onCopyClipboard={handleCopyClipboard}
+            onDismissClipboard={handleDismissClipboard}
             hamburger={
               <Sheet>
                 <SheetTrigger asChild className="md:hidden">
@@ -262,6 +301,7 @@ export default function SessionDetailPage() {
               sessionName={session.name || session.id}
               onStatusChange={setStatus}
               topBarHeight={topBarHeight}
+              onClipboardHotkey={handleCopyClipboard}
             />
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-4 bg-black text-muted-foreground">

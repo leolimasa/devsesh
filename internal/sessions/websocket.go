@@ -12,6 +12,10 @@ type SessionUpdate struct {
 	Event     string     `json:"event"`
 	SessionID string     `json:"session_id"`
 	Session   db.Session `json:"session"`
+	// Clipboard carries the copied text for "clipboard" events (from
+	// `devsesh copy`). Empty for every other event; a clipboard event leaves
+	// Session as its zero value and sets SessionID + Clipboard.
+	Clipboard string `json:"clipboard,omitempty"`
 }
 
 type client struct {

@@ -26,3 +26,11 @@ export function isStandalone(): boolean {
   const iosStandalone = (window.navigator as unknown as { standalone?: boolean }).standalone === true
   return mm || iosStandalone
 }
+
+// isMac reports whether we're on macOS/iOS, so keyboard shortcuts use ⌘ (paste
+// ⌘V, clipboard-flush ⌘⇧C) instead of the Ctrl+Shift variants elsewhere.
+export function isMac(): boolean {
+  if (typeof navigator === "undefined") return false
+  const s = `${navigator.platform || ""} ${navigator.userAgent || ""}`
+  return /Mac|iPhone|iPad|iPod/i.test(s)
+}

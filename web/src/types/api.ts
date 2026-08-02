@@ -27,9 +27,12 @@ export interface Session {
 }
 
 export interface SessionUpdate {
-  event: "start" | "ping" | "activity" | "end" | "meta";
+  event: "start" | "ping" | "activity" | "end" | "meta" | "clipboard";
   session_id: string;
   session: Session;
+  // Present on "clipboard" events (from `devsesh copy`): the copied text to
+  // buffer for one-tap copy to the OS clipboard.
+  clipboard?: string;
 }
 
 export interface User {

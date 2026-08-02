@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -159,5 +160,51 @@ func TestUpdateSessionMeta_Success(t *testing.T) {
 	err := client.UpdateSessionMeta("test-id", meta)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSendClipboard(t *testing.T) {
+	var gotBody []byte
+	var gotAuth, gotCT, gotPath, gotMethod string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotCT = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	c := NewAPIClient(server.URL, "test-token")
+	if err := c.SendClipboard("sess-123", []byte("hello clip")); err != nil {
+		t.Fatalf("SendClipboard: %v", err)
+	}
+	if gotMethod != "POST" {
+		t.Errorf("method = %s, want POST", gotMethod)
+	}
+	if gotPath != "/api/v1/sessions/sess-123/clipboard" {
+		t.Errorf("path = %s", gotPath)
+	}
+	if gotAuth != "Bearer test-token" {
+		t.Errorf("auth = %s", gotAuth)
+	}
+	if gotCT != "text/plain; charset=utf-8" {
+		t.Errorf("content-type = %s", gotCT)
+	}
+	if string(gotBody) != "hello clip" {
+		t.Errorf("body = %q", gotBody)
+	}
+}
+
+func TestSendClipboard_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "clipboard payload too large", http.StatusRequestEntityTooLarge)
+	}))
+	defer server.Close()
+
+	c := NewAPIClient(server.URL, "test-token")
+	if err := c.SendClipboard("sess-123", []byte("x")); err == nil {
+		t.Fatal("expected error on 413, got nil")
 	}
 }

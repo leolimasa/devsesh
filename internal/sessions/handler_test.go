@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -15,6 +16,76 @@ import (
 	"github.com/leolimasa/devsesh/internal/db"
 	_ "modernc.org/sqlite"
 )
+
+// clipboardReq builds a POST request whose context carries the session and
+// userID that RequireSessionOwner/jwt would normally populate.
+func clipboardReq(body []byte, session *db.Session, userID int64) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/s1/clipboard", bytes.NewReader(body))
+	ctx := context.WithValue(req.Context(), ctxutil.ContextKeyUserID, userID)
+	if session != nil {
+		ctx = context.WithValue(ctx, ctxutil.ContextKeySession, session)
+	}
+	return req.WithContext(ctx)
+}
+
+func TestClipboardHandler(t *testing.T) {
+	dbConn := setupTestDB(t)
+	userID := int64(1)
+	session := &db.Session{ID: "s1", UserID: userID}
+
+	t.Run("broadcasts a clipboard event with the text", func(t *testing.T) {
+		hub := NewHub()
+		send := make(chan []byte, 8)
+		hub.clients[userID] = map[*client]bool{{send: send, userID: userID}: true}
+
+		w := httptest.NewRecorder()
+		ClipboardHandler(dbConn, hub)(w, clipboardReq([]byte("hello clip"), session, userID))
+
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("expected 204, got %d", w.Code)
+		}
+		select {
+		case msg := <-send:
+			var u SessionUpdate
+			if err := json.Unmarshal(msg, &u); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if u.Event != "clipboard" || u.SessionID != "s1" || u.Clipboard != "hello clip" {
+				t.Fatalf("unexpected broadcast: %+v", u)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for clipboard broadcast")
+		}
+	})
+
+	t.Run("oversize payload is rejected", func(t *testing.T) {
+		hub := NewHub()
+		w := httptest.NewRecorder()
+		big := bytes.Repeat([]byte("a"), maxClipboardBytes+1)
+		ClipboardHandler(dbConn, hub)(w, clipboardReq(big, session, userID))
+		if w.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected 413, got %d", w.Code)
+		}
+	})
+
+	t.Run("non-UTF-8 payload is rejected", func(t *testing.T) {
+		hub := NewHub()
+		w := httptest.NewRecorder()
+		ClipboardHandler(dbConn, hub)(w, clipboardReq([]byte{0xff, 0xfe, 0xfd}, session, userID))
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("missing session in context is not found", func(t *testing.T) {
+		hub := NewHub()
+		w := httptest.NewRecorder()
+		ClipboardHandler(dbConn, hub)(w, clipboardReq([]byte("x"), nil, userID))
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d", w.Code)
+		}
+	})
+}
 
 func setupTestDB(t *testing.T) *sql.DB {
 	t.Helper()

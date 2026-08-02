@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -81,6 +82,9 @@ func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, e
 		slog.Warn("failed to set initial pty size", "error", err)
 	}
 
+	// Wire tmux copy-to-clipboard for this session (best-effort, non-blocking).
+	go ConfigureClipboard(sessionName)
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	wg.Add(1)
@@ -149,7 +153,91 @@ func NewSessionDetached(sessionName string, env map[string]string) error {
 		slog.Error("failed to create detached tmux session", "error", err, "session_name", sessionName, "output", string(out))
 		return err
 	}
+	go ConfigureClipboard(sessionName)
 	return nil
+}
+
+// leadingInt returns the integer formed by the leading digits of s (0 if none),
+// so "3a" -> 3. Used to tolerate tmux version suffixes like "3.3a".
+func leadingInt(s string) int {
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	n, _ := strconv.Atoi(s[:i])
+	return n
+}
+
+// tmuxVersionAtLeast reports whether the installed tmux is >= major.minor.
+// Returns false if tmux is absent or unparseable.
+func tmuxVersionAtLeast(major, minor int) bool {
+	out, err := exec.Command("tmux", "-V").Output()
+	if err != nil {
+		return false
+	}
+	return tmuxOutputAtLeast(string(out), major, minor)
+}
+
+// tmuxOutputAtLeast parses `tmux -V` output (e.g. "tmux 3.4" or "tmux 3.3a") and
+// reports whether it is >= major.minor. A non-numeric suffix on the minor is
+// tolerated. Pure/testable (no exec).
+func tmuxOutputAtLeast(vOutput string, major, minor int) bool {
+	fields := strings.Fields(vOutput)
+	if len(fields) < 2 {
+		return false
+	}
+	parts := strings.SplitN(fields[1], ".", 2)
+	maj := leadingInt(parts[0])
+	if maj != major {
+		return maj > major
+	}
+	min := 0
+	if len(parts) == 2 {
+		min = leadingInt(parts[1])
+	}
+	return min >= minor
+}
+
+// ConfigureClipboard wires the devsesh-created tmux session so a copy action
+// (mouse drag-release, or a copy-mode confirm) pipes the selection to
+// `devsesh copy`, bridging it to the browser clipboard. All state is scoped to
+// the given session via `set-option -t` so the user's global tmux config is
+// untouched. Best-effort: every failure is logged and never blocks session
+// start. The session may not be registered the instant StartSession returns, so
+// it waits briefly for it (a no-op for NewSessionDetached, which already waited).
+func ConfigureClipboard(sessionName string) {
+	for i := 0; i < 20 && !SessionExists(sessionName); i++ {
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	set := func(args ...string) {
+		full := append([]string{"set-option", "-t", sessionName}, args...)
+		if out, err := exec.Command("tmux", full...).CombinedOutput(); err != nil {
+			slog.Warn("tmux clipboard set-option failed", "args", args, "error", err, "output", string(out))
+		}
+	}
+
+	// Drag-to-select in the terminal.
+	set("mouse", "on")
+
+	if tmuxVersionAtLeast(3, 2) {
+		// tmux >= 3.2: copy-pipe / copy-pipe-and-cancel (mouse release and the
+		// copy-mode confirm keys) use this command by default.
+		set("copy-command", "devsesh copy")
+		return
+	}
+
+	// Legacy tmux: bind the copy-mode confirm keys and mouse drag-end directly.
+	// Key tables are server-global in old tmux, so this is the one unavoidable
+	// non-session-local bit -- gated behind the old-version branch only.
+	bind := func(args ...string) {
+		if out, err := exec.Command("tmux", args...).CombinedOutput(); err != nil {
+			slog.Warn("tmux clipboard bind failed", "args", args, "error", err, "output", string(out))
+		}
+	}
+	bind("bind-key", "-T", "copy-mode-vi", "y", "send", "-X", "copy-pipe-and-cancel", "devsesh copy")
+	bind("bind-key", "-T", "copy-mode", "Enter", "send", "-X", "copy-pipe-and-cancel", "devsesh copy")
+	bind("bind-key", "-T", "copy-mode", "MouseDragEnd1Pane", "send", "-X", "copy-pipe-and-cancel", "devsesh copy")
 }
 
 // SetSessionEnv sets an environment variable on an existing tmux session. This

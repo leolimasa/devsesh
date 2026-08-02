@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 	"github.com/leolimasa/devsesh/internal/auth"
@@ -298,6 +300,53 @@ func ReorderHandler(database *sql.DB) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// maxClipboardBytes bounds a `devsesh copy` payload. The OS clipboard write is
+// text; a payload this size is already far beyond any realistic terminal copy.
+const maxClipboardBytes = 256 * 1024
+
+// ClipboardHandler receives a `devsesh copy` payload (the raw stdin bytes) for a
+// session and broadcasts it to the user's browsers as a "clipboard" event over
+// the existing sessions-updates websocket. The frontend buffers it until the
+// user commits it to the OS clipboard with a gesture. Scoped by
+// RequireSessionOwner, so a caller can only push clipboard for its own session.
+func ClipboardHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, ok := SessionFromContext(r.Context())
+		if !ok {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Bound the body: MaxBytesReader makes ReadAll fail once the payload
+		// exceeds the cap, which we surface as 413.
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxClipboardBytes))
+		if err != nil {
+			http.Error(w, "clipboard payload too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		// The clipboard sink and the JSON event are both text, so reject
+		// non-UTF-8 rather than silently corrupting it.
+		if !utf8.Valid(body) {
+			http.Error(w, "clipboard payload must be UTF-8 text", http.StatusBadRequest)
+			return
+		}
+
+		hub.Broadcast(userID, SessionUpdate{
+			Event:     "clipboard",
+			SessionID: session.ID,
+			Clipboard: string(body),
+		})
 
 		w.WriteHeader(http.StatusNoContent)
 	}

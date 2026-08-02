@@ -20,6 +20,64 @@ interface SessionTopBarProps {
   onDisconnect: () => void
   onBack: () => void
   hamburger?: ReactNode
+  // Pending clipboard buffer pushed from `devsesh copy` for this session, awaiting
+  // a user gesture to commit to the OS clipboard. Null when nothing is pending.
+  clipboard?: { text: string; bytes: number; status: "ready" | "copied" | "error" } | null
+  onCopyClipboard?: () => void
+  onDismissClipboard?: () => void
+}
+
+// formatBytes renders a byte count compactly for the clipboard pill.
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// ClipboardPill shows the pending `devsesh copy` buffer and commits it to the OS
+// clipboard on click (the required user gesture). Purely presentational — the
+// buffer + status are owned by the parent.
+function ClipboardPill({
+  clipboard,
+  onCopy,
+  onDismiss,
+}: {
+  clipboard: { text: string; bytes: number; status: "ready" | "copied" | "error" }
+  onCopy?: () => void
+  onDismiss?: () => void
+}) {
+  return (
+    <div
+      data-testid="clipboard-pill"
+      className="flex items-center gap-2 shrink-0 rounded-full border bg-muted px-2 py-0.5 text-xs"
+    >
+      {clipboard.status === "copied" ? (
+        <span className="font-medium text-green-600">Copied ✓</span>
+      ) : clipboard.status === "error" ? (
+        <>
+          <span className="text-destructive">Copy failed</span>
+          <button type="button" className="font-medium underline" onClick={onCopy}>
+            Retry
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="text-muted-foreground">Clipboard ready · {formatBytes(clipboard.bytes)}</span>
+          <button type="button" data-testid="clipboard-copy" className="font-medium underline" onClick={onCopy}>
+            Copy
+          </button>
+        </>
+      )}
+      <button
+        type="button"
+        aria-label="Dismiss clipboard"
+        className="text-muted-foreground hover:text-foreground"
+        onClick={onDismiss}
+      >
+        ✕
+      </button>
+    </div>
+  )
 }
 
 const STATUS_LABELS: Record<Status, string> = {
@@ -48,6 +106,9 @@ export function SessionTopBar({
   onDisconnect,
   onBack,
   hamburger,
+  clipboard,
+  onCopyClipboard,
+  onDismissClipboard,
 }: SessionTopBarProps) {
   const regionRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
@@ -139,6 +200,11 @@ export function SessionTopBar({
           {STATUS_LABELS[status]}
         </span>
       </div>
+
+      {/* Pending clipboard buffer from `devsesh copy`, awaiting a user gesture. */}
+      {clipboard && (
+        <ClipboardPill clipboard={clipboard} onCopy={onCopyClipboard} onDismiss={onDismissClipboard} />
+      )}
 
       {/* Pinned quick-key pills region (flex-1: stable width for measurement) */}
       <div ref={regionRef} className="relative flex-1 min-w-0 flex items-center overflow-hidden">

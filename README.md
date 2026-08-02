@@ -52,8 +52,36 @@ devsesh start
 | `devsesh resume [name]`     | Resume an inactive session                |
 | `devsesh delete [name]`     | Delete a session                          |
 | `devsesh set [key] [value]` | Set session metadata                      |
+| `devsesh copy`              | Send stdin to the web UI clipboard for this session |
 | `devsesh login [url]`       | Pair CLI with server                      |
 | `devsesh logout`            | Clear stored credentials                  |
+
+### Clipboard
+
+Bridge text between the remote terminal and your local device through the web UI.
+
+**Copy (remote → local clipboard).** Pipe text to `devsesh copy` inside a session:
+
+```bash
+echo "hello" | devsesh copy
+cat notes.txt | devsesh copy
+```
+
+A "Clipboard ready" pill appears in the session's top bar in the web UI. Click
+**Copy** (or press the flush hotkey — **⌘⇧C** on macOS, **Ctrl+Shift+C**
+elsewhere) to put it on your local OS clipboard. The devsesh-created tmux session
+is also wired so a normal copy (mouse drag-select, or a copy-mode confirm) pipes
+the selection to `devsesh copy` automatically.
+
+The one tap/keypress is required and unavoidable on Safari/iOS: browsers only
+allow a clipboard write from inside a user gesture. Nothing lands on your
+clipboard until you act.
+
+**Paste (local clipboard → remote terminal).** With the terminal focused, press
+**⌘V** (macOS) or **Ctrl+Shift+V** (elsewhere) to paste your OS clipboard into
+the terminal (bracketed-paste aware, so a multi-line paste doesn't auto-execute).
+
+Clipboard content is UTF-8 text only, capped at 256 KB.
 
 ### Environment Variables
 
