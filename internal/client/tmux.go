@@ -221,8 +221,33 @@ func ConfigureClipboard(sessionName string) {
 		}
 	}
 
+	setHook := func(hook, cmd string) {
+		full := []string{"set-hook", "-t", sessionName, hook, cmd}
+		if out, err := exec.Command("tmux", full...).CombinedOutput(); err != nil {
+			slog.Warn("tmux clipboard set-hook failed", "hook", hook, "error", err, "output", string(out))
+		}
+	}
+
 	// Drag-to-select in the terminal.
 	set("mouse", "on")
+
+	// Bridge buffers created OUTSIDE copy-mode to `devsesh copy` as well. The
+	// copy-command / bound keys below only fire for interactive copy-mode
+	// copies (mouse drag, confirm keys); an application that writes the tmux
+	// paste buffer directly -- e.g. neovim's clipboard provider doing
+	// `tmux load-buffer`, or any `set-buffer` -- never triggers those, so its
+	// yanks would never reach the browser clipboard. These command hooks fire
+	// after such a buffer is set and pipe the newest buffer through
+	// `devsesh copy`. copy-mode's copy-pipe does NOT run the set-buffer /
+	// load-buffer commands, so interactive copies are not double-sent. Scoped
+	// to the session like everything else here, so global config is untouched.
+	//
+	// Output MUST be discarded: tmux's run-shell displays any command stdout in
+	// the pane's view (copy) mode, so an un-redirected `devsesh copy` ("Copied N
+	// bytes...") would yank the user out of whatever app is running (e.g. drop
+	// neovim into copy-mode) on every buffer set.
+	setHook("after-set-buffer", "run-shell -b 'tmux save-buffer - | devsesh copy >/dev/null 2>&1'")
+	setHook("after-load-buffer", "run-shell -b 'tmux save-buffer - | devsesh copy >/dev/null 2>&1'")
 
 	if tmuxVersionAtLeast(3, 2) {
 		// tmux >= 3.2: copy-pipe / copy-pipe-and-cancel (mouse release and the

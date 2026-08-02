@@ -58,4 +58,21 @@ func TestConfigureClipboardRealTmux(t *testing.T) {
 	if !strings.Contains(string(out), "devsesh copy") {
 		t.Errorf("copy-command not set to devsesh copy: %q", out)
 	}
+
+	// Buffers set outside copy-mode (e.g. neovim's `tmux load-buffer`) must be
+	// bridged too, via after-set-buffer / after-load-buffer hooks that pipe the
+	// buffer through `devsesh copy`.
+	hout, err := exec.Command("tmux", "show-hooks", "-t", name).Output()
+	if err != nil {
+		t.Fatalf("show-hooks: %v", err)
+	}
+	hooks := string(hout)
+	for _, hook := range []string{"after-set-buffer", "after-load-buffer"} {
+		if !strings.Contains(hooks, hook) {
+			t.Errorf("%s hook not set: %q", hook, hooks)
+		}
+	}
+	if !strings.Contains(hooks, "devsesh copy") {
+		t.Errorf("buffer hooks not wired to devsesh copy: %q", hooks)
+	}
 }
