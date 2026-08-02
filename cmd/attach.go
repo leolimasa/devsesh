@@ -37,6 +37,11 @@ func runAttach(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Wire clipboard before the exec-replacing attach, so a session created
+	// before clipboard support (or outside devsesh) still pipes copies to the
+	// web UI. Idempotent and fast when the session already exists.
+	client.ConfigureClipboard(sessionID)
+
 	if err := client.AttachSession(sessionID); err != nil {
 		return fmt.Errorf("failed to attach to session: %w", err)
 	}

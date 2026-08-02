@@ -47,10 +47,10 @@ func TestConfigureClipboardRealTmux(t *testing.T) {
 	}
 	defer KillSession(name)
 
-	// NewSessionDetached fires ConfigureClipboard in a goroutine; call it
-	// synchronously here so the assertion is deterministic (idempotent).
-	ConfigureClipboard(name)
-
+	// NewSessionDetached must wire copy-command SYNCHRONOUSLY before returning:
+	// `devsesh start` immediately AttachSession-execs, which would kill a
+	// background goroutine before its set-options land. No extra call here --
+	// assert the option is already set purely from NewSessionDetached.
 	out, err := exec.Command("tmux", "show-options", "-t", name, "copy-command").Output()
 	if err != nil {
 		t.Fatalf("show-options: %v", err)

@@ -58,6 +58,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// self-dedupes via an flock, so this is a no-op when one is already running.
 	if client.SessionExists(sessionName) {
 		ensureWatcher(sessionsDir, sessionName)
+		// (Re)wire clipboard: a session created before this binary (or outside
+		// devsesh) never had copy-command set, and AttachSession execs away, so
+		// do it now. Idempotent and fast since the session already exists.
+		client.ConfigureClipboard(sessionName)
 		return client.AttachSession(sessionName)
 	}
 

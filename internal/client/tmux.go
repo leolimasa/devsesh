@@ -153,7 +153,11 @@ func NewSessionDetached(sessionName string, env map[string]string) error {
 		slog.Error("failed to create detached tmux session", "error", err, "session_name", sessionName, "output", string(out))
 		return err
 	}
-	go ConfigureClipboard(sessionName)
+	// Wire clipboard synchronously: `devsesh start` follows this with an
+	// AttachSession that syscall.Exec-replaces the process, which would kill a
+	// background goroutine before its set-options land. The session already
+	// exists (created -d above), so this returns almost immediately.
+	ConfigureClipboard(sessionName)
 	return nil
 }
 
