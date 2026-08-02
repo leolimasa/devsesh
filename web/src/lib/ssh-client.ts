@@ -205,7 +205,19 @@ export class SSHClient extends EventEmitter {
   }
 
   resize(rows: number, cols: number): void {
-    window.sshResize(rows, cols)
+    // Guard like sendInput: the terminal fits (and calls resize) as soon as the
+    // container/fonts settle, which can be BEFORE the wasm client finishes
+    // loading (or after it has exited) — at which point window.sshResize is not
+    // yet/no longer a function. On macOS/Safari the wasm init + font timing
+    // makes this race routine, throwing "window.sshResize is not a function".
+    if (typeof window.sshResize !== "function") {
+      return
+    }
+    try {
+      window.sshResize(rows, cols)
+    } catch (e) {
+      console.error("[SSHClient] Error calling sshResize:", e)
+    }
   }
 
   resolvePassword(password: string): void {
