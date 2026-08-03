@@ -1,9 +1,50 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
+
+// TestOpenPTYSessionDoesNotHoldMuDuringBlockingCall reproduces the "whole PWA
+// freezes" bug. The SSH client runs as wasm on the main thread, so a blocking
+// SSH channel-open (NewSession / RequestPty are network round-trips) must NOT
+// run while holding the global mu: SendInput and Resize — invoked synchronously
+// from JS keydown/resize handlers — also take mu, so if it were held the event
+// loop would block, the WebSocket onmessage carrying the round-trip reply could
+// never be delivered, and mu would never be released → permanent main-thread
+// deadlock (frozen app, must restart the PWA). This asserts mu is free while the
+// blocking call runs. The buggy version held mu across NewSession → fails here.
+func TestOpenPTYSessionDoesNotHoldMuDuringBlockingCall(t *testing.T) {
+	orig := sshNewSession
+	defer func() { sshNewSession = orig }()
+
+	muHeldDuringBlock := false
+	called := false
+	sshNewSession = func(_ *ssh.Client) (*ssh.Session, error) {
+		called = true
+		if mu.TryLock() {
+			mu.Unlock()
+		} else {
+			muHeldDuringBlock = true
+		}
+		// Stop before RequestPty, which would touch a real *ssh.Session.
+		return nil, fmt.Errorf("stub: stop before RequestPty")
+	}
+
+	c := &hostConn{key: "h", connected: true, client: &ssh.Client{}}
+	if _, _, _, err := openPTYSession(c); err == nil {
+		t.Fatal("expected the stub error from sshNewSession")
+	}
+	if !called {
+		t.Fatal("sshNewSession was never called")
+	}
+	if muHeldDuringBlock {
+		t.Fatal("mu was held across the blocking SSH NewSession call — wasm main-thread deadlock risk (whole PWA freezes)")
+	}
+}
 
 // TestCanReuse reproduces the "stuck on connecting" bug at the pool-reuse
 // decision level. The old condition reused any entry with connecting==true, so

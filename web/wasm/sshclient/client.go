@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -14,6 +15,11 @@ import (
 
 	"golang.org/x/crypto/ssh"
 )
+
+// sshNewSession opens a new SSH session channel. Indirected through a var so
+// tests can substitute a fake and assert mu is not held during this blocking
+// call (see openPTYSession and TestOpenPTYSession…).
+var sshNewSession = func(c *ssh.Client) (*ssh.Session, error) { return c.NewSession() }
 
 // certData holds the certificate and private key for SSH authentication.
 type certData struct {
@@ -547,6 +553,59 @@ func DisconnectAll(this js.Value, args []js.Value) interface{} {
 // Exec runs a command (a tmux attach) on a host's pooled connection. Args:
 // [hostKey, command]. If that host already has a session running, it is
 // preempted so the new command attaches on the SAME connection.
+// openPTYSession opens a host's interactive PTY session and publishes it onto
+// the hostConn. The blocking SSH channel setup — NewSession and RequestPty are
+// network round-trips that wait on the server's reply — is done WITHOUT holding
+// mu. This is critical: the client runs as wasm on the single JS thread, and
+// SendInput/Resize (invoked synchronously from JS keydown/resize handlers) also
+// take mu. Holding mu across the round-trip would block the event loop; the
+// WebSocket onmessage carrying the reply could then never be delivered, so the
+// round-trip would never complete and mu would never be released — a permanent
+// main-thread deadlock (the whole PWA freezes). So: snapshot under mu, do the
+// blocking work unlocked, then re-lock only to store the result.
+func openPTYSession(c *hostConn) (*ssh.Session, io.WriteCloser, chan []byte, error) {
+	mu.Lock()
+	client := c.client
+	rows, cols := lastRows, lastCols
+	mu.Unlock()
+	if client == nil {
+		return nil, nil, nil, fmt.Errorf("not connected")
+	}
+
+	session, err := sshNewSession(client)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	modes := ssh.TerminalModes{ssh.ECHO: 1, ssh.TTY_OP_ISPEED: 115200, ssh.TTY_OP_OSPEED: 115200}
+	if err := session.RequestPty("xterm-256color", rows, cols, modes); err != nil {
+		session.Close()
+		return nil, nil, nil, fmt.Errorf("failed to request PTY: %w", err)
+	}
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		session.Close()
+		return nil, nil, nil, fmt.Errorf("failed to get stdin pipe: %w", err)
+	}
+
+	stdinCh := make(chan []byte, 100)
+	mu.Lock()
+	// If the pooled connection was torn down or re-handshaked while we were
+	// opening (Disconnect, a drop, a reconnect), don't publish this session onto
+	// a dead/replaced client — abandon it.
+	if c.client != client {
+		mu.Unlock()
+		session.Close()
+		return nil, nil, nil, fmt.Errorf("connection replaced during session open")
+	}
+	c.session = session
+	c.stdin = stdinCh
+	mu.Unlock()
+
+	return session, stdin, stdinCh, nil
+}
+
 func Exec(this js.Value, args []js.Value) interface{} {
 	key := args[0].String()
 	command := args[1].String()
@@ -609,42 +668,14 @@ func Exec(this js.Value, args []js.Value) interface{} {
 		// Start the output handler goroutine before setting up the session
 		startOutputHandler()
 
-		mu.Lock()
-		session, err := c.client.NewSession()
+		// Open the PTY session WITHOUT holding mu across the blocking round-trips
+		// (see openPTYSession) so a concurrent SendInput/Resize can't deadlock the
+		// wasm main thread and freeze the whole PWA.
+		session, stdin, stdinCh, err := openPTYSession(c)
 		if err != nil {
-			mu.Unlock()
-			emitStatus(key, "error", "failed to create session: "+err.Error())
+			emitStatus(key, "error", err.Error())
 			return
 		}
-
-		modes := ssh.TerminalModes{
-			ssh.ECHO:          1,
-			ssh.TTY_OP_ISPEED: 115200,
-			ssh.TTY_OP_OSPEED: 115200,
-		}
-
-		// mu is already held here (see the Lock above); read the last-known size
-		// directly so the new pty opens at the terminal's real dimensions.
-		err = session.RequestPty("xterm-256color", lastRows, lastCols, modes)
-		if err != nil {
-			session.Close()
-			mu.Unlock()
-			emitStatus(key, "error", "failed to request PTY: "+err.Error())
-			return
-		}
-
-		stdin, err := session.StdinPipe()
-		if err != nil {
-			session.Close()
-			mu.Unlock()
-			emitStatus(key, "error", "failed to get stdin pipe: "+err.Error())
-			return
-		}
-
-		c.stdin = make(chan []byte, 100)
-		c.session = session
-		stdinCh := c.stdin
-		mu.Unlock()
 
 		// Stdin writer goroutine
 		go func() {
