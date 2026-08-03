@@ -380,14 +380,45 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     useEffect(() => { maybeReconnectRef.current = maybeReconnect }, [maybeReconnect])
 
-    // Recover promptly when the network comes back (e.g. wifi returns). A drop
-    // can leave the active connection wedged; on `online` (or the tab becoming
-    // visible again) force a fresh reconnect: drop any stale/zombie pooled
-    // connection first so connect() re-handshakes instead of reusing it.
+    // Recover promptly when the network comes back (e.g. wifi returns) or the
+    // PWA is resumed (tab visible / bfcache restore). A drop can leave the
+    // active connection wedged, and iOS additionally evicts the FROST worker
+    // that holds the unlocked share while backgrounded — so on resume we must
+    // (a) verify the worker is still alive and, if not, surface the unlock
+    // dialog rather than silently wedging at "connecting" (the "come back after
+    // a while and it's stuck, never asks to unlock again" report), and (b) force
+    // a fresh handshake by dropping any stale/zombie pooled connection so
+    // connect() re-handshakes (and re-authenticates) instead of reusing it.
     useEffect(() => {
-      const recover = () => {
+      const recover = async () => {
         if (!mountedRef.current || !host) return
-        if (statusRef.current === "connected") return
+        // Authoritatively check the worker rather than trusting isActive, which
+        // stays stale-true when iOS kills it. ensureAlive() also drops a dead
+        // handle so the subsequent requestCert doesn't hang for the full worker
+        // timeout.
+        let workerAlive = true
+        try {
+          workerAlive = await ensureAlive()
+        } catch {
+          workerAlive = false
+        }
+        if (!mountedRef.current) return
+
+        if (workerAlive && statusRef.current === "connected") {
+          // Healthy worker and we still believe we're connected: leave the live
+          // session alone (avoids reconnect churn on every desktop tab focus).
+          return
+        }
+
+        // The share is gone → a reconnect will need a fresh certificate. Prompt
+        // the one-tap re-unlock now instead of waiting for a handshake that may
+        // never fire.
+        if (!workerAlive) {
+          setShowWebAuthnDialog(true)
+        }
+
+        // Drop any stale/zombie pooled connection so connect() re-handshakes
+        // (and re-auths) instead of reusing a wedged "connecting"/dead entry.
         if (hostKey && sshClientRef.current) {
           try { sshClientRef.current.disconnect(hostKey) } catch { /* ignore */ }
         }
@@ -395,13 +426,19 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         doConnect()
       }
       const onVisible = () => { if (document.visibilityState === "visible") recover() }
+      // Only recover on a real bfcache restore (persisted), never on a fresh
+      // page load — the mount effect already connects then, so an unguarded
+      // pageshow would double-connect.
+      const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) recover() }
       window.addEventListener("online", recover)
+      window.addEventListener("pageshow", onPageShow)
       document.addEventListener("visibilitychange", onVisible)
       return () => {
         window.removeEventListener("online", recover)
+        window.removeEventListener("pageshow", onPageShow)
         document.removeEventListener("visibilitychange", onVisible)
       }
-    }, [host, hostKey, doConnect])
+    }, [host, hostKey, doConnect, ensureAlive])
 
     // Imperative handle for parent
     useImperativeHandle(ref, () => ({

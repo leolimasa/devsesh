@@ -70,15 +70,32 @@ vi.mock("@/lib/ssh-client", () => {
   }
 })
 
+// Controllable FROST mocks so tests can simulate the worker being alive or
+// evicted (iOS kills the Web Worker holding the FROST share on background).
+const {
+  mockInitWorker,
+  mockRequestCert,
+  mockEnsureAlive,
+  mockTerminate,
+  frostState,
+} = vi.hoisted(() => ({
+  mockInitWorker: vi.fn(),
+  mockRequestCert: vi.fn().mockRejectedValue(new Error("Mock error")),
+  mockEnsureAlive: vi.fn().mockResolvedValue(true),
+  mockTerminate: vi.fn(),
+  frostState: { isActive: false },
+}))
+
 vi.mock("@/contexts/FROSTContext", () => ({
   FROSTProvider: ({ children }: { children: ReactNode }) => children,
   useFROST: () => ({
-    isActive: false,
+    isActive: frostState.isActive,
     remainingTime: 0,
     client: null,
-    initWorker: vi.fn(),
-    requestCert: vi.fn().mockRejectedValue(new Error("Mock error")),
-    terminate: vi.fn(),
+    initWorker: mockInitWorker,
+    requestCert: mockRequestCert,
+    ensureAlive: mockEnsureAlive,
+    terminate: mockTerminate,
   }),
 }))
 
@@ -121,6 +138,10 @@ describe("SSHTerminal", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockInit.mockResolvedValue(undefined)
+    // Default: FROST worker is alive and responsive.
+    mockEnsureAlive.mockResolvedValue(true)
+    mockRequestCert.mockRejectedValue(new Error("Mock error"))
+    frostState.isActive = false
     // Default each test to a mobile viewport so the mount-time auto-focus
     // (desktop only) doesn't leak across tests. Tests that need desktop opt in
     // via setDesktopViewport(true) before render.
@@ -216,6 +237,52 @@ describe("SSHTerminal", () => {
 
     await waitFor(() => {
       expect(screen.getByText("SSH Password Authentication")).toBeInTheDocument()
+    })
+  })
+
+  // Reproduces the iOS "stuck on connecting after unlocking the phone" report:
+  // while the PWA is backgrounded iOS both drops the WebSocket AND evicts the
+  // Web Worker that holds the unlocked FROST share. On resume the terminal must
+  // notice the worker is gone and prompt a re-unlock; the bug was that it never
+  // re-authenticated (the pooled connection was reused / recovery early-returned
+  // on the stale "connected" status), so it sat forever without ever asking to
+  // unlock the master key again.
+  it("re-prompts to unlock when resumed after the FROST worker was evicted", async () => {
+    let statusCallback: (status: string, error?: string) => void = () => {}
+    mockOn.mockImplementation((event: string, cb: any) => {
+      if (event === "status") {
+        statusCallback = cb
+      }
+    })
+
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
+
+    await waitFor(() => {
+      expect(mockInit).toHaveBeenCalled()
+    })
+
+    // Establish a live, authenticated connection (worker alive).
+    await act(async () => {
+      statusCallback("connected")
+    })
+
+    // iOS backgrounds the PWA: the WebSocket dies and the FROST worker is
+    // evicted (no onerror fires — the handle just goes stale).
+    mockEnsureAlive.mockResolvedValue(false)
+
+    // Unlock the phone → the tab becomes visible again.
+    await act(async () => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      })
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+
+    // The terminal must detect the dead worker and surface the unlock dialog,
+    // rather than sitting silently on a dead connection.
+    await waitFor(() => {
+      expect(screen.getByText("Unlock SSH Certificate")).toBeInTheDocument()
     })
   })
 

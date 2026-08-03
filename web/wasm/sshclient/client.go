@@ -34,8 +34,13 @@ type hostConn struct {
 	sshHost    string
 	sshPort    int
 	connecting bool
-	connected  bool
-	executing  bool
+	// connectingSince marks when the in-flight handshake began, so a wedged
+	// "connecting" entry (e.g. the tab was frozen by iOS mid-connect) can be
+	// distinguished from a genuinely live in-flight attempt and not be reused
+	// forever. See canReuse.
+	connectingSince time.Time
+	connected       bool
+	executing       bool
 	// switching marks that the current session channel is being closed to run a
 	// new command on the SAME connection (a same-host session switch), so the
 	// preempted goroutine does not report an error (which would trigger a full
@@ -212,26 +217,58 @@ func parseCertificateAndKey(certStr string, privateKeyStr string) (ssh.Signer, e
 // Connect activates (or establishes) a pooled SSH connection for a host.
 // Args: [hostKey, wsURL, user, token]. If a live connection for hostKey already
 // exists it is simply made active — no reconnect and no re-authentication.
+// connectStaleAfter bounds how long a hostConn may sit in "connecting" and
+// still count as a live, reusable in-flight handshake. A real handshake is
+// bounded by the websocket-open timeout (15s) plus the certificate wait (up to
+// 60s while the user unlocks) — ~75s — so a generous cushion past that means the
+// attempt is wedged (e.g. the tab was frozen by iOS mid-connect and the
+// handshake goroutine never completed). Such an entry must be torn down and
+// retried, not reused, or the terminal is pinned at "connecting" forever with no
+// re-auth (and thus no master-key unlock prompt).
+const connectStaleAfter = 90 * time.Second
+
+// canReuse reports whether an existing pooled connection can be activated
+// without a fresh handshake: a live connection, or a genuinely in-flight (not
+// stale) connecting attempt. Pure (no locking / js) so it is unit-testable.
+func canReuse(c *hostConn, now time.Time) bool {
+	if c.connected {
+		return true
+	}
+	if c.connecting {
+		return now.Sub(c.connectingSince) < connectStaleAfter
+	}
+	return false
+}
+
 func Connect(this js.Value, args []js.Value) interface{} {
 	key := args[0].String()
 	wsURL := args[1].String()
 	user := args[2].String()
 	token := args[3].String()
 
+	now := time.Now()
 	mu.Lock()
-	if c, ok := pool[key]; ok && (c.connected || c.connecting) {
-		// Reuse: just make this host active. No reconnect, no re-auth.
-		activeKey = key
-		wasConnected := c.connected
-		mu.Unlock()
-		if wasConnected {
-			updateStatus("connected")
-		} else {
-			updateStatus("connecting")
+	if c, ok := pool[key]; ok {
+		if canReuse(c, now) {
+			// Reuse: just make this host active. No reconnect, no re-auth.
+			activeKey = key
+			wasConnected := c.connected
+			mu.Unlock()
+			if wasConnected {
+				updateStatus("connected")
+			} else {
+				updateStatus("connecting")
+			}
+			return nil
 		}
-		return nil
+		// Stale/dead entry (a wedged "connecting", or a torn-down connection):
+		// close it so we re-handshake — and re-authenticate — instead of reusing
+		// something that will never progress. closeConn also closes the transport,
+		// which unblocks any handshake goroutine still frozen on it so it releases
+		// connectMu for the fresh attempt below.
+		closeConn(c)
 	}
-	c := &hostConn{key: key, connecting: true}
+	c := &hostConn{key: key, connecting: true, connectingSince: now}
 	pool[key] = c
 	activeKey = key
 	mu.Unlock()

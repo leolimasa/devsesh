@@ -536,6 +536,78 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
     }
   })
 
+  // iOS "stuck on connecting after unlocking the phone": while the PWA is
+  // backgrounded iOS silently kills the Web Worker holding the unlocked FROST
+  // share (no onerror — the handle just goes stale). On resume the terminal must
+  // notice the share is gone and re-prompt to unlock, then recover — the bug was
+  // that it reused the pooled connection / trusted the stale "connected" status
+  // and sat forever at "connecting…", never asking to unlock the master key.
+  test('re-prompts to unlock and recovers after the FROST worker is evicted on resume', async ({ page, context }) => {
+    test.setTimeout(180000)
+    let ctx: SSHCATestContext | null = null
+
+    const clientCount = (): number => {
+      try {
+        const out = execInContainer(CONTAINER_NAME, `tmux list-clients -t testsession 2>/dev/null | wc -l`)
+        return Number(out.trim()) || 0
+      } catch {
+        return 0
+      }
+    }
+    const waitForClient = async (): Promise<boolean> => {
+      for (let i = 0; i < 45; i++) {
+        if (clientCount() > 0) return true
+        await page.waitForTimeout(1000)
+      }
+      return false
+    }
+
+    try {
+      ctx = await setupSSHCATestEnvironment(page, context)
+      await navigateToSession(page, ctx.server.url, ctx.sessionId)
+      await connectWithCertificateOnly(page)
+
+      // Live shell with the FROST worker unlocked.
+      await page.waitForSelector('.xterm-screen', { timeout: 10000 })
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo BEFORE_$(whoami)', { delay: 15 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('BEFORE_testuser', { timeout: 10000 })
+      expect(await waitForClient(), 'attached before background').toBe(true)
+
+      // Simulate iOS evicting the worker: close it from inside (self.close()),
+      // which leaves a stale handle on the main thread with no onerror — exactly
+      // what iOS does when the PWA is backgrounded.
+      const frostWorker = page.workers().find((w) => w.url().includes('frost-worker'))
+      expect(frostWorker, 'FROST worker is running before eviction').toBeTruthy()
+      await frostWorker!.evaluate(() => (self as unknown as { close: () => void }).close())
+
+      // Unlock the phone → the tab becomes visible again.
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+
+      // The terminal must detect the dead share and re-prompt to unlock, instead
+      // of silently wedging at "connecting".
+      const unlockDialog = page.locator('[role="alertdialog"]:has-text("Unlock SSH Certificate")')
+      await expect(unlockDialog).toBeVisible({ timeout: 30000 })
+
+      // One tap re-authenticates (respawns the worker, re-signs a cert) and the
+      // terminal recovers into a live shell again.
+      await page.locator('button:has-text("Authenticate")').click()
+      await expect(unlockDialog).toBeHidden({ timeout: 45000 })
+      expect(await waitForClient(), 're-attaches after re-unlock').toBe(true)
+
+      await page.locator('.xterm-helper-textarea').focus()
+      await page.keyboard.type('echo AFTER_$(whoami)', { delay: 15 })
+      await page.keyboard.press('Enter')
+      await expect(page.locator('.xterm-screen')).toContainText('AFTER_testuser', { timeout: 30000 })
+    } finally {
+      if (ctx) await cleanupSSHCATestEnvironment(ctx)
+    }
+  })
+
   // A silently half-open connection — the WebSocket stays "open" but no data
   // flows and the browser never fires onclose/offline — must still be detected
   // (by the SSH keepalive) and recovered from, without a manual reconnect. We
