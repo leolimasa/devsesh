@@ -21,6 +21,39 @@ function renderTopBar(
   )
 }
 
+describe("SessionTopBar error detail", () => {
+  function renderErr(statusError?: string) {
+    return render(
+      <SessionTopBar
+        sessionName="Test Session"
+        status="error"
+        statusError={statusError}
+        pinnedKeys={[]}
+        onSendKey={vi.fn()}
+        onOpenOverlay={vi.fn()}
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
+        onBack={vi.fn()}
+      />
+    )
+  }
+
+  it("reveals the underlying error when the Error label is tapped", () => {
+    renderErr("connection lost (keepalive failed)")
+    // Hidden until tapped.
+    expect(screen.queryByTestId("status-error-popover")).toBeNull()
+    fireEvent.click(screen.getByTestId("status-error-button"))
+    const pop = screen.getByTestId("status-error-popover")
+    expect(pop).toHaveTextContent("connection lost (keepalive failed)")
+  })
+
+  it("falls back to a generic message when no detail is provided", () => {
+    renderErr(undefined)
+    fireEvent.click(screen.getByTestId("status-error-button"))
+    expect(screen.getByTestId("status-error-popover")).toHaveTextContent("Connection error")
+  })
+})
+
 describe("SessionTopBar (mobile touch sizing)", () => {
   it("uses a taller bar with a top-facing border on mobile", () => {
     renderTopBar()

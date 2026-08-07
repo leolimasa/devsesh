@@ -52,7 +52,7 @@ class NeedsProvisionError extends Error {
 interface SSHTerminalProps {
   host: Host | null | undefined
   sessionName: string
-  onStatusChange?: (status: Status) => void
+  onStatusChange?: (status: Status, errorMsg?: string) => void
   topBarHeight?: number
   // Invoked when the clipboard flush hotkey (⌘⇧C / Ctrl+Shift+C) is pressed
   // while the terminal is focused. The parent writes the pending buffer in the
@@ -67,6 +67,10 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     const fitAddonRef = useRef<FitAddon | null>(null)
     const sshClientRef = useRef<SSHClient | null>(null)
     const [status, setStatus] = useState<Status>("disconnected")
+    // Last error text reported by the wasm client (e.g. "connection lost
+    // (keepalive failed)", "session error: EOF"). Surfaced to the parent so the
+    // "Error" status is explainable instead of generic.
+    const [statusError, setStatusError] = useState<string | undefined>(undefined)
     // Mirrors the wasm-reported status synchronously so effects can gate on the
     // real connection state without waiting for a React re-render.
     const statusRef = useRef<Status>("disconnected")
@@ -106,8 +110,8 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     // Report status changes to parent
     useEffect(() => {
-      onStatusChange?.(status)
-    }, [status, onStatusChange])
+      onStatusChange?.(status, statusError)
+    }, [status, statusError, onStatusChange])
 
     // --- WebAuthn unlock for FROST (same logic as before, extracted for reuse) ---
     const handleWebAuthnAuth = useCallback(async () => {
@@ -543,9 +547,16 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         try { term.write(data) } catch { /* ignore */ }
       })
 
-      client.on("status", (newStatus: string, _err?: string) => {
+      client.on("status", (newStatus: string, err?: string) => {
         statusRef.current = newStatus as Status
         setStatus(newStatus as Status)
+        // Capture the error text so the parent can explain the "Error" state;
+        // clear it once we're connected again.
+        if (newStatus === "error") {
+          setStatusError(err && err !== "" ? err : "Connection error")
+        } else if (newStatus === "connected") {
+          setStatusError(undefined)
+        }
         // On unsolicited drop, try auto-reconnect the active host.
         if (newStatus === "disconnected" || newStatus === "error") {
           if (!userDisconnectedRef.current) {

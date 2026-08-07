@@ -31,6 +31,8 @@ export default function SessionDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [status, setStatus] = useState<Status>("disconnected")
+  // Human-readable detail behind an "error" status, surfaced by the top bar.
+  const [statusError, setStatusError] = useState<string | undefined>(undefined)
   // Pending clipboard buffer from `devsesh copy` for THIS session, awaiting a
   // user gesture to commit to the OS clipboard. Latest-only (a new push replaces
   // it). The OS clipboard is untouched until the user acts.
@@ -224,6 +226,7 @@ export default function SessionDetailPage() {
           <SessionTopBar
             sessionName={session.name || session.id}
             status={status}
+            statusError={statusError}
             pinnedKeys={pinned}
             onSendKey={(spec) => terminalRef.current?.sendKeys(spec)}
             onOpenOverlay={() => setShowOverlay(true)}
@@ -299,7 +302,7 @@ export default function SessionDetailPage() {
               ref={terminalRef}
               host={session.host}
               sessionName={session.name || session.id}
-              onStatusChange={setStatus}
+              onStatusChange={(s, err) => { setStatus(s); setStatusError(err) }}
               topBarHeight={topBarHeight}
               onClipboardHotkey={handleCopyClipboard}
             />

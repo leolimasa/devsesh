@@ -13,6 +13,9 @@ type Status = ConnectionStatus
 interface SessionTopBarProps {
   sessionName: string
   status: Status
+  // Detail behind an "error" status (e.g. "connection lost (keepalive failed)").
+  // Shown when the user taps the "Error" label.
+  statusError?: string
   pinnedKeys: Array<{ display_token: string; spec: QuickKeyStep[] }>
   onSendKey: (spec: QuickKeyStep[]) => void
   onOpenOverlay: () => void
@@ -99,6 +102,7 @@ const STATUS_COLORS: Record<Status, string> = {
 export function SessionTopBar({
   sessionName,
   status,
+  statusError,
   pinnedKeys,
   onSendKey,
   onOpenOverlay,
@@ -110,6 +114,7 @@ export function SessionTopBar({
   onCopyClipboard,
   onDismissClipboard,
 }: SessionTopBarProps) {
+  const [showError, setShowError] = useState(false)
   const regionRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
   const [visibleCount, setVisibleCount] = useState(pinnedKeys.length)
@@ -194,11 +199,41 @@ export function SessionTopBar({
       {/* Connection status. When connected on mobile, show only the dot
           (the green dot alone conveys "connected"); the label still shows
           on desktop and for every other status. */}
-      <div className="flex items-center gap-1 text-xs shrink-0">
+      <div className="relative flex items-center gap-1 text-xs shrink-0">
         <span className={`inline-block w-2 h-2 rounded-full ${STATUS_COLORS[status]}`} />
-        <span className={`text-muted-foreground ${status === "connected" ? "hidden md:inline" : ""}`}>
-          {STATUS_LABELS[status]}
-        </span>
+        {status === "error" ? (
+          // Tap to reveal the underlying error (keepalive/idle drop, auth, etc.)
+          // instead of a bare "Error". title= gives desktop a hover tooltip too.
+          <button
+            type="button"
+            data-testid="status-error-button"
+            className="text-muted-foreground underline decoration-dotted"
+            title={statusError || "Connection error"}
+            onClick={() => setShowError((v) => !v)}
+          >
+            {STATUS_LABELS[status]}
+          </button>
+        ) : (
+          <span className={`text-muted-foreground ${status === "connected" ? "hidden md:inline" : ""}`}>
+            {STATUS_LABELS[status]}
+          </span>
+        )}
+        {status === "error" && showError && (
+          <div
+            data-testid="status-error-popover"
+            className="absolute right-0 top-full mt-1 z-50 w-72 max-w-[80vw] rounded-md border bg-popover p-3 text-xs text-popover-foreground shadow-md"
+          >
+            <div className="mb-1 font-medium">Connection error</div>
+            <div className="break-words text-muted-foreground">{statusError || "Connection error"}</div>
+            <button
+              type="button"
+              className="mt-2 font-medium underline"
+              onClick={() => setShowError(false)}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Pending clipboard buffer from `devsesh copy`, awaiting a user gesture. */}

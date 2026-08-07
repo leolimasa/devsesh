@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -45,6 +46,14 @@ type TCPProxy struct {
 	writeTimeout time.Duration
 }
 
+// isTimeout reports whether err is an i/o timeout (e.g. the websocket read
+// deadline expiring because pongs stopped) — the signature of an idle client
+// drop rather than a normal close.
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
 func NewTCPProxy(ws *websocket.Conn, tcp net.Conn) *TCPProxy {
 	return &TCPProxy{
 		ws:           ws,
@@ -86,7 +95,12 @@ func (p *TCPProxy) proxyWebSocketToTCP() {
 
 		msgType, reader, err := p.ws.NextReader()
 		if err != nil {
-			slog.Debug("WebSocketToTCP read error", "error", err)
+			// Log at INFO so idle drops are diagnosable from the journal. The
+			// common idle cause is a read-deadline timeout: the client (often a
+			// backgrounded/suspended tab) stopped answering pings, so no pong
+			// pushed the deadline forward within pongWait.
+			slog.Info("SSH proxy websocket closed", "reason", err.Error(),
+				"idle_timeout", isTimeout(err))
 			p.cleanup()
 			return
 		}
