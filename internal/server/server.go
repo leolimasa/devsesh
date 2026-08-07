@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -10,6 +12,7 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"strings"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/leolimasa/devsesh/internal/auth"
@@ -33,6 +36,48 @@ type Server struct {
 	srv           *http.Server
 }
 
+// staticETag is a single validator for all embedded web assets; it changes only
+// when the embedded bundle changes (a new build/deploy). It lets browsers
+// revalidate cheaply (304 Not Modified) instead of re-downloading multi-MB
+// assets like sshclient.wasm on every load. Computed once at process start.
+var staticETag = computeStaticETag()
+
+func computeStaticETag() string {
+	h := sha256.New()
+	_ = fs.WalkDir(web.FS, "dist", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, rerr := fs.ReadFile(web.FS, p)
+		if rerr != nil {
+			return rerr
+		}
+		h.Write([]byte(p))
+		h.Write(b)
+		return nil
+	})
+	return `"` + hex.EncodeToString(h.Sum(nil)[:16]) + `"`
+}
+
+// serveCached attaches cache headers and the build ETag to an embedded-asset
+// response, answering 304 when the client already holds the current build. Vite
+// content-hashes files under /assets, so those are immutable; everything else
+// (the service worker, /sshclient.wasm) must revalidate so a redeploy is picked
+// up. Always writes a response.
+func serveCached(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	if strings.HasPrefix(r.URL.Path, "/assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	w.Header().Set("ETag", staticETag)
+	if r.Header.Get("If-None-Match") == staticETag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	next.ServeHTTP(w, r)
+}
+
 func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server, error) {
 	wa, err := auth.NewWebAuthn(cfg.RPID, cfg.RPOrigin)
 	if err != nil {
@@ -52,7 +97,19 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if path.Ext(r.URL.Path) != "" && path.Ext(r.URL.Path) != "/" {
-			webFS.ServeHTTP(w, r)
+			// The embedded FS has no modtime, so net/http emits no cache
+			// validators — the browser re-downloads every asset (e.g. the ~7MB
+			// sshclient.wasm) on every load. Attach cache headers + a build ETag
+			// so it can revalidate cheaply (304) or skip revalidation entirely
+			// for content-hashed bundles.
+			serveCached(w, r, webFS)
+			return
+		}
+		// index.html: always revalidate so a redeploy is picked up.
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", staticETag)
+		if r.Header.Get("If-None-Match") == staticETag {
+			w.WriteHeader(http.StatusNotModified)
 			return
 		}
 		indexContent, _ := fs.ReadFile(web.FS, "dist/index.html")
