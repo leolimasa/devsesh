@@ -221,7 +221,13 @@ export function SessionTopBar({
         {status === "error" && showError && (
           <div
             data-testid="status-error-popover"
-            className="absolute right-0 top-full mt-1 z-50 w-72 max-w-[80vw] rounded-md border bg-popover p-3 text-xs text-popover-foreground shadow-md"
+            // Mobile: the bar is pinned to the bottom of the screen, so anchor
+            // the popover to the viewport and open it UPWARD (fixed, above the
+            // bar) to stay on-screen. Desktop: the bar is at the top, so anchor
+            // it under the pill and open downward. Either way it never runs off
+            // an edge (the pill sits on the left, so a right-aligned/downward
+            // popover clipped off-screen).
+            className="fixed inset-x-2 bottom-16 z-50 md:absolute md:inset-x-auto md:left-0 md:bottom-auto md:top-full md:mt-1 md:w-72 md:max-w-[80vw] rounded-md border bg-popover p-3 text-xs text-popover-foreground shadow-md"
           >
             <div className="mb-1 font-medium">Connection error</div>
             <div className="break-words text-muted-foreground">{statusError || "Connection error"}</div>
