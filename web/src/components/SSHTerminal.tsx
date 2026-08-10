@@ -13,6 +13,7 @@ import { SSHClient } from "@/lib/ssh-client"
 import { PasswordDialog } from "@/components/PasswordDialog"
 import { WebAuthnDialog } from "@/components/WebAuthnDialog"
 import { useFROST } from "@/contexts/FROSTContext"
+import { useTheme } from "@/contexts/ThemeContext"
 import type { Host } from "@/types/api"
 import type { QuickKeyStep, ConnectionStatus } from "@/types/api"
 import { encodeSpec } from "@/lib/quick-keys"
@@ -101,6 +102,12 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     }, [])
 
     const { initWorker, requestCert, ensureAlive } = useFROST()
+    const { theme } = useTheme()
+    // Keep the latest terminal palette in a ref so the mount-once terminal
+    // creation reads the current theme, and a separate effect can restyle a live
+    // terminal when the theme changes.
+    const terminalThemeRef = useRef(theme.terminal)
+    terminalThemeRef.current = theme.terminal
     const { height: viewportHeight } = useVisualViewport()
 
     const handleCertificateRequestRef = useRef<() => Promise<void>>(() => Promise.resolve())
@@ -112,6 +119,13 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       onStatusChange?.(status, statusError)
     }, [status, statusError, onStatusChange])
+
+    // Restyle a live terminal when the theme changes.
+    useEffect(() => {
+      if (xtermRef.current) {
+        xtermRef.current.options.theme = theme.terminal
+      }
+    }, [theme])
 
     // --- WebAuthn unlock for FROST (same logic as before, extracted for reuse) ---
     const handleWebAuthnAuth = useCallback(async () => {
@@ -483,11 +497,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         cursorInactiveStyle: "block",
         fontSize: 14,
         fontFamily: "'JetBrainsMono Nerd Font Mono', monospace",
-        theme: {
-          background: "#1a1a1a",
-          foreground: "#ffffff",
-          cursor: "#ffffff",
-        },
+        theme: terminalThemeRef.current,
         rows: 24,
         cols: 80,
       })

@@ -303,8 +303,9 @@ describe("SSHTerminal", () => {
 
     statusCallback("error", "Connection refused")
 
+    // onStatusChange now carries the error detail so the top bar can explain it.
     await waitFor(() => {
-      expect(onStatusChange).toHaveBeenCalledWith("error")
+      expect(onStatusChange).toHaveBeenCalledWith("error", "Connection refused")
     })
   })
 

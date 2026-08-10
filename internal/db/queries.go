@@ -635,6 +635,55 @@ func DeleteQuickKey(db *sql.DB, id int64) error {
 	return nil
 }
 
+// DefaultTheme is the theme a user gets before they've picked one — the
+// original devsesh look.
+const DefaultTheme = "dark-blue"
+
+// UserSettings is a per-user settings row. One row per user; each setting is a
+// column.
+type UserSettings struct {
+	UserID    int64     `json:"user_id"`
+	Theme     string    `json:"theme"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetUserSettings returns the user's settings, or unpersisted defaults if the
+// user has no row yet (so the frontend always gets a usable value).
+func GetUserSettings(db *sql.DB, userID int64) (UserSettings, error) {
+	var s UserSettings
+	var createdAt, updatedAt string
+	err := db.QueryRow(
+		"SELECT user_id, theme, created_at, updated_at FROM user_settings WHERE user_id = ?",
+		userID,
+	).Scan(&s.UserID, &s.Theme, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return UserSettings{UserID: userID, Theme: DefaultTheme}, nil
+	}
+	if err != nil {
+		return UserSettings{}, fmt.Errorf("get user settings: %w", err)
+	}
+	s.CreatedAt, _ = parseTime(createdAt)
+	s.UpdatedAt, _ = parseTime(updatedAt)
+	return s, nil
+}
+
+// UpsertUserSettings creates or updates the user's settings row and returns the
+// stored result.
+func UpsertUserSettings(db *sql.DB, s UserSettings) (UserSettings, error) {
+	now := time.Now().UTC()
+	_, err := db.Exec(
+		`INSERT INTO user_settings (user_id, theme, created_at, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(user_id) DO UPDATE SET theme = excluded.theme, updated_at = excluded.updated_at`,
+		s.UserID, s.Theme, now.Format(timeFormat), now.Format(timeFormat),
+	)
+	if err != nil {
+		return UserSettings{}, fmt.Errorf("upsert user settings: %w", err)
+	}
+	return GetUserSettings(db, s.UserID)
+}
+
 func GetHostByLabel(db *sql.DB, userID int64, label string) (*Host, error) {
 	var h Host
 	var createdAt, updatedAt string

@@ -140,6 +140,24 @@ export async function pairComplete(code: string): Promise<{ token: string; url: 
   })
 }
 
+export interface UserSettings {
+  user_id: number
+  theme: string
+  created_at?: string
+  updated_at?: string
+}
+
+export async function getSettings(): Promise<UserSettings> {
+  return fetchApi<UserSettings>("/settings")
+}
+
+export async function updateSettings(patch: { theme?: string }): Promise<UserSettings> {
+  return fetchApi<UserSettings>("/settings", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  })
+}
+
 export async function listSessions(): Promise<Session[]> {
   return fetchApi<Session[]>("/sessions")
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/leolimasa/devsesh/internal/config"
 	"github.com/leolimasa/devsesh/internal/hosts"
 	"github.com/leolimasa/devsesh/internal/quickkeys"
+	"github.com/leolimasa/devsesh/internal/settings"
 	"github.com/leolimasa/devsesh/internal/sessions"
 	"github.com/leolimasa/devsesh/internal/ssh"
 	"github.com/leolimasa/devsesh/internal/ssh/ca"
@@ -177,6 +178,9 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("POST /api/v1/quick-keys", jwtMiddleware(http.HandlerFunc(quickkeys.CreateHandler(database))))
 	mux.Handle("PUT /api/v1/quick-keys/{id}", jwtMiddleware(http.HandlerFunc(quickkeys.UpdateHandler(database))))
 	mux.Handle("DELETE /api/v1/quick-keys/{id}", jwtMiddleware(http.HandlerFunc(quickkeys.DeleteHandler(database))))
+
+	mux.Handle("GET /api/v1/settings", jwtMiddleware(http.HandlerFunc(settings.GetHandler(database))))
+	mux.Handle("PUT /api/v1/settings", jwtMiddleware(http.HandlerFunc(settings.UpdateHandler(database))))
 
 	ssh.RegisterRoutes(mux, database, jwtMiddleware, cfg)
 

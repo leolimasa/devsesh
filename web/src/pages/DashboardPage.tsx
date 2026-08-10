@@ -176,6 +176,7 @@ export default function DashboardPage() {
 
   const actions: { label: string; to?: string; onClick?: () => void }[] = [
     { label: "Hosts", to: "/hosts" },
+    { label: "Settings", to: "/settings" },
     { label: "Download CA Key", onClick: handleDownloadCAKey },
     { label: "Remove Stale Sessions", onClick: handleDeleteStale },
     { label: "Logout", onClick: logout },

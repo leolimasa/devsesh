@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { AuthProvider } from "@/contexts/AuthContext"
 import { FROSTProvider } from "@/contexts/FROSTContext"
+import { ThemeProvider } from "@/contexts/ThemeContext"
+import SettingsPage from "@/pages/SettingsPage"
 import LoginPage from "@/pages/LoginPage"
 import RegisterPage from "@/pages/RegisterPage"
 import PairPage from "@/pages/PairPage"
@@ -22,6 +24,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <AuthProvider>
+      <ThemeProvider>
       <FROSTProvider>
         <BrowserRouter>
           <Routes>
@@ -43,6 +46,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <SessionDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
               </ProtectedRoute>
             }
           />
@@ -73,6 +84,7 @@ function App() {
           </Routes>
         </BrowserRouter>
       </FROSTProvider>
+      </ThemeProvider>
     </AuthProvider>
   )
 }
