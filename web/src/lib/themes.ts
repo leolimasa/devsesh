@@ -10,6 +10,9 @@ export interface ThemeDef {
   label: string
   // A small swatch used in the settings picker: [background, accent, foreground].
   swatch: [string, string, string]
+  // The PWA `theme-color` (hex). On macOS the installed PWA's window title bar
+  // follows this, so it must track the theme's background.
+  themeColor: string
   // shadcn CSS variables as "H S% L%" triplets (consumed via hsl(var(--x))).
   cssVars: Record<string, string>
   // xterm.js terminal theme.
@@ -24,6 +27,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     id: "dark-blue",
     label: "Dark Blue",
     swatch: ["#0b1120", "#3b82f6", "#f8fafc"],
+    themeColor: "#0f172a",
     cssVars: {
       "--background": "222.2 84% 4.9%",
       "--foreground": "210 40% 98%",
@@ -57,6 +61,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     id: "one-dark",
     label: "One Dark",
     swatch: ["#282c34", "#61afef", "#abb2bf"],
+    themeColor: "#282c34",
     cssVars: {
       "--background": "220 13% 18%",
       "--foreground": "219 14% 71%",
@@ -119,4 +124,13 @@ export function applyTheme(id: ThemeId): void {
   for (const [k, v] of Object.entries(t.cssVars)) {
     root.style.setProperty(k, v)
   }
+  // Track the PWA title-bar / browser UI color to the theme (macOS PWA window
+  // title bar follows <meta name="theme-color">).
+  let meta = document.querySelector('meta[name="theme-color"]')
+  if (!meta) {
+    meta = document.createElement("meta")
+    meta.setAttribute("name", "theme-color")
+    document.head.appendChild(meta)
+  }
+  meta.setAttribute("content", t.themeColor)
 }

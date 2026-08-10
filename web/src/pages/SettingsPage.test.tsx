@@ -45,6 +45,10 @@ describe("SettingsPage", () => {
     await waitFor(() =>
       expect(document.documentElement.style.getPropertyValue("--background").trim()).toBe("220 13% 18%")
     )
+    // PWA title-bar color (meta theme-color) tracks the theme.
+    expect(
+      document.querySelector('meta[name="theme-color"]')?.getAttribute("content")
+    ).toBe("#282c34")
     // Persisted to the backend and cached locally.
     expect(mockUpdateSettings).toHaveBeenCalledWith({ theme: "one-dark" })
     expect(localStorage.getItem("theme")).toBe("one-dark")
