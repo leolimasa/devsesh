@@ -286,6 +286,32 @@ describe("SSHTerminal", () => {
     })
   })
 
+  // Computer sleeps/wakes with the tab still "visible": visibilitychange never
+  // fires, so recovery must also key off window `focus`. Otherwise the user has
+  // to manually click Reconnect after the idle FROST cert expires.
+  it("recovers on window focus (computer wake) when the worker went stale", async () => {
+    let statusCallback: (status: string, error?: string) => void = () => {}
+    mockOn.mockImplementation((event: string, cb: any) => {
+      if (event === "status") statusCallback = cb
+    })
+
+    render(<SSHTerminal host={mockHost} sessionName="test-session-id" />)
+    await waitFor(() => expect(mockInit).toHaveBeenCalled())
+    await act(async () => { statusCallback("connected") })
+
+    // Idle long enough that the FROST worker (which signs the SSH cert) locked.
+    mockEnsureAlive.mockResolvedValue(false)
+
+    // Wake / return to the app — window regains focus (no visibilitychange).
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText("Unlock SSH Certificate")).toBeInTheDocument()
+    })
+  })
+
   it("reports status via onStatusChange", async () => {
     let statusCallback: (status: string, error?: string) => void = () => {}
     mockOn.mockImplementation((event: string, cb: any) => {

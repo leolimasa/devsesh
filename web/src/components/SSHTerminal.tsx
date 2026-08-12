@@ -410,6 +410,8 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       const recover = async () => {
         if (!mountedRef.current || !host) return
+        // Don't fight an intentional disconnect.
+        if (userDisconnectedRef.current) return
         // Authoritatively check the worker rather than trusting isActive, which
         // stays stale-true when iOS kills it. ensureAlive() also drops a dead
         // handle so the subsequent requestCert doesn't hang for the full worker
@@ -451,10 +453,16 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       window.addEventListener("online", recover)
       window.addEventListener("pageshow", onPageShow)
       document.addEventListener("visibilitychange", onVisible)
+      // `focus` catches the case visibilitychange misses: the computer sleeps
+      // (or the app loses focus) with the tab still "visible", then wakes — the
+      // idle drop / expired FROST cert is recovered on return without a manual
+      // Reconnect. recover() no-ops when already connected with a live worker.
+      window.addEventListener("focus", recover)
       return () => {
         window.removeEventListener("online", recover)
         window.removeEventListener("pageshow", onPageShow)
         document.removeEventListener("visibilitychange", onVisible)
+        window.removeEventListener("focus", recover)
       }
     }, [host, hostKey, doConnect, ensureAlive])
 
