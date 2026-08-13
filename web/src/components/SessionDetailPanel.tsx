@@ -11,8 +11,9 @@
  * with its own header, so it is unaffected by this panel.
  */
 import { useState } from "react"
-import { GripVertical } from "lucide-react"
+import { GripVertical, RotateCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { isActive, statusMetadata } from "@/lib/session"
 import { useDragReorder } from "@/hooks/useDragReorder"
@@ -39,9 +40,13 @@ function formatJson(json: string | null): string {
 export function SessionDetails({
   session,
   showHeader = true,
+  onRestart,
 }: {
   session: Session
   showHeader?: boolean
+  // Recreate the tmux session on the host (`devsesh start`). Rendered as a
+  // Restart button when provided.
+  onRestart?: () => void
 }) {
   const active = isActive(session)
 
@@ -54,6 +59,19 @@ export function SessionDetails({
             {active ? "Active" : "Inactive"}
           </Badge>
         </div>
+      )}
+
+      {onRestart && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full gap-2"
+          onClick={onRestart}
+          aria-label="Restart session"
+        >
+          <RotateCw className="h-4 w-4" />
+          Restart session
+        </Button>
       )}
 
       <div className="space-y-3">
@@ -259,12 +277,14 @@ export function SessionDetailPanel({
   currentId,
   onSelectSession,
   onReorderSessions,
+  onRestart,
 }: {
   session: Session
   sessions: Session[]
   currentId: string
   onSelectSession: (sessionId: string) => void
   onReorderSessions: (ids: string[]) => void
+  onRestart?: () => void
 }) {
   const [activeTab, setActiveTab] = useState<PanelTab>("details")
 
@@ -283,7 +303,7 @@ export function SessionDetailPanel({
           onReorder={onReorderSessions}
         />
       ) : (
-        <SessionDetails session={session} showHeader={false} />
+        <SessionDetails session={session} showHeader={false} onRestart={onRestart} />
       )}
     </div>
   )

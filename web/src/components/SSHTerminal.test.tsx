@@ -193,7 +193,7 @@ describe("SSHTerminal", () => {
     statusCallback("connected")
 
     await waitFor(() => {
-      expect(mockExec).toHaveBeenCalledWith("1", "tmux attach -t my-session-uuid")
+      expect(mockExec).toHaveBeenCalledWith("1", "tmux attach -t 'my-session-uuid'")
     })
   })
 
@@ -215,7 +215,7 @@ describe("SSHTerminal", () => {
     statusCallback("connected")
 
     await waitFor(() => {
-      expect(mockExec).toHaveBeenCalledWith("1", `tmux attach -t ${sessionName}`)
+      expect(mockExec).toHaveBeenCalledWith("1", `tmux attach -t '${sessionName}'`)
     })
   })
 
@@ -358,6 +358,42 @@ describe("SSHTerminal", () => {
     ref.current!.sendKeys([{ type: "combo", ctrl: true, alt: false, shift: false, key: "c" }])
     expect(mockSendInput).toHaveBeenCalled()
     expect(mockFocus).toHaveBeenCalled()
+  })
+
+  it("restart() runs `devsesh start` on the pooled connection when connected", async () => {
+    let statusCallback: (status: string, error?: string) => void = () => {}
+    mockOn.mockImplementation((event: string, cb: any) => {
+      if (event === "status") statusCallback = cb
+    })
+
+    const ref = createRef<TerminalHandle>()
+    render(<SSHTerminal ref={ref} host={mockHost} sessionName="my-project" />)
+
+    await waitFor(() => expect(mockInit).toHaveBeenCalled())
+    await act(async () => { statusCallback("connected") })
+    // The initial attach ran; now restart re-creates tmux via devsesh start.
+    mockExec.mockClear()
+
+    act(() => ref.current!.restart())
+    expect(mockExec).toHaveBeenCalledWith("1", "devsesh start 'my-project'")
+  })
+
+  it("autoRestart makes the first attach `devsesh start` instead of tmux attach", async () => {
+    let statusCallback: (status: string, error?: string) => void = () => {}
+    mockOn.mockImplementation((event: string, cb: any) => {
+      if (event === "status") statusCallback = cb
+    })
+
+    render(<SSHTerminal host={mockHost} sessionName="my-project" autoRestart />)
+
+    await waitFor(() => expect(mockInit).toHaveBeenCalled())
+    await act(async () => { statusCallback("connected") })
+
+    await waitFor(() => {
+      expect(mockExec).toHaveBeenCalledWith("1", "devsesh start 'my-project'")
+    })
+    // And it must NOT have run a plain attach for that first exec.
+    expect(mockExec).not.toHaveBeenCalledWith("1", "tmux attach -t 'my-project'")
   })
 
   it("does NOT refocus the terminal after a quick key on mobile", async () => {

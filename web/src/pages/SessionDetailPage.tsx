@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { useParams, useNavigate } from "react-router-dom"
+import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { getSession, listSessions, reorderSessions } from "@/lib/api"
@@ -22,7 +22,13 @@ type Status = ConnectionStatus
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const terminalRef = useRef<TerminalHandle>(null)
+  // The dashboard's Restart action navigates here with { restart: true }. Read
+  // it once (mount) so the terminal's first attach runs `devsesh start` (which
+  // re-creates a dead tmux session). Cleared from history below so a reload
+  // doesn't restart again.
+  const restartOnMount = useRef(Boolean((location.state as { restart?: boolean } | null)?.restart))
   const topBarRef = useRef<HTMLDivElement>(null)
   const [session, setSession] = useState<Session | null>(null)
   // Full list of sessions, shown in the desktop panel's "Sessions" tab. Seeded
@@ -78,6 +84,22 @@ export default function SessionDetailPage() {
   useEffect(() => {
     loadSession()
   }, [loadSession])
+
+  // Consume the one-shot restart intent from history state so a page reload
+  // (which preserves history state) doesn't re-trigger a restart. The ref keeps
+  // the value for this mount; we just scrub it from the entry.
+  useEffect(() => {
+    if (restartOnMount.current) {
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Restart the session: re-create tmux on the host via `devsesh start` over the
+  // existing SSH connection.
+  const handleRestart = useCallback(() => {
+    terminalRef.current?.restart()
+  }, [])
 
   // Load the full session list once for the Sessions tab. Mirrors
   // DashboardPage.loadSessions; the WebSocket keeps it fresh afterwards.
@@ -269,7 +291,7 @@ export default function SessionDetailPage() {
                     )}
                   </div>
                   <div className="mt-4">
-                    <SessionDetails session={session} />
+                    <SessionDetails session={session} onRestart={handleRestart} />
                   </div>
                 </SheetContent>
               </Sheet>
@@ -287,6 +309,7 @@ export default function SessionDetailPage() {
               currentId={session.id}
               onSelectSession={handleSelectSession}
               onReorderSessions={handleReorderSessions}
+              onRestart={handleRestart}
             />
           </div>
         )}
@@ -305,6 +328,7 @@ export default function SessionDetailPage() {
               onStatusChange={(s, err) => { setStatus(s); setStatusError(err) }}
               topBarHeight={topBarHeight}
               onClipboardHotkey={handleCopyClipboard}
+              autoRestart={restartOnMount.current}
             />
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-4 bg-black text-muted-foreground">

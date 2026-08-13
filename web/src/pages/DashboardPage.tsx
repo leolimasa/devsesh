@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
-import { Link } from "react-router-dom"
-import { GripVertical } from "lucide-react"
+import { Link, useNavigate } from "react-router-dom"
+import { GripVertical, RotateCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -67,6 +67,7 @@ export default function DashboardPage() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
   const { logout } = useAuth()
+  const navigate = useNavigate()
 
   const loadSessions = useCallback(async () => {
     try {
@@ -135,6 +136,17 @@ export default function DashboardPage() {
     } catch (err) {
       console.error("Failed to delete stale sessions:", err)
     }
+  }
+
+  // Restart a session: open its terminal with a restart intent so the SSH
+  // terminal runs `devsesh start <name>` on the host, re-creating the tmux
+  // session if it died (e.g. the host rebooted). Navigating carries the intent
+  // via history state; the SSHTerminal picks it up (autoRestart) on first
+  // attach. Stop propagation so the row's own navigation Link doesn't also fire.
+  const handleRestartSession = (e: React.MouseEvent, sessionId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    navigate(`/sessions/${sessionId}`, { state: { restart: true } })
   }
 
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
@@ -307,14 +319,27 @@ export default function DashboardPage() {
                         {parseMetadata(session.metadata)}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={(e) => handleDeleteSession(e, session.id)}
-                        >
-                          ✕
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label="Restart session"
+                            title="Restart session"
+                            onClick={(e) => handleRestartSession(e, session.id)}
+                          >
+                            <RotateCw className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            aria-label="Delete session"
+                            onClick={(e) => handleDeleteSession(e, session.id)}
+                          >
+                            ✕
+                          </Button>
+                        </div>
                       </TableCell>
                     </Link>
                   </TableRow>
@@ -364,14 +389,27 @@ export default function DashboardPage() {
                   </CardContent>
                 </Card>
               </Link>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute top-2 right-2 h-7 w-7 text-destructive hover:text-destructive"
-                onClick={(e) => handleDeleteSession(e, session.id)}
-              >
-                ✕
-              </Button>
+              <div className="absolute top-2 right-2 flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label="Restart session"
+                  title="Restart session"
+                  onClick={(e) => handleRestartSession(e, session.id)}
+                >
+                  <RotateCw className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-destructive hover:text-destructive"
+                  aria-label="Delete session"
+                  onClick={(e) => handleDeleteSession(e, session.id)}
+                >
+                  ✕
+                </Button>
+              </div>
             </div>
             )
           })}

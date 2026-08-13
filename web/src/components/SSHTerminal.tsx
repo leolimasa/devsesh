@@ -33,6 +33,18 @@ export type TerminalHandle = {
   disconnect: () => void
   sendKeys: (spec: QuickKeyStep[]) => void
   focus: () => void
+  // Recreate the tmux session on the host and (re)attach: runs `devsesh start
+  // <name>` over the SSH connection, which reuses the existing server session
+  // and re-creates tmux if it died (e.g. the host rebooted). Connects first if
+  // not already connected.
+  restart: () => void
+}
+
+// POSIX single-quote a shell argument so a session name containing spaces or
+// shell metacharacters (e.g. the default "Unnamed Session") is passed to the
+// remote command intact. Wraps in single quotes and escapes embedded quotes.
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
 }
 
 type Status = ConnectionStatus
@@ -59,10 +71,14 @@ interface SSHTerminalProps {
   // while the terminal is focused. The parent writes the pending buffer in the
   // same synchronous call stack, preserving the user gesture.
   onClipboardHotkey?: () => void
+  // When true, the FIRST attach after mount runs `devsesh start <name>` (which
+  // re-creates tmux if the host rebooted) instead of a plain `tmux attach`.
+  // Used by the dashboard's Restart action, which navigates here with intent.
+  autoRestart?: boolean
 }
 
 export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
-  function SSHTerminal({ host, sessionName, onStatusChange, topBarHeight = 0, onClipboardHotkey }, ref) {
+  function SSHTerminal({ host, sessionName, onStatusChange, topBarHeight = 0, onClipboardHotkey, autoRestart = false }, ref) {
     const terminalRef = useRef<HTMLDivElement>(null)
     const xtermRef = useRef<XTerm | null>(null)
     const fitAddonRef = useRef<FitAddon | null>(null)
@@ -87,6 +103,9 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const reconnectAttemptRef = useRef(0)
     const hasExecutedRef = useRef(false)
+    // When set, the next attach runs `devsesh start <name>` (recreate + attach)
+    // instead of a plain `tmux attach`. Consumed (cleared) by the attach effect.
+    const pendingRestartRef = useRef(autoRestart)
     const mountedRef = useRef(true)
     // Ref indirection so the (mount-once) status callback always calls the
     // latest reconnect logic, which closes over the current host.
@@ -466,10 +485,29 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       }
     }, [host, hostKey, doConnect, ensureAlive])
 
+    // Recreate the tmux session on the host and (re)attach. When connected, run
+    // `devsesh start <name>` on the pooled connection now (it preempts the
+    // current attach and re-creates tmux if it died). When not connected, mark a
+    // pending restart and connect — the attach effect then runs `devsesh start`
+    // as its first command once "connected" fires.
+    const doRestart = useCallback(() => {
+      if (!sshClientRef.current || !hostKey) return
+      if (statusRef.current === "connected") {
+        hasExecutedRef.current = true
+        sshClientRef.current.exec(hostKey, `devsesh start ${shellQuote(sessionName)}`)
+      } else {
+        pendingRestartRef.current = true
+        userDisconnectedRef.current = false
+        reconnectAttemptRef.current = 0
+        doConnect()
+      }
+    }, [hostKey, sessionName, doConnect])
+
     // Imperative handle for parent
     useImperativeHandle(ref, () => ({
       connect: doConnect,
       disconnect: doDisconnect,
+      restart: doRestart,
       sendKeys: (spec: QuickKeyStep[]) => {
         if (sshClientRef.current) {
           const bytes = encodeSpec(spec)
@@ -647,7 +685,16 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       if (statusRef.current !== "connected" || !sshClientRef.current || !hostKey) return
       hasExecutedRef.current = true
-      sshClientRef.current.exec(hostKey, `tmux attach -t ${sessionName}`)
+      // A pending restart (dashboard Restart action, or reconnect after the host
+      // rebooted) runs `devsesh start` so a dead tmux session is re-created;
+      // otherwise a plain attach. Consume the flag so later re-attaches (session
+      // switch, transient reconnect) don't keep restarting.
+      const restart = pendingRestartRef.current
+      pendingRestartRef.current = false
+      const cmd = restart
+        ? `devsesh start ${shellQuote(sessionName)}`
+        : `tmux attach -t ${shellQuote(sessionName)}`
+      sshClientRef.current.exec(hostKey, cmd)
       // Desktop: focus the terminal so the user can type immediately after
       // opening or switching a session. Pure DOM focus — no fit/resize here (a
       // synchronous fit in the switch path can measure a bad size and wedge the
