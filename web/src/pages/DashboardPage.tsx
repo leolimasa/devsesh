@@ -373,9 +373,12 @@ export default function DashboardPage() {
               <Link to={`/sessions/${session.id}`}>
                 <Card>
                   <CardHeader className="pb-2">
-                    <div className="flex justify-between items-center pl-7">
-                      <CardTitle className="text-lg">{session.name || "-"}</CardTitle>
-                      <Badge variant={isActive(session) ? "success" : "secondary"}>
+                    {/* pr-20 reserves the top-right corner for the absolutely
+                        positioned Restart/Delete buttons so the Active/Inactive
+                        badge doesn't sit underneath them. */}
+                    <div className="flex justify-between items-center gap-2 pl-7 pr-20">
+                      <CardTitle className="text-lg truncate">{session.name || "-"}</CardTitle>
+                      <Badge className="shrink-0" variant={isActive(session) ? "success" : "secondary"}>
                         {isActive(session) ? "Active" : "Inactive"}
                       </Badge>
                     </div>
