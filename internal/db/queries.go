@@ -247,9 +247,11 @@ func CreateSession(db *sql.DB, s Session) error {
 		lastActivityAt = &formatted
 	}
 	// Upsert so a watcher respawned by `devsesh start` for a still-running tmux
-	// session revives the existing row (bringing it back online) instead of
-	// failing on the primary-key conflict. started_at is preserved -- the tmux
-	// session did not actually restart.
+	// session -- or one revived under its original id via start's name+host reuse
+	// path -- brings the existing row back online instead of failing on the
+	// primary-key conflict. started_at is preserved (the tmux session did not
+	// actually restart); ended_at is cleared so a session that had been marked
+	// ended (reboot/crash) shows as live again.
 	// New rows get seq = max(seq)+1 for the user so they append to the end of
 	// the ordered list. A revived row (ON CONFLICT) keeps its existing seq -- the
 	// UPDATE clause deliberately omits seq so a drag order survives a respawn.
@@ -261,7 +263,8 @@ func CreateSession(db *sql.DB, s Session) error {
 		   name = excluded.name,
 		   last_ping_at = excluded.last_ping_at,
 		   last_activity_at = excluded.last_activity_at,
-		   metadata = excluded.metadata`,
+		   metadata = excluded.metadata,
+		   ended_at = NULL`,
 		s.ID, s.UserID, s.HostID, s.Name, s.StartedAt.UTC().Format(timeFormat), lastPingAt, lastActivityAt, s.Metadata, s.UserID,
 	)
 	if err != nil {
@@ -404,6 +407,47 @@ func GetSession(db *sql.DB, id string) (*Session, error) {
 		h.CreatedAt, _ = parseTime(hostCreatedAt.String)
 		h.UpdatedAt, _ = parseTime(hostUpdatedAt.String)
 		s.Host = &h
+	}
+	return &s, nil
+}
+
+// GetSessionByHostAndName returns the most recently started session for a
+// (host, name) pair, or nil when none exists. Sessions are keyed server-side by
+// id, but `devsesh start` re-adopts a session it lost track of locally (e.g. the
+// tmux session died on a reboot) by matching the (name, host) pair instead, so
+// it can revive the original id rather than fragmenting the history into a new
+// session. Host scoping keeps a same-named session on a different machine from
+// being adopted here.
+func GetSessionByHostAndName(db *sql.DB, hostID int64, name string) (*Session, error) {
+	var s Session
+	var startedAt string
+	var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
+	err := db.QueryRow(
+		`SELECT id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, ended_at, metadata, seq
+		 FROM sessions WHERE host_id = ? AND name = ? ORDER BY started_at DESC LIMIT 1`,
+		hostID, name,
+	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get session by host and name: %w", err)
+	}
+	s.StartedAt, _ = parseTime(startedAt)
+	if lastPingAt.Valid {
+		t, _ := parseTime(lastPingAt.String)
+		s.LastPingAt = &t
+	}
+	if lastActivityAt.Valid {
+		t, _ := parseTime(lastActivityAt.String)
+		s.LastActivityAt = &t
+	}
+	if endedAt.Valid {
+		t, _ := parseTime(endedAt.String)
+		s.EndedAt = &t
+	}
+	if metadata.Valid {
+		s.Metadata = &metadata.String
 	}
 	return &s, nil
 }

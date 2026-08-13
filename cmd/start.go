@@ -65,13 +65,35 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return client.AttachSession(sessionName)
 	}
 
-	sessionID := uuid.New().String()
+	// No live tmux session locally. Before minting a brand-new session, ask the
+	// server whether one already exists for this (name, host) pair -- e.g. the
+	// tmux session died on a reboot/crash but its server-side session lingers.
+	// If so, revive it under its original id (so its history/order/status carry
+	// over) and rehydrate the local .yml from the server's stored metadata,
+	// rather than fragmenting into a fresh session. Host is matched server-side.
+	apiClient := client.NewAPIClient(cfg.ServerURL, cfg.JWTToken)
+
+	var sessionID string
+	var sf *client.SessionFile
+	if existing, err := apiClient.GetSessionByName(sessionName); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not check the server for an existing session: %v\n", err)
+	} else if existing != nil {
+		sessionID = existing.ID
+		sf = client.SessionFileFromServer(*existing)
+		fmt.Fprintf(os.Stderr, "reusing existing session %s\n", sessionID)
+	}
+
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+	}
 
 	sessionFile := filepath.Join(sessionsDir, sessionID+".yml")
 
-	sf, err := client.NewSessionFile(sessionID, sessionName)
-	if err != nil {
-		return fmt.Errorf("failed to create session file: %w", err)
+	if sf == nil {
+		sf, err = client.NewSessionFile(sessionID, sessionName)
+		if err != nil {
+			return fmt.Errorf("failed to create session file: %w", err)
+		}
 	}
 	if err := client.WriteSessionFile(sessionFile, sf); err != nil {
 		return fmt.Errorf("failed to write session file: %w", err)
@@ -85,7 +107,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 		"DEVSESH_SESSION_FILE": sessionFile,
 		"DEVSESH_SESSION_NAME": sessionName,
 	}
-	if err := client.NewSessionDetached(sessionName, env); err != nil {
+	// Start in the session's recorded cwd. For a revived session this is the
+	// directory carried in the server metadata (rehydrated into sf above); for a
+	// fresh session it is this process's cwd. NewSessionDetached ignores it if the
+	// directory no longer exists.
+	if err := client.NewSessionDetached(sessionName, sf.Cwd, env); err != nil {
 		return fmt.Errorf("failed to start tmux session: %w", err)
 	}
 

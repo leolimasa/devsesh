@@ -42,7 +42,7 @@ func TestConfigureClipboardRealTmux(t *testing.T) {
 	}
 
 	name := fmt.Sprintf("devsesh-clip-test-%d", os.Getpid())
-	if err := NewSessionDetached(name, nil); err != nil {
+	if err := NewSessionDetached(name, "", nil); err != nil {
 		t.Fatalf("create session: %v", err)
 	}
 	defer KillSession(name)

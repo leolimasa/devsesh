@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -32,6 +33,26 @@ type SessionStartRequest struct {
 	Hostname  string    `json:"hostname"`
 	Cwd       string    `json:"cwd"`
 	Extra     map[string]string `json:"extra,omitempty"`
+}
+
+// ServerHost is the subset of a session's host record the CLI cares about.
+type ServerHost struct {
+	Label    string `json:"label"`
+	Hostname string `json:"hostname"`
+}
+
+// ServerSession mirrors the server's session record (internal/db.Session) for
+// the fields the CLI consumes: reuse (id, name, started_at, metadata) and the
+// `list` view (ended/ping timestamps, host).
+type ServerSession struct {
+	ID             string      `json:"id"`
+	Name           string      `json:"name"`
+	StartedAt      time.Time   `json:"started_at"`
+	LastPingAt     *time.Time  `json:"last_ping_at"`
+	LastActivityAt *time.Time  `json:"last_activity_at"`
+	EndedAt        *time.Time  `json:"ended_at"`
+	Metadata       *string     `json:"metadata"`
+	Host           *ServerHost `json:"host,omitempty"`
 }
 
 func NewAPIClient(serverURL, jwtToken string) *APIClient {
@@ -265,6 +286,58 @@ func (c *APIClient) UpdateSessionMeta(sessionID string, meta map[string]any) err
 	}
 	
 	return nil
+}
+
+// ListSessions returns all of the authenticated user's sessions as the server
+// knows them (across every host). Used by `devsesh list`.
+func (c *APIClient) ListSessions() ([]ServerSession, error) {
+	resp, err := c.doRequest(context.Background(), "GET", "/api/v1/sessions", nil)
+	if err != nil {
+		slog.Error("failed to list sessions", "error", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var sessions []ServerSession
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		slog.Error("failed to decode sessions", "error", err)
+		return nil, err
+	}
+	return sessions, nil
+}
+
+// GetSessionByName looks up an existing session for this (name, host) pair --
+// host is inferred server-side from the caller's credentials. Returns nil (no
+// error) when none exists, so `devsesh start` can fall through to creating a
+// fresh session.
+func (c *APIClient) GetSessionByName(name string) (*ServerSession, error) {
+	path := "/api/v1/sessions/by-name?name=" + url.QueryEscape(name)
+	resp, err := c.doRequest(context.Background(), "GET", path, nil)
+	if err != nil {
+		slog.Error("failed to look up session by name", "error", err, "name", name)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var s ServerSession
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		slog.Error("failed to decode session", "error", err)
+		return nil, err
+	}
+	return &s, nil
 }
 
 // SendClipboard pushes raw clipboard text (the stdin of `devsesh copy`) to the

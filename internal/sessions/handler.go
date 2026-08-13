@@ -277,6 +277,47 @@ func GetSessionHandler(database *sql.DB) http.HandlerFunc {
 	}
 }
 
+// GetSessionByNameHandler looks up a session by name scoped to the caller's
+// user AND host (both taken from the authenticated JWT), so `devsesh start` can
+// re-adopt a session it lost locally under its original id. Returns 404 when no
+// session with that name exists on this host. The host scoping is what makes the
+// (name, host) pair the reuse key -- a same-named session on another machine is
+// not returned here.
+func GetSessionByNameHandler(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := UserIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		hostID, ok := HostIDFromContext(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			http.Error(w, "name is required", http.StatusBadRequest)
+			return
+		}
+
+		session, err := db.GetSessionByHostAndName(database, hostID, name)
+		if err != nil {
+			slog.Error("failed to get session by name", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if session == nil || session.UserID != userID {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(session)
+	}
+}
+
 // ReorderHandler persists a new session display order. Body: {"session_ids":
 // [...]} in the desired order. Scoped to the authenticated user.
 func ReorderHandler(database *sql.DB) http.HandlerFunc {

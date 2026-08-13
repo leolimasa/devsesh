@@ -138,13 +138,30 @@ func StartSession(ctx context.Context, wg *sync.WaitGroup, sessionName string, e
 	return cmd, nil
 }
 
+// dirExists reports whether path is an existing directory. Used to guard tmux's
+// start-directory (-c): tmux fails to create the session if the directory is
+// gone, so a stale recorded cwd must not block session creation.
+func dirExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 // NewSessionDetached creates a new detached tmux session. Because the session
 // lives in the tmux server daemon (which is reparented to init), it outlives
 // whatever process created it -- unlike a foreground `new-session` client. The
 // env map is injected into the session environment via `-e` so tools running
 // inside the session (e.g. `devsesh set`) can read DEVSESH_* variables.
-func NewSessionDetached(sessionName string, env map[string]string) error {
+func NewSessionDetached(sessionName, cwd string, env map[string]string) error {
 	args := []string{"-2", "new-session", "-d", "-s", sessionName}
+	// Start the session in the recorded working directory (e.g. when reviving a
+	// session under its original id). Skipped when the dir no longer exists so a
+	// stale cwd falls back to tmux's default rather than failing creation.
+	if dirExists(cwd) {
+		args = append(args, "-c", cwd)
+	}
 	for k, v := range env {
 		args = append(args, "-e", k+"="+v)
 	}

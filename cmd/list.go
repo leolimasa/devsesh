@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/leolimasa/devsesh/internal/client"
@@ -19,49 +17,68 @@ func NewListCmd() *cobra.Command {
 	return cmd
 }
 
+// sessionLivenessWindow is how recently a session must have pinged the server to
+// count as live. The watcher pings every 5s; a few missed pings tolerate jitter
+// or a briefly-slow network without flapping the status.
+const sessionLivenessWindow = 30 * time.Second
+
 func runList(cmd *cobra.Command, args []string) error {
 	cfg, err := client.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-
-	sessionsDir := cfg.SessionsDir
-	if sessionsDir == "" {
-		homeDir, _ := os.UserHomeDir()
-		sessionsDir = filepath.Join(homeDir, ".devsesh", "sessions")
+	if cfg.ServerURL == "" || cfg.JWTToken == "" {
+		return fmt.Errorf("not logged in. Please run 'devsesh login <url>' first")
 	}
 
-	entries, err := os.ReadDir(sessionsDir)
+	apiClient := client.NewAPIClient(cfg.ServerURL, cfg.JWTToken)
+	sessions, err := apiClient.ListSessions()
 	if err != nil {
+		return fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	if len(sessions) == 0 {
 		fmt.Println("No sessions found")
 		return nil
 	}
 
-	fmt.Printf("%-40s %-20s %-20s %-10s\n", "SESSION ID", "NAME", "START TIME", "STATUS")
-	fmt.Println("────────────────────────────────────────────────────────────────────────────────")
+	fmt.Printf("%-40s %-20s %-16s %-20s %-10s\n", "SESSION ID", "NAME", "HOST", "START TIME", "STATUS")
+	fmt.Println("──────────────────────────────────────────────────────────────────────────────────────────────────────────")
 
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yml" {
-			continue
+	for _, s := range sessions {
+		host := ""
+		if s.Host != nil {
+			host = s.Host.Label
+			if host == "" {
+				host = s.Host.Hostname
+			}
 		}
 
-		sessionFile := filepath.Join(sessionsDir, entry.Name())
-		sf, err := client.ReadSessionFile(sessionFile)
-		if err != nil {
-			continue
-		}
-
-		status := "inactive"
-		if client.SessionExists(sf.Name) {
-			status = "active"
-		}
-
-		fmt.Printf("%-40s %-20s %-20s %-10s\n",
-			sf.SessionID[:min(len(sf.SessionID), 40)],
-			sf.Name[:min(len(sf.Name), 20)],
-			sf.StartTime.Format(time.Stamp),
-			status)
+		fmt.Printf("%-40s %-20s %-16s %-20s %-10s\n",
+			truncate(s.ID, 40),
+			truncate(s.Name, 20),
+			truncate(host, 16),
+			s.StartedAt.Local().Format(time.Stamp),
+			sessionStatus(s))
 	}
 
 	return nil
+}
+
+// sessionStatus maps a server session to a human-readable liveness label.
+func sessionStatus(s client.ServerSession) string {
+	if s.EndedAt != nil {
+		return "ended"
+	}
+	if s.LastPingAt != nil && time.Since(*s.LastPingAt) < sessionLivenessWindow {
+		return "active"
+	}
+	return "inactive"
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
