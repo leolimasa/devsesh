@@ -241,13 +241,14 @@ describe("SSHTerminal", () => {
   })
 
   // Reproduces the iOS "stuck on connecting after unlocking the phone" report:
-  // while the PWA is backgrounded iOS both drops the WebSocket AND evicts the
-  // Web Worker that holds the unlocked FROST share. On resume the terminal must
-  // notice the worker is gone and prompt a re-unlock; the bug was that it never
-  // re-authenticated (the pooled connection was reused / recovery early-returned
-  // on the stale "connected" status), so it sat forever without ever asking to
-  // unlock the master key again.
-  it("re-prompts to unlock when resumed after the FROST worker was evicted", async () => {
+  // while the PWA is backgrounded iOS evicts the Web Worker that holds the
+  // unlocked FROST share, leaving a stale handle (no onerror). On resume — a
+  // real background→foreground, i.e. visibilitychange — the terminal must notice
+  // the worker is gone and prompt a re-unlock EVEN THOUGH status is still
+  // "connected" (the resumed socket is a zombie); the bug was that it sat
+  // forever without ever asking to unlock the master key again. (Mirrors the
+  // ssh-ca-e2e integration test "re-prompts to unlock ... worker is evicted".)
+  it("re-prompts to unlock when resumed (visibilitychange) after the FROST worker was evicted", async () => {
     let statusCallback: (status: string, error?: string) => void = () => {}
     mockOn.mockImplementation((event: string, cb: any) => {
       if (event === "status") {
@@ -266,11 +267,11 @@ describe("SSHTerminal", () => {
       statusCallback("connected")
     })
 
-    // iOS backgrounds the PWA: the WebSocket dies and the FROST worker is
-    // evicted (no onerror fires — the handle just goes stale).
+    // iOS backgrounds the PWA: the FROST worker is evicted (stale handle, no
+    // onerror). The connection status is still "connected" (zombie socket).
     mockEnsureAlive.mockResolvedValue(false)
 
-    // Unlock the phone → the tab becomes visible again.
+    // Unlock the phone → the tab becomes visible again (real background→fg).
     await act(async () => {
       Object.defineProperty(document, "visibilityState", {
         configurable: true,
@@ -286,10 +287,12 @@ describe("SSHTerminal", () => {
     })
   })
 
-  // Computer sleeps/wakes with the tab still "visible": visibilitychange never
-  // fires, so recovery must also key off window `focus`. Otherwise the user has
-  // to manually click Reconnect after the idle FROST cert expires.
-  it("recovers on window focus (computer wake) when the worker went stale", async () => {
+  // Regression: on the macOS PWA a plain app-switch (window blur → focus, the
+  // window is never hidden so visibilitychange does NOT fire) must NOT reconnect.
+  // The FROST worker times out on its own after idle, but the SSH connection is
+  // still alive — the `focus` handler must key off the connection status, not the
+  // worker, or every focus tears down a healthy session and re-pops unlock.
+  it("does not reconnect on window focus while connected, even if the worker idled out", async () => {
     let statusCallback: (status: string, error?: string) => void = () => {}
     mockOn.mockImplementation((event: string, cb: any) => {
       if (event === "status") statusCallback = cb
@@ -299,17 +302,20 @@ describe("SSHTerminal", () => {
     await waitFor(() => expect(mockInit).toHaveBeenCalled())
     await act(async () => { statusCallback("connected") })
 
-    // Idle long enough that the FROST worker (which signs the SSH cert) locked.
+    // The worker locked while idle; the connection is untouched.
     mockEnsureAlive.mockResolvedValue(false)
+    mockConnect.mockClear()
+    mockDisconnect.mockClear()
 
-    // Wake / return to the app — window regains focus (no visibilitychange).
+    // Return to the app — window regains focus.
     await act(async () => {
       window.dispatchEvent(new Event("focus"))
     })
 
-    await waitFor(() => {
-      expect(screen.getByText("Unlock SSH Certificate")).toBeInTheDocument()
-    })
+    // The live session is left alone: no reconnect, no unlock prompt.
+    expect(mockConnect).not.toHaveBeenCalled()
+    expect(mockDisconnect).not.toHaveBeenCalled()
+    expect(screen.queryByText("Unlock SSH Certificate")).not.toBeInTheDocument()
   })
 
   it("reports status via onStatusChange", async () => {

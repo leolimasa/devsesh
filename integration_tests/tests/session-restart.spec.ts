@@ -21,7 +21,9 @@ import * as fs from 'fs';
 // connection, re-creating a tmux session that died — the reboot scenario).
 
 const CONTAINER_NAME = 'devsesh-restart-test';
-const CONTAINER_PORT = 2223;
+// A port not used by any other spec (ssh-e2e/quick-keys 2222, ssh-ca-e2e
+// 2223/2224/2225/2233) so a leaked container from another test can't collide.
+const CONTAINER_PORT = 2231;
 
 interface Ctx {
   server: ServerInstance;

@@ -427,6 +427,13 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
     // a fresh handshake by dropping any stale/zombie pooled connection so
     // connect() re-handshakes (and re-authenticates) instead of reusing it.
     useEffect(() => {
+      // Full recovery, used on a real background→foreground transition
+      // (visibilitychange to visible, bfcache restore, network back). Here the
+      // document was actually hidden, so the FROST worker being gone is a
+      // meaningful signal that we were backgrounded (iOS evicts it) — verify it
+      // and, if dead, surface the one-tap unlock proactively instead of wedging
+      // at "connecting". Runs even when status is still "connected", because a
+      // resumed connection is often a zombie that hasn't reported its drop yet.
       const recover = async () => {
         if (!mountedRef.current || !host) return
         // Don't fight an intentional disconnect.
@@ -444,8 +451,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         if (!mountedRef.current) return
 
         if (workerAlive && statusRef.current === "connected") {
-          // Healthy worker and we still believe we're connected: leave the live
-          // session alone (avoids reconnect churn on every desktop tab focus).
+          // Healthy worker and still connected: leave the live session alone.
           return
         }
 
@@ -464,6 +470,21 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
         reconnectAttemptRef.current = 0
         doConnect()
       }
+
+      // Conservative recovery for window `focus`. A plain focus (e.g. an
+      // app-switch on the macOS PWA, where the window is never hidden so
+      // visibilitychange does NOT fire) must NOT tear down a live connection:
+      // the SSH session is still up even though the FROST worker may have idled
+      // out on its own (it only mints certs during a handshake). So only recover
+      // here when the connection is actually down — a genuine drop surfaces as a
+      // non-"connected" status (via the wasm client / SSH keepalive). This
+      // avoids the "reconnects on every unfocus/refocus" regression while still
+      // catching a real sleep/wake drop on return.
+      const recoverOnFocus = () => {
+        if (statusRef.current === "connected") return
+        recover()
+      }
+
       const onVisible = () => { if (document.visibilityState === "visible") recover() }
       // Only recover on a real bfcache restore (persisted), never on a fresh
       // page load — the mount effect already connects then, so an unguarded
@@ -472,16 +493,12 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       window.addEventListener("online", recover)
       window.addEventListener("pageshow", onPageShow)
       document.addEventListener("visibilitychange", onVisible)
-      // `focus` catches the case visibilitychange misses: the computer sleeps
-      // (or the app loses focus) with the tab still "visible", then wakes — the
-      // idle drop / expired FROST cert is recovered on return without a manual
-      // Reconnect. recover() no-ops when already connected with a live worker.
-      window.addEventListener("focus", recover)
+      window.addEventListener("focus", recoverOnFocus)
       return () => {
         window.removeEventListener("online", recover)
         window.removeEventListener("pageshow", onPageShow)
         document.removeEventListener("visibilitychange", onVisible)
-        window.removeEventListener("focus", recover)
+        window.removeEventListener("focus", recoverOnFocus)
       }
     }, [host, hostKey, doConnect, ensureAlive])
 
