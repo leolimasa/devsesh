@@ -594,6 +594,52 @@ test.describe('SSH WebSocket Full E2E Integration Tests', () => {
     }
   });
 
+  // Collapsing the desktop details side panel hands its freed width to the
+  // terminal: the tmux client width (columns) must grow after the panel is
+  // toggled closed. Guards that the panel toggle re-fits the pty (ResizeObserver
+  // on the terminal container), not just hides the panel.
+  test('collapsing the desktop details panel widens the terminal', async ({ page }) => {
+    let ctx: TestContext | null = null;
+    try {
+      // Desktop viewport so the side panel and its toggle are present.
+      await page.setViewportSize({ width: 1280, height: 800 });
+      ctx = await setupTestEnvironmentWithSession(page, 'testsession');
+      await navigateToSession(page, ctx.server.url, ctx.sessionId);
+      await connectAndAuthenticate(page, 'testpass');
+
+      const clientWidth = (): number => {
+        try {
+          const out = execInContainer(
+            'devsesh-ssh-test-integration',
+            "tmux list-clients -t testsession -F '#{client_width}'",
+          );
+          return Number(out.trim().split('\n')[0]) || 0;
+        } catch {
+          return 0;
+        }
+      };
+
+      // Wait for the web terminal to attach as a tmux client.
+      let before = 0;
+      for (let i = 0; i < 30; i++) {
+        before = clientWidth();
+        if (before > 0) break;
+        await page.waitForTimeout(1000);
+      }
+      expect(before, 'terminal attached before collapse').toBeGreaterThan(0);
+
+      // Collapse the panel via the desktop top-bar toggle.
+      await page.getByRole('button', { name: 'Collapse details panel' }).click();
+
+      // The freed panel width (~18rem) must widen the pty.
+      await expect
+        .poll(() => clientWidth(), { timeout: 15000 })
+        .toBeGreaterThan(before);
+    } finally {
+      if (ctx) await cleanupTestEnvironment(ctx);
+    }
+  });
+
   // The block cursor (neovim normal mode / shell default) must stay visible even
   // when the terminal isn't focused. By default xterm renders an unfocused block
   // as a hard-to-see hollow outline, which reads as "the cursor disappears in

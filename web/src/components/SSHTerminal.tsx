@@ -752,6 +752,30 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       return () => clearTimeout(timer)
     }, [viewportHeight, topBarHeight, loading])
 
+    // Re-fit whenever the terminal's CONTAINER changes size — width included.
+    // The height-keyed effect above misses width-only changes like collapsing
+    // the desktop details panel (which widens the terminal) or a horizontal
+    // window resize, leaving xterm's column count stale and a dead gap on the
+    // right. A ResizeObserver catches any container resize; the 50ms debounce
+    // lets layout settle so fit() never measures a mid-transition size.
+    useEffect(() => {
+      const el = terminalRef.current
+      if (!el || typeof ResizeObserver === "undefined") return
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const obs = new ResizeObserver(() => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => {
+          if (fitAddonRef.current && xtermRef.current && sshClientRef.current) {
+            fitAddonRef.current.fit()
+            const { rows, cols } = xtermRef.current
+            sshClientRef.current.resize(rows, cols)
+          }
+        }, 50)
+      })
+      obs.observe(el)
+      return () => { if (timer) clearTimeout(timer); obs.disconnect() }
+    }, [])
+
     const handlePasswordSubmit = useCallback((password: string) => {
       if (sshClientRef.current) {
         sshClientRef.current.resolvePassword(password)
