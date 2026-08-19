@@ -15,7 +15,7 @@ import { useVisualViewport } from "@/hooks/useVisualViewport"
 import { isStandalone } from "@/lib/utils"
 import type { TerminalHandle } from "@/components/SSHTerminal"
 import type { Session, SessionUpdate, ConnectionStatus } from "@/types/api"
-import { Menu } from "lucide-react"
+import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 type Status = ConnectionStatus
 
@@ -45,6 +45,25 @@ export default function SessionDetailPage() {
   const [clipboard, setClipboard] = useState<ClipboardBuffer | null>(null)
   const [showOverlay, setShowOverlay] = useState(false)
   const [topBarHeight, setTopBarHeight] = useState(40)
+  // Desktop: whether the details side panel is expanded. Collapsing it hands the
+  // full width to the terminal (mobile already tucks the panel behind a
+  // hamburger Sheet). Persisted so the choice sticks across sessions/reloads.
+  const [panelOpen, setPanelOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("sessionPanelCollapsed") !== "1"
+    } catch {
+      return true
+    }
+  })
+  const togglePanel = useCallback(() => {
+    setPanelOpen((open) => {
+      const next = !open
+      try {
+        localStorage.setItem("sessionPanelCollapsed", next ? "0" : "1")
+      } catch { /* ignore */ }
+      return next
+    })
+  }, [])
 
   // Track the visual viewport so the whole page shrinks when the on-screen
   // keyboard opens (iOS Safari keeps 100vh unchanged while the keyboard
@@ -259,6 +278,20 @@ export default function SessionDetailPage() {
             onCopyClipboard={handleCopyClipboard}
             onDismissClipboard={handleDismissClipboard}
             hamburger={
+              <>
+                {/* Desktop: toggle the inline side panel (mobile uses the Sheet
+                    below). Mirrors the mobile "tuck details away" affordance. */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="hidden md:inline-flex h-8 w-8 shrink-0"
+                  onClick={togglePanel}
+                  aria-label={panelOpen ? "Collapse details panel" : "Expand details panel"}
+                  aria-pressed={panelOpen}
+                  title={panelOpen ? "Collapse details panel" : "Expand details panel"}
+                >
+                  {panelOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+                </Button>
               <Sheet>
                 <SheetTrigger asChild className="md:hidden">
                   <Button variant="ghost" size="icon" className="h-11 w-11 shrink-0" aria-label="Details">
@@ -295,13 +328,14 @@ export default function SessionDetailPage() {
                   </div>
                 </SheetContent>
               </Sheet>
+              </>
             }
           />
         </div>
       )}
 
       <div className="flex flex-1 min-h-0">
-        {session.host && (
+        {session.host && panelOpen && (
           <div className="hidden md:block w-72 border-r bg-card p-4 overflow-y-auto flex-shrink-0">
             <SessionDetailPanel
               session={session}

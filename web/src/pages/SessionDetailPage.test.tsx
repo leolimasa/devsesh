@@ -466,6 +466,40 @@ describe("SessionDetailPage", () => {
     ).toBe(true)
   })
 
+  it("collapses and expands the desktop details panel via the top-bar toggle", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(makeSession())
+
+    renderSessionDetailPage("session-1")
+
+    // Panel is expanded by default.
+    await waitFor(() => {
+      expect(screen.getByTestId("session-detail-panel")).toBeInTheDocument()
+    })
+
+    // Collapse: the toggle removes the panel and persists the choice.
+    fireEvent.click(screen.getByLabelText("Collapse details panel"))
+    expect(screen.queryByTestId("session-detail-panel")).not.toBeInTheDocument()
+    expect(localStorage.getItem("sessionPanelCollapsed")).toBe("1")
+
+    // Expand again.
+    fireEvent.click(screen.getByLabelText("Expand details panel"))
+    expect(screen.getByTestId("session-detail-panel")).toBeInTheDocument()
+    expect(localStorage.getItem("sessionPanelCollapsed")).toBe("0")
+  })
+
+  it("starts collapsed when the persisted preference says so", async () => {
+    localStorage.setItem("sessionPanelCollapsed", "1")
+    vi.mocked(api.getSession).mockResolvedValue(makeSession())
+
+    renderSessionDetailPage("session-1")
+
+    // Once loaded, the top bar shows the Expand affordance and no panel.
+    await waitFor(() => {
+      expect(screen.getByLabelText("Expand details panel")).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId("session-detail-panel")).not.toBeInTheDocument()
+  })
+
   it("switches to the Sessions tab and lists sessions with index + status", async () => {
     vi.mocked(api.getSession).mockResolvedValue(makeSession())
     vi.mocked(api.listSessions).mockResolvedValue([
