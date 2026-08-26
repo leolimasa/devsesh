@@ -1,4 +1,4 @@
-import type { Session } from "@/types/api"
+import type { Session, SessionUpdate } from "@/types/api"
 
 // Sessions render in user-controlled order (the `seq` field, ascending).
 // Returns a new sorted array; a missing seq falls back to 0 so older/partial
@@ -18,6 +18,23 @@ export function isActive(session: Session): boolean {
 
   const diffMs = Date.now() - new Date(session.last_activity_at).getTime()
   return diffMs < 5000
+}
+
+// True when a session-updates event announces the session we just asked a host
+// to create (via `devsesh start <name>` over SSH). We can't know the new
+// session's id in advance — it's a random UUID minted on the host — so we match
+// on the pair we DO control: the target host and the chosen name. Used by the
+// "new session" flow to detect that the session has registered so we can stop
+// waiting (and, on the session page, navigate into it). Terminal/no-session
+// events (end/clipboard) never count.
+export function matchesNewSession(
+  update: SessionUpdate,
+  hostId: number,
+  name: string
+): boolean {
+  if (update.event === "end" || update.event === "clipboard") return false
+  const s = update.session
+  return !!s && s.host_id === hostId && s.name === name
 }
 
 // The `status` metadata key is a free-text status a session reports about

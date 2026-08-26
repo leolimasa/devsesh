@@ -8,6 +8,7 @@ import RegisterPage from "@/pages/RegisterPage"
 import PairPage from "@/pages/PairPage"
 import DashboardPage from "@/pages/DashboardPage"
 import SessionDetailPage from "@/pages/SessionDetailPage"
+import NewSessionPage from "@/pages/NewSessionPage"
 import PasskeyManagementPage from "@/pages/PasskeyManagementPage"
 import HostsPage from "@/pages/HostsPage"
 import AddPasskeyPage from "@/pages/AddPasskeyPage"
@@ -38,6 +39,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sessions/new"
+            element={
+              <ProtectedRoute>
+                <NewSessionPage />
               </ProtectedRoute>
             }
           />

@@ -11,10 +11,11 @@ import { SSHTerminal } from "@/components/SSHTerminal"
 import { SessionTopBar } from "@/components/SessionTopBar"
 import { QuickKeysOverlay } from "@/components/QuickKeysOverlay"
 import { SessionDetails, SessionDetailPanel } from "@/components/SessionDetailPanel"
+import { NewSessionButton } from "@/components/NewSessionButton"
 import { useVisualViewport } from "@/hooks/useVisualViewport"
 import { isStandalone } from "@/lib/utils"
 import type { TerminalHandle } from "@/components/SSHTerminal"
-import type { Session, SessionUpdate, ConnectionStatus } from "@/types/api"
+import type { Session, SessionUpdate, ConnectionStatus, Host } from "@/types/api"
 import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 
 type Status = ConnectionStatus
@@ -119,6 +120,17 @@ export default function SessionDetailPage() {
   const handleRestart = useCallback(() => {
     terminalRef.current?.restart()
   }, [])
+
+  // New session from within a session: navigate to the dedicated create page so
+  // the user lands in a live terminal for the new session. We can't overlay a
+  // second terminal here (the wasm SSH client is a singleton), so this unmounts
+  // the current terminal and mounts the creator on /sessions/new.
+  const handleNewSession = useCallback(
+    (host: Host, name: string) => {
+      navigate("/sessions/new", { state: { host, name } })
+    },
+    [navigate]
+  )
 
   // Load the full session list once for the Sessions tab. Mirrors
   // DashboardPage.loadSessions; the WebSocket keeps it fresh afterwards.
@@ -324,6 +336,13 @@ export default function SessionDetailPage() {
                     )}
                   </div>
                   <div className="mt-4">
+                    <NewSessionButton
+                      onCreate={handleNewSession}
+                      defaultHostId={session.host_id}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="mt-4">
                     <SessionDetails session={session} onRestart={handleRestart} />
                   </div>
                 </SheetContent>
@@ -344,6 +363,7 @@ export default function SessionDetailPage() {
               onSelectSession={handleSelectSession}
               onReorderSessions={handleReorderSessions}
               onRestart={handleRestart}
+              onNewSession={handleNewSession}
             />
           </div>
         )}

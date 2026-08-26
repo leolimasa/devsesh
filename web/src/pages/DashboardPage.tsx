@@ -22,13 +22,15 @@ import {
 } from "@/components/ui/sheet"
 import { Menu } from "lucide-react"
 import { listSessions, deleteStaleSessions, deleteSession, getSSHCAPublicKey, reorderSessions } from "@/lib/api"
+import { NewSessionButton } from "@/components/NewSessionButton"
+import { SessionCreator } from "@/components/SessionCreator"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useDragReorder } from "@/hooks/useDragReorder"
 import { usePointerReorder } from "@/hooks/usePointerReorder"
 import { sortBySeq } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
-import type { Session } from "@/types/api"
+import type { Session, Host } from "@/types/api"
 import { isActive, statusMetadata } from "@/lib/session"
 
 function formatDate(dateStr: string): string {
@@ -66,6 +68,10 @@ function parseMetadata(metadata: string | null): string {
 export default function DashboardPage() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(true)
+  // When set, a hidden SessionCreator SSHes into the host and runs
+  // `devsesh start <name>`. The new session then arrives over the WebSocket like
+  // any other and drops into the list — so the dashboard stays put (no navigation).
+  const [creating, setCreating] = useState<{ host: Host; name: string } | null>(null)
   const { logout } = useAuth()
   const navigate = useNavigate()
 
@@ -149,6 +155,22 @@ export default function DashboardPage() {
     navigate(`/sessions/${sessionId}`, { state: { restart: true } })
   }
 
+  // New session from the dashboard: kick off the hidden create. The row appears
+  // via the session-updates WebSocket (handleUpdate upserts it), so there's
+  // nothing to do on success beyond tearing the creator down.
+  const handleNewSession = useCallback((host: Host, name: string) => {
+    setCreating({ host, name })
+  }, [])
+
+  const handleCreated = useCallback(() => {
+    setCreating(null)
+  }, [])
+
+  const handleCreateError = useCallback((message: string) => {
+    setCreating(null)
+    alert(`Failed to start session: ${message}`)
+  }, [])
+
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
     e.preventDefault()
     e.stopPropagation()
@@ -211,7 +233,15 @@ export default function DashboardPage() {
     <div className="min-h-screen p-4">
       <div className="space-y-4">
         <div className="flex flex-row justify-between items-center gap-4">
-          <h1 className="text-2xl font-bold">Sessions</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold">Sessions</h1>
+            <NewSessionButton onCreate={handleNewSession} />
+            {creating && (
+              <span className="text-sm text-muted-foreground" role="status">
+                Starting {creating.name}…
+              </span>
+            )}
+          </div>
 
           {/* Desktop: inline action buttons */}
           <div className="hidden sm:flex flex-wrap gap-2">
@@ -417,6 +447,16 @@ export default function DashboardPage() {
             )
           })}
         </div>
+
+        {creating && (
+          <SessionCreator
+            host={creating.host}
+            name={creating.name}
+            hidden
+            onCreated={handleCreated}
+            onError={handleCreateError}
+          />
+        )}
       </div>
     </div>
   )
