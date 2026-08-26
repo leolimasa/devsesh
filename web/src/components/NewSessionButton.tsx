@@ -12,7 +12,7 @@
  * funnel `devsesh start <name>` through the same SSH machinery.
  */
 import { useEffect, useState } from "react"
-import { Plus } from "lucide-react"
+import { Plus, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { listHosts } from "@/lib/api"
@@ -125,21 +125,27 @@ function NewSessionDialog({
             <label htmlFor="new-session-host" className="block text-sm font-medium mb-1">
               Host
             </label>
-            <select
-              id="new-session-host"
-              value={hostId}
-              onChange={(e) => setHostId(e.target.value ? Number(e.target.value) : "")}
-              disabled={!hosts}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {!hosts && <option value="">Loading hosts…</option>}
-              {hosts?.length === 0 && <option value="">No hosts configured</option>}
-              {hosts?.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.label || h.hostname}
-                </option>
-              ))}
-            </select>
+            {/* Native <select> with the browser chrome stripped (appearance-none)
+                so it matches the app's Input instead of the OS "aqua" control; a
+                custom chevron stands in for the removed native arrow. */}
+            <div className="relative">
+              <select
+                id="new-session-host"
+                value={hostId}
+                onChange={(e) => setHostId(e.target.value ? Number(e.target.value) : "")}
+                disabled={!hosts}
+                className="flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {!hosts && <option value="">Loading hosts…</option>}
+                {hosts?.length === 0 && <option value="">No hosts configured</option>}
+                {hosts?.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.label || h.hostname}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            </div>
           </div>
           <div className="mb-4">
             <label htmlFor="new-session-name" className="block text-sm font-medium mb-1">
