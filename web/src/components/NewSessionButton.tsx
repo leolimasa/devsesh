@@ -134,12 +134,12 @@ function NewSessionDialog({
                 value={hostId}
                 onChange={(e) => setHostId(e.target.value ? Number(e.target.value) : "")}
                 disabled={!hosts}
-                className="flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-10 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-9 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {!hosts && <option value="">Loading hosts…</option>}
-                {hosts?.length === 0 && <option value="">No hosts configured</option>}
+                {!hosts && <option value="" className="bg-popover text-popover-foreground">Loading hosts…</option>}
+                {hosts?.length === 0 && <option value="" className="bg-popover text-popover-foreground">No hosts configured</option>}
                 {hosts?.map((h) => (
-                  <option key={h.id} value={h.id}>
+                  <option key={h.id} value={h.id} className="bg-popover text-popover-foreground">
                     {h.label || h.hostname}
                   </option>
                 ))}
