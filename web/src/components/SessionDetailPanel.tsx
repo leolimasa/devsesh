@@ -14,10 +14,11 @@ import { useState } from "react"
 import { GripVertical, RotateCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { NewSessionButton } from "@/components/NewSessionButton"
 import { cn } from "@/lib/utils"
 import { isActive, statusMetadata } from "@/lib/session"
 import { useDragReorder } from "@/hooks/useDragReorder"
-import type { Session } from "@/types/api"
+import type { Session, Host } from "@/types/api"
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
@@ -278,6 +279,7 @@ export function SessionDetailPanel({
   onSelectSession,
   onReorderSessions,
   onRestart,
+  onNewSession,
 }: {
   session: Session
   sessions: Session[]
@@ -285,6 +287,9 @@ export function SessionDetailPanel({
   onSelectSession: (sessionId: string) => void
   onReorderSessions: (ids: string[]) => void
   onRestart?: () => void
+  // Start a brand-new session (host + name from the shared dialog). Rendered as
+  // a "New session" button above the tabs when provided.
+  onNewSession?: (host: Host, name: string) => void
 }) {
   const [activeTab, setActiveTab] = useState<PanelTab>("details")
 
@@ -293,6 +298,13 @@ export function SessionDetailPanel({
       {/* The current session's name and status are intentionally NOT repeated
           here — they already appear in the Details tab and in the Sessions
           list (the current row is highlighted). */}
+      {onNewSession && (
+        <NewSessionButton
+          onCreate={onNewSession}
+          defaultHostId={session.host_id}
+          className="w-full"
+        />
+      )}
       <PanelTabs active={activeTab} onChange={setActiveTab} />
 
       {activeTab === "sessions" ? (

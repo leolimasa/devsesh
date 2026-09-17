@@ -446,7 +446,9 @@ func UpdatesHandler(database *sql.DB, hub *Hub, jwtSecret string, rpOrigin strin
 			return
 		}
 
-		// Read the first message as the JWT token
+		// Read the first message as the JWT token. Bounded so an
+		// unauthenticated connection can't idle forever holding resources.
+		conn.SetReadDeadline(time.Now().Add(authWait))
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			conn.WriteJSON(map[string]string{"error": "authentication required"})
@@ -477,10 +479,23 @@ func UpdatesHandler(database *sql.DB, hub *Hub, jwtSecret string, rpOrigin strin
 			conn.Close()
 		}()
 
+		// Read loop. Its only job is liveness: the client sends nothing after
+		// the token, so without a deadline a half-open connection would sit
+		// here forever and the hub would keep fanning out to a peer that is
+		// already gone. writePump's ping draws an automatic pong from the
+		// browser, which pushes the deadline out; three missed pings and this
+		// read fails, unregistering the client.
+		conn.SetReadDeadline(time.Now().Add(pongWait))
+		conn.SetPongHandler(func(string) error {
+			return conn.SetReadDeadline(time.Now().Add(pongWait))
+		})
+
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
 				return
 			}
+			// Any traffic from the client is proof of life too.
+			conn.SetReadDeadline(time.Now().Add(pongWait))
 		}
 	}
 }

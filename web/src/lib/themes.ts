@@ -13,6 +13,10 @@ export interface ThemeDef {
   // The PWA `theme-color` (hex). On macOS the installed PWA's window title bar
   // follows this, so it must track the theme's background.
   themeColor: string
+  // CSS `color-scheme` for the theme. Drives how the browser paints native
+  // controls (the <select> popup, scrollbars, form widgets): without this a dark
+  // theme still gets a light OS "aqua" select popup. Set to the theme's base.
+  colorScheme: "light" | "dark"
   // shadcn CSS variables as "H S% L%" triplets (consumed via hsl(var(--x))).
   cssVars: Record<string, string>
   // xterm.js terminal theme.
@@ -28,6 +32,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     label: "Dark Blue",
     swatch: ["#0b1120", "#3b82f6", "#f8fafc"],
     themeColor: "#0f172a",
+    colorScheme: "dark",
     cssVars: {
       "--background": "222.2 84% 4.9%",
       "--foreground": "210 40% 98%",
@@ -62,6 +67,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     label: "One Dark",
     swatch: ["#282c34", "#61afef", "#abb2bf"],
     themeColor: "#282c34",
+    colorScheme: "dark",
     cssVars: {
       "--background": "220 13% 18%",
       "--foreground": "219 14% 71%",
@@ -124,6 +130,9 @@ export function applyTheme(id: ThemeId): void {
   for (const [k, v] of Object.entries(t.cssVars)) {
     root.style.setProperty(k, v)
   }
+  // Paint native controls (select popup, scrollbars, form widgets) in the
+  // theme's base scheme so they don't fall back to the light OS look.
+  root.style.colorScheme = t.colorScheme
   // Track the PWA title-bar / browser UI color to the theme (macOS PWA window
   // title bar follows <meta name="theme-color">).
   let meta = document.querySelector('meta[name="theme-color"]')
