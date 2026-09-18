@@ -91,16 +91,20 @@ export default function DashboardPage() {
     loadSessions()
   }, [loadSessions])
 
-  const handleUpdate = useCallback((update: { event: string; session: Session }) => {
+  const handleUpdate = useCallback((update: { event: string; session?: Session }) => {
+    // Ignore session-less events (keepalives, clipboard pushes). The upsert
+    // below keys on session.id, so an absent or zero session would land in the
+    // list as a blank-named row.
+    if (!update.session?.id) return
     setSessions((prev) => {
-      const exists = prev.find(s => s.id === update.session.id)
+      const exists = prev.find(s => s.id === update.session!.id)
       if (update.event === "end" || update.event === "delete") {
-        return prev.filter(s => s.id !== update.session.id)
+        return prev.filter(s => s.id !== update.session!.id)
       }
       if (exists) {
-        return prev.map(s => s.id === update.session.id ? update.session : s)
+        return prev.map(s => s.id === update.session!.id ? update.session! : s)
       }
-      return [update.session, ...prev]
+      return [update.session!, ...prev]
     })
   }, [])
 

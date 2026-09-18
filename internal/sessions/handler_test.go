@@ -449,3 +449,24 @@ func TestSessionFromContext(t *testing.T) {
 		t.Errorf("expected session 'test', got %v, ok=%v", got, ok)
 	}
 }
+
+// A keepalive must not carry a session. Clients upsert session lists keyed on
+// session.id, so a zero session (empty id, empty name) is indistinguishable
+// from a real nameless one and lands in the UI as a blank row -- the "session
+// named -" bug. Marshalling a SessionUpdate reintroduces it, because Session is
+// embedded by value, so assert on the bytes actually written to the wire.
+func TestHeartbeatCarriesNoSession(t *testing.T) {
+	var msg map[string]any
+	if err := json.Unmarshal(heartbeatMsg, &msg); err != nil {
+		t.Fatalf("heartbeat is not valid JSON: %v", err)
+	}
+	if msg["event"] != "heartbeat" {
+		t.Errorf("event = %v, want heartbeat", msg["event"])
+	}
+	if _, ok := msg["session"]; ok {
+		t.Errorf("heartbeat carries a session key: %s", heartbeatMsg)
+	}
+	if _, ok := msg["session_id"]; ok {
+		t.Errorf("heartbeat carries a session_id key: %s", heartbeatMsg)
+	}
+}

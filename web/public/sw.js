@@ -10,7 +10,7 @@
  *
  * Bump CACHE_VERSION on release to evict the old shell/assets.
  */
-const CACHE_VERSION = "devsesh-v2"
+const CACHE_VERSION = "devsesh-v3"
 const APP_SHELL = "/index.html"
 
 self.addEventListener("install", (event) => {

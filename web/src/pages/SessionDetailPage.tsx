@@ -158,6 +158,11 @@ export default function SessionDetailPage() {
       if (buf) setClipboard(buf)
       return
     }
+    // Ignore anything that carries no session. Keepalives and other
+    // session-less events would otherwise be upserted below as a row with a
+    // blank name, since the upsert keys on session.id and an absent/zero
+    // session has an empty one.
+    if (!update.session?.id) return
     // Keep the currently-viewed session in sync.
     if (update.session_id === id) {
       setSession(update.session)

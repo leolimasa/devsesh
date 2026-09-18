@@ -46,18 +46,15 @@ type SessionUpdate struct {
 	Clipboard string `json:"clipboard,omitempty"`
 }
 
-// heartbeatMsg is the pre-marshalled application-level keepalive. It carries no
-// session, so clients MUST filter it out before handing an update to session
-// state -- see the hook's dispatch in web/src/hooks/useSessionUpdates.ts.
-var heartbeatMsg = func() []byte {
-	data, err := json.Marshal(SessionUpdate{Event: "heartbeat"})
-	if err != nil {
-		// Marshalling a constant struct cannot fail; fall back to the literal
-		// rather than panic at init.
-		return []byte(`{"event":"heartbeat"}`)
-	}
-	return data
-}()
+// heartbeatMsg is the application-level keepalive. It is written out by hand
+// rather than marshalled from a SessionUpdate because that struct embeds
+// Session by value: marshalling it emits a complete zero session, with an empty
+// id and an empty name. Clients upsert by `session.id`, so a zero session is
+// indistinguishable from a real nameless one and shows up in session lists as a
+// blank row -- which is exactly what it did. Sending no session key at all
+// leaves nothing for a client to mistake for a session, even one whose bundle
+// predates the filter in web/src/hooks/useSessionUpdates.ts.
+var heartbeatMsg = []byte(`{"event":"heartbeat"}`)
 
 type client struct {
 	conn   *websocket.Conn
