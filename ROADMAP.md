@@ -10,11 +10,13 @@
 
 # Features
 
-* [ ] Display a "pair" button in the dashboard
+* [ ] LOCAL APP (self signed on mac)
 * [ ] Support for spawning local daemons 
+* [ ] File browser
+
+* [ ] Display a "pair" button in the dashboard
 * [ ] Display metadata as a formatted tree in the details panel
 * [ ] Sign in without e-mail (can i match a passkey to a user?)
-* [ ] File browser
 * [ ] File editor with Monaco
 * [ ] Git diff browser
 * [ ] SSH/command payload
