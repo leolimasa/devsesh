@@ -1,12 +1,14 @@
 # Bugs
 
 * [ ] Session is being marked as inactive even when there is output
-* [ ] Need to constant unlock SSH
 * [ ] Need to refresh the browser when restarting a session
 * [ ] Fix SSH trust on first use (if the target machine ssh key changes, the app won't say anythjing)
 * [ ] Details panel font size is not consistent with rest of the app
 * [ ] After internet loss + ssh key timeout, need to refresh the page several times until it comes back to normal
+* [ ] Using the "reconnect session" button starts a sessino fine, but the frontend flickers and glitches and sometimes goes back to the dashboard view instead of cleanly connecting
+* [ ] Sometimes "devsesh set status ..." doesn't work, even when "devsesh copy ..." does (meaning the problem is not auth)
 * [ ] Copying large buffers fails
+* [ ] When a session is connected, we should check that the JWT is not expired. If it is close to expiring, create a way to automatically renew it FROM THE FRONTEND (since the frontend is authenticated)                         
 
 # Features
 
