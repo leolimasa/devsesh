@@ -1,5 +1,6 @@
 # Bugs
 
+* [ ] Quite often `devsesh set status` doesn't work, even when `devsesh copy` does (todo, right now, is having this problem)
 * [ ] Session is being marked as inactive even when there is output
 * [ ] Need to refresh the browser when restarting a session
 * [ ] Fix SSH trust on first use (if the target machine ssh key changes, the app won't say anythjing)
@@ -9,12 +10,14 @@
 * [ ] Sometimes "devsesh set status ..." doesn't work, even when "devsesh copy ..." does (meaning the problem is not auth)
 * [ ] Copying large buffers fails
 * [ ] When a session is connected, we should check that the JWT is not expired. If it is close to expiring, create a way to automatically renew it FROM THE FRONTEND (since the frontend is authenticated)                         
+* [ ] REMOVE AUTO CORRECT FROM ALL TEXTBOXES
 
 # Features
 
 * [ ] LOCAL APP (self signed on mac)
 * [ ] Support for spawning local daemons 
 * [ ] File browser
+* [ ] Scroll terminal window with finger
 
 * [ ] Display a "pair" button in the dashboard
 * [ ] Display metadata as a formatted tree in the details panel
