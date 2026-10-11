@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
@@ -20,23 +21,49 @@ export interface Session {
 }
 
 /**
+ * Env that gives a test its own private tmux server, so session names such as
+ * "testsession" cannot collide with the same name in a test running in parallel.
+ * The socket directory sits next to the test's session dir, so every sessions dir
+ * under one temp dir shares it.
+ *
+ * The directory is created here because tmux does NOT create it: if TMUX_TMPDIR
+ * points at a missing directory tmux silently falls back to the shared
+ * /tmp/tmux-<uid>/default socket, and every parallel test ends up on one server.
+ * (Not created when the test's temp dir is already gone, e.g. during cleanup.)
+ *
+ * TMUX is cleared because tmux prefers the socket named by $TMUX over
+ * TMUX_TMPDIR, so a run started from inside tmux would otherwise still use the
+ * outer server.
+ */
+export function isolatedTmuxEnv(sessionDir: string): Record<string, string> {
+  const parent = path.dirname(sessionDir);
+  const tmuxDir = path.join(parent, 'tmux');
+  if (fs.existsSync(parent)) fs.mkdirSync(tmuxDir, { recursive: true });
+  return { TMUX_TMPDIR: tmuxDir, TMUX: '' };
+}
+
+/**
  * Spawn the devsesh start command.
  * @param sessionName - Name for the session
  * @param configPath - Path to the config file
  * @param sessionDir - Directory for session files
  * @param serverUrl - Server URL for the session
+ * @param isolateTmux - run the session on a private tmux server (see
+ *   isolatedTmuxEnv). Clean it up with killTmuxSession(name, sessionDir).
  * @returns DevseshProcess object
  */
 export function spawnDevseshStart(
   sessionName: string,
   configPath: string,
   sessionDir: string,
-  serverUrl: string
+  serverUrl: string,
+  isolateTmux: boolean = false
 ): DevseshProcess {
   return spawnDevseshWithPty(['start', sessionName], {
     DEVSESH_CONFIG_FILE: configPath,
     DEVSESH_SESSIONS_DIR: sessionDir,
     DEVSESH_SERVER_URL: serverUrl,
+    ...(isolateTmux ? isolatedTmuxEnv(sessionDir) : {}),
   });
 }
 
@@ -294,10 +321,14 @@ export async function sendTmuxCommand(sessionId: string, command: string): Promi
 /**
  * Kill a tmux session.
  * @param sessionId - tmux session ID to kill
+ * @param isolatedSessionDir - the sessions dir of a test that started its session with
+ *   isolateTmux, so the session is killed on that test's private tmux server
  */
-export async function killTmuxSession(sessionId: string): Promise<void> {
+export async function killTmuxSession(sessionId: string, isolatedSessionDir?: string): Promise<void> {
   try {
-    await execAsync(`tmux kill-session -t "${sessionId}"`);
+    await execAsync(`tmux kill-session -t "${sessionId}"`, {
+      env: isolatedSessionDir ? { ...process.env, ...isolatedTmuxEnv(isolatedSessionDir) } : process.env,
+    });
   } catch {
     // Session might already be dead, ignore errors
   }
@@ -345,4 +376,96 @@ export async function waitForSessionFile(
   }
 
   throw new Error(`No session file appeared in ${sessionDir} within ${timeout}ms`);
+}
+
+const diagTail = (text: string, max = 3000): string =>
+  text.length > max ? `...${text.slice(-max)}` : text;
+
+/**
+ * Print everything useful for working out why a `devsesh start` did not show up
+ * in the API: its own output, the watcher log and session file, the tmux state,
+ * every devsesh start/watch process for that name (with the env that decides
+ * which tmux server and sessions dir it uses), and the machine load. Never
+ * throws; it runs on the way to a test failure.
+ */
+export async function dumpStartDiagnostics(
+  sessionName: string,
+  target: { proc?: DevseshProcess; sessionDir: string }
+): Promise<void> {
+  const out: string[] = [`[START DIAG] session '${sessionName}' did not register`];
+  const section = (title: string, body: string) => out.push(`[START DIAG] --- ${title} ---\n${body.trimEnd()}`);
+  const run = async (cmd: string, env?: Record<string, string>): Promise<string> => {
+    try {
+      const { stdout, stderr } = await execAsync(cmd, { env: { ...process.env, ...env }, timeout: 10000 });
+      return `${stdout}${stderr}`;
+    } catch (e: any) {
+      return `(failed: ${String(e?.stderr || e?.message || e).trim()})`;
+    }
+  };
+
+  try {
+    section('load', `loadavg=${os.loadavg().map((n) => n.toFixed(2)).join(' ')} cpus=${os.cpus().length} freemem=${Math.round(os.freemem() / 1048576)}MB`);
+
+    if (target.proc) {
+      section('devsesh start stdout', diagTail(target.proc.stdout));
+      section('devsesh start stderr', diagTail(target.proc.stderr));
+      section('devsesh start exited?', String(target.proc.process.exitCode ?? 'still running'));
+    }
+
+    if (fs.existsSync(target.sessionDir)) {
+      for (const f of fs.readdirSync(target.sessionDir)) {
+        const p = path.join(target.sessionDir, f);
+        const st = fs.statSync(p);
+        let body = `${st.size} bytes, modified ${st.mtime.toISOString()}`;
+        if (f.endsWith('.yml') || f.endsWith('.log')) {
+          body += `\n${diagTail(fs.readFileSync(p, 'utf8'))}`;
+        }
+        section(`sessions dir: ${f}`, body);
+      }
+    } else {
+      section('sessions dir', `${target.sessionDir} does not exist`);
+    }
+
+    const tmuxEnv = isolatedTmuxEnv(target.sessionDir);
+    section('tmux (isolated server)', await run('tmux list-sessions 2>&1', tmuxEnv));
+    section('tmux (default server)', await run('tmux list-sessions 2>&1'));
+    section('tmux socket dir', await run(`ls -la "${tmuxEnv.TMUX_TMPDIR}" 2>&1`));
+
+    const pids = (await run(`pgrep -f "devsesh (start|watch) ${sessionName}"`)).split('\n').filter((l) => /^\d+$/.test(l.trim()));
+    const procs: string[] = [];
+    for (const pid of pids) {
+      const info = await run(`ps -o pid,etime,args -p ${pid} | tail -n +2`);
+      let env = '';
+      try {
+        const vars = fs.readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0');
+        env = vars.filter((v) => /^(TMUX_TMPDIR|DEVSESH_SESSIONS_DIR|DEVSESH_CONFIG_FILE|TMUX)=/.test(v)).join(' ');
+      } catch { /* process gone */ }
+      procs.push(`${info.trim()}\n    ${env}`);
+    }
+    section(`devsesh start/watch processes named '${sessionName}'`, procs.join('\n') || '(none running)');
+
+    section('docker ps', await run("docker ps --format '{{.Names}} {{.Status}} {{.Ports}}'"));
+  } catch (e) {
+    out.push(`[START DIAG] diagnostics failed: ${e}`);
+  }
+  console.log(out.join('\n'));
+}
+
+/**
+ * waitForSessionInApi for a session launched with `devsesh start`: on timeout it
+ * prints dumpStartDiagnostics before rethrowing, so a flaky start leaves evidence.
+ */
+export async function waitForStartedSession(
+  serverUrl: string,
+  token: string,
+  sessionName: string,
+  timeout: number,
+  target: { proc?: DevseshProcess; sessionDir: string }
+): Promise<Session> {
+  try {
+    return await waitForSessionInApi(serverUrl, token, sessionName, timeout);
+  } catch (err) {
+    await dumpStartDiagnostics(sessionName, target);
+    throw err;
+  }
 }

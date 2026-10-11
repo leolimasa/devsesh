@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test';
 import { startServer, stopServer, ServerInstance } from '../helpers/server';
 import { setupPairedCli } from '../helpers/pairing';
-import { spawnDevseshStart, killTmuxSession, waitForSessionInApi } from '../helpers/session';
+import { spawnDevseshStart, killTmuxSession, waitForSessionInApi, waitForStartedSession } from '../helpers/session';
 import {
   startSSHContainer as startContainer,
   stopSSHContainer as stopContainer,
@@ -92,10 +92,10 @@ async function setupTestEnvironment(page: Page): Promise<TestContext> {
   const sessionName = `test-session-${Date.now()}`;
 
   console.log('Starting devsesh session via CLI...');
-  const devseshProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url);
+  const devseshProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url, true);
 
   console.log('Waiting for session to appear in API...');
-  const foundSession = await waitForSessionInApi(server.url, token, sessionName, 15000);
+  const foundSession = await waitForStartedSession(server.url, token, sessionName, 15000, { proc: devseshProcess, sessionDir });
   const sessionId = foundSession.id;
   console.log('Session found in API with ID:', sessionId);
 
@@ -128,7 +128,7 @@ async function cleanupTestEnvironment(ctx: TestContext): Promise<void> {
   }
   if (ctx.devseshProcess) {
     console.log('Killing devsesh session...');
-    killTmuxSession(ctx.sessionName);
+    killTmuxSession(ctx.sessionName, ctx.sessionDir);
   }
   await stopSSHContainer();
   await stopServer(ctx.server);
@@ -836,10 +836,10 @@ async function setupTestEnvironmentWithSession(page: Page, sessionName: string):
   console.log('Host updated to use SSH container port:', sshPort);
 
   console.log('Starting devsesh session via CLI with name:', sessionName);
-  const devseshProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url);
+  const devseshProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url, true);
 
   console.log('Waiting for session to appear in API...');
-  const foundSession = await waitForSessionInApi(server.url, token, sessionName, 15000);
+  const foundSession = await waitForStartedSession(server.url, token, sessionName, 15000, { proc: devseshProcess, sessionDir });
 
   // Use the found session ID (UUID) for API operations
   const sessionId = foundSession.id;

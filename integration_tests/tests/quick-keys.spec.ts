@@ -17,13 +17,16 @@ import * as fs from "fs"
 import { execSync } from "child_process"
 
 const CONTAINER_NAME = "devsesh-qk-test-integration"
+// Host port for this spec's container; unique across specs so they can run in parallel
+// (ssh-e2e 2222, ssh-ca 2223-2225 and 2233, restart 2231, new-session 2232).
+const SSH_PORT = 2226
 let containerIndex = 0
 let sshContainer: SSHContainer | null = null
 
 async function startSSHContainer(): Promise<number> {
   const name = `${CONTAINER_NAME}-${Date.now()}-${containerIndex++}`
   try { require("child_process").execSync(`docker rm -f ${name}`, { stdio: "ignore" }) } catch {}
-  sshContainer = await startContainer({ name, port: 2222 })
+  sshContainer = await startContainer({ name, port: SSH_PORT })
   return sshContainer.port
 }
 
@@ -58,7 +61,7 @@ async function setupTestEnvironment(
   const sessionDir = path.join(tempDir, "sessions")
   fs.mkdirSync(sessionDir, { recursive: true })
 
-  let sshPort = 2222
+  let sshPort = SSH_PORT
   if (options.withSession) {
     sshPort = await startSSHContainer()
     console.log("SSH container started on port:", sshPort)

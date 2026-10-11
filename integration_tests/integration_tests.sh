@@ -86,15 +86,30 @@ echo "Running Playwright tests..."
 cd "$SCRIPT_DIR"
 echo "Using chromium from: ${CHROMIUM_PATH:-$(which chromium || echo 'not found')}"
 
-# Run with xvfb for headless display
+# Specs are independent: each starts its own server on a random port with its own
+# temp dirs, and the specs that use the SSH test container each have their own
+# container name and host port. So everything runs in parallel.
+# Override the worker count with DEVSESH_TEST_WORKERS.
+WORKERS="${DEVSESH_TEST_WORKERS:-4}"
+
+run_playwright() {
+    # Run with xvfb for headless display when available
+    if command -v xvfb-run &> /dev/null; then
+        xvfb-run --auto-servernum -- npx playwright test "$@"
+    else
+        npx playwright test "$@"
+    fi
+}
+
 if command -v xvfb-run &> /dev/null; then
     echo "Using xvfb-run for headless display"
-    xvfb-run --auto-servernum -- npx playwright test
 else
     echo "xvfb-run not available, running directly"
-    npx playwright test
 fi
-TEST_EXIT_CODE=$?
+
+TEST_EXIT_CODE=0
+echo "Running specs with $WORKERS workers"
+run_playwright --workers="$WORKERS" || TEST_EXIT_CODE=$?
 
 echo ""
 echo "=== Test Run Complete ==="

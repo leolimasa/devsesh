@@ -41,7 +41,7 @@ import {
   execInContainer,
 } from '../helpers/ssh-container'
 import { getUserIdByEmail } from '../helpers/enrollment'
-import { spawnDevseshStart, killTmuxSession, waitForSessionInApi } from '../helpers/session'
+import { spawnDevseshStart, killTmuxSession, waitForSessionInApi, waitForStartedSession } from '../helpers/session'
 import { spawnDevseshLogin, extractPairingCode, waitForCliSuccess } from '../helpers/cli'
 import { enterPairingCode } from '../helpers/pairing'
 import * as path from 'path'
@@ -252,10 +252,10 @@ async function setupSSHCATestEnvironment(
   // The session name should match the tmux session in the container
   const sessionName = 'testsession'
   console.log('[SSH CA] Starting devsesh session:', sessionName)
-  const devseshProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url)
+  const devseshProcess = spawnDevseshStart(sessionName, configPath, sessionDir, server.url, true)
 
   // Wait for session to appear in API
-  const foundSession = await waitForSessionInApi(server.url, token, sessionName, 15000)
+  const foundSession = await waitForStartedSession(server.url, token, sessionName, 15000, { proc: devseshProcess, sessionDir })
   const sessionId = foundSession.id
   console.log('[SSH CA] Session found with ID:', sessionId)
 
@@ -295,7 +295,7 @@ async function cleanupSSHCATestEnvironment(ctx: SSHCATestContext): Promise<void>
   }
 
   if (ctx.devseshProcess) {
-    killTmuxSession(ctx.sessionName)
+    killTmuxSession(ctx.sessionName, ctx.sessionDir)
   }
 
   await stopSSHContainer(ctx.container)
@@ -1070,8 +1070,8 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
       // Session B: a second tmux session in the container + a devsesh session on
       // the SAME (certificate-only) host.
       createTmuxSession(ctx.container.name, nameB)
-      spawnDevseshStart(nameB, ctx.configPath, ctx.sessionDir, ctx.server.url)
-      const sessionB = await waitForSessionInApi(ctx.server.url, ctx.token, nameB, 15000)
+      const procB = spawnDevseshStart(nameB, ctx.configPath, ctx.sessionDir, ctx.server.url, true)
+      const sessionB = await waitForStartedSession(ctx.server.url, ctx.token, nameB, 15000, { proc: procB, sessionDir: ctx.sessionDir })
       const idB = sessionB.id
       bPingInterval = setInterval(async () => {
         try {
@@ -1141,7 +1141,7 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
       await expect(page.locator('.xterm-screen')).toContainText('SHELL_OK_B_FINAL', { timeout: 10000 })
     } finally {
       if (bPingInterval) clearInterval(bPingInterval)
-      try { killTmuxSession(nameB) } catch { /* ignore */ }
+      try { killTmuxSession(nameB, ctx?.sessionDir) } catch { /* ignore */ }
       if (ctx) await cleanupSSHCATestEnvironment(ctx)
     }
   })
@@ -1244,8 +1244,8 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
       expect(upd.ok).toBe(true)
 
       // Start session B on host 2.
-      spawnDevseshStart(nameB, config2, sessionDir2, ctx.server.url)
-      const sessionB = await waitForSessionInApi(ctx.server.url, ctx.token, nameB, 15000)
+      const procB = spawnDevseshStart(nameB, config2, sessionDir2, ctx.server.url, true)
+      const sessionB = await waitForStartedSession(ctx.server.url, ctx.token, nameB, 15000, { proc: procB, sessionDir: sessionDir2 })
       const idB = sessionB.id
       bPingInterval = setInterval(async () => {
         try {
@@ -1299,7 +1299,7 @@ test.describe('SSH CA Certificate Authentication E2E', () => {
       expect(acceptedCount(CONTAINER2), 'host2 authenticated exactly once (pooled)').toBe(1)
     } finally {
       if (bPingInterval) clearInterval(bPingInterval)
-      try { killTmuxSession(nameB) } catch { /* ignore */ }
+      try { killTmuxSession(nameB, ctx?.sessionDir) } catch { /* ignore */ }
       if (container2) await stopSSHContainer(container2)
       if (ctx) await cleanupSSHCATestEnvironment(ctx)
     }

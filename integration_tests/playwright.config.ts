@@ -1,5 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const chromiumUse = {
+  ...devices['Desktop Chrome'],
+  headless: true,
+  launchOptions: {
+    executablePath: process.env.CHROMIUM_PATH,
+    args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+  },
+};
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -17,14 +26,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        headless: true,
-        launchOptions: {
-          executablePath: process.env.CHROMIUM_PATH,
-          args: ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
-        },
-      },
+      use: chromiumUse,
     },
   ],
   timeout: 60000,
