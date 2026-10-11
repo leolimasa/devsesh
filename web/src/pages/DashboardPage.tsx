@@ -411,7 +411,7 @@ export default function DashboardPage() {
                         positioned Restart/Delete buttons so the Active/Inactive
                         badge doesn't sit underneath them. */}
                     <div className="flex justify-between items-center gap-2 pl-7 pr-20">
-                      <CardTitle className="text-lg truncate">{session.name || "-"}</CardTitle>
+                      <CardTitle data-user-content className="text-lg truncate">{session.name || "-"}</CardTitle>
                       <Badge className="shrink-0" variant={isActive(session) ? "success" : "secondary"}>
                         {isActive(session) ? "Active" : "Inactive"}
                       </Badge>

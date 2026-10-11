@@ -384,6 +384,22 @@ This document describes all API endpoints available in the devsesh server.
 - **Authentication:** Requires JWT token
 - **Description:** Complete WebAuthn authentication for SSH key authorization.
 
+## Settings Endpoints
+
+Per-user settings (one row per user, see the `user_settings` table). Today the only setting is the UI theme.
+
+### Get Settings
+- **Endpoint:** `GET /api/v1/settings`
+- **Authentication:** Requires JWT token
+- **Response:** `{"user_id": 1, "theme": "dark-blue", ...}`. A user who has never saved a setting gets the default theme, `dark-blue`.
+
+### Update Settings
+- **Endpoint:** `PUT /api/v1/settings`
+- **Authentication:** Requires JWT token
+- **Request Body:** `{"theme": "<id>"}`. Fields are optional; only the ones provided change.
+- **Valid themes:** `dark-blue`, `one-dark`, `scifi-rts` (the ids in `web/src/lib/themes.ts`; an unknown id is a 400).
+- **Response:** the saved settings
+
 ## Static Files
 
 ### Root

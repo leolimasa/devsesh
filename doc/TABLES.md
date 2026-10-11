@@ -86,3 +86,15 @@ Registered hosts that users can create sessions on.
 | updated_at | DATETIME | NOT NULL                           |
 
 Unique constraint: (user_id, label)
+
+
+## user_settings
+
+Per-user settings: one row per user, one column per setting. A user with no row gets the defaults.
+
+| Column     | Type      | Constraints                                         |
+|------------|-----------|-----------------------------------------------------|
+| user_id    | INTEGER   | PRIMARY KEY, FOREIGN KEY -> users(id) ON DELETE CASCADE |
+| theme      | TEXT      | NOT NULL, DEFAULT 'dark-blue'                       |
+| created_at | TIMESTAMP | NOT NULL, DEFAULT CURRENT_TIMESTAMP                 |
+| updated_at | TIMESTAMP | NOT NULL, DEFAULT CURRENT_TIMESTAMP                 |

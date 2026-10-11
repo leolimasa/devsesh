@@ -17,6 +17,7 @@ import (
 var validThemes = map[string]bool{
 	"dark-blue": true,
 	"one-dark":  true,
+	"scifi-rts": true,
 }
 
 // GetHandler returns the authenticated user's settings (defaults if unset).

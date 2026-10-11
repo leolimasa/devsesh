@@ -31,10 +31,12 @@ describe("SettingsPage", () => {
     document.documentElement.removeAttribute("style")
   })
 
-  it("lists both themes and marks the active one", () => {
+  it("lists every theme and marks the active one", () => {
     renderPage()
     expect(screen.getByTestId("theme-option-dark-blue")).toHaveAttribute("aria-pressed", "true")
     expect(screen.getByTestId("theme-option-one-dark")).toHaveAttribute("aria-pressed", "false")
+    expect(screen.getByTestId("theme-option-scifi-rts")).toHaveAttribute("aria-pressed", "false")
+    expect(screen.getByText("SciFi RTS")).toBeInTheDocument()
   })
 
   it("switching theme applies the CSS vars and persists to the server", async () => {
@@ -53,5 +55,25 @@ describe("SettingsPage", () => {
     expect(mockUpdateSettings).toHaveBeenCalledWith({ theme: "one-dark" })
     expect(localStorage.getItem("theme")).toBe("one-dark")
     expect(screen.getByTestId("theme-option-one-dark")).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("switching to SciFi RTS applies its skin and switching back removes it", async () => {
+    renderPage()
+    fireEvent.click(screen.getByTestId("theme-option-scifi-rts"))
+
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("scifi-rts"))
+    expect(document.documentElement.style.getPropertyValue("--glow")).not.toBe("")
+    expect(document.documentElement.style.getPropertyValue("--radius")).toBe("0.25rem")
+    expect(
+      document.querySelector('meta[name="theme-color"]')?.getAttribute("content")
+    ).toBe("#050a14")
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ theme: "scifi-rts" })
+    expect(localStorage.getItem("theme")).toBe("scifi-rts")
+
+    // Switching back must not leave SciFi RTS-only variables behind.
+    fireEvent.click(screen.getByTestId("theme-option-dark-blue"))
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark-blue"))
+    expect(document.documentElement.style.getPropertyValue("--glow")).toBe("")
+    expect(document.documentElement.style.getPropertyValue("--radius")).toBe("")
   })
 })

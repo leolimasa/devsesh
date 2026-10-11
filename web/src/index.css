@@ -58,3 +58,187 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Michroma (SIL OFL 1.1, see public/fonts/Michroma-OFL.txt): a wide, Eurostile-like
+   display face used for headings in the "SciFi RTS" theme only. ~18KB. */
+@font-face {
+  font-family: "Michroma";
+  src: url("/fonts/Michroma-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ------------------------------------------------------------------------- *
+ * "SciFi RTS" skin (StarCraft II front-end look).
+ *
+ * Colors come from the theme's CSS variables (src/lib/themes.ts); this block only
+ * adds structure that variables can't express: display font, glow, bevels, the
+ * amber primary action. Everything is scoped to [data-theme="scifi-rts"], which
+ * applyTheme() sets on <html>, so the other themes are untouched.
+ *
+ * Components opt in through data-ui / data-variant attributes (see components/ui).
+ * ------------------------------------------------------------------------- */
+:root[data-theme="scifi-rts"] {
+  --font-display: "Michroma", "Eurostile", "Bank Gothic", "Segoe UI", system-ui, sans-serif;
+}
+
+/* Deep-space backdrop: a blue glow rising from the top, a faint one bottom-left. */
+[data-theme="scifi-rts"] body {
+  background-image:
+    radial-gradient(120% 55% at 75% -8%, hsl(var(--glow) / 0.28), transparent 62%),
+    radial-gradient(70% 45% at 0% 105%, hsl(var(--glow) / 0.1), transparent 70%);
+  background-attachment: fixed;
+}
+
+/* Glowing rail along the top edge, like the SC2 menu bar. Purely decorative. */
+[data-theme="scifi-rts"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 2px;
+  z-index: 60;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, hsl(var(--glow) / 0.9) 30%, hsl(var(--glow) / 0.9) 70%, transparent);
+  box-shadow: 0 0 14px hsl(var(--glow) / 0.55);
+}
+
+[data-theme="scifi-rts"] ::selection {
+  background: hsl(var(--glow) / 0.35);
+}
+
+[data-theme="scifi-rts"] * {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--input)) hsl(var(--background));
+}
+
+/* Headings: wide display face, uppercase, tracked out. Michroma is much wider than
+   the body font, so sizes are set explicitly (rem) rather than inherited. */
+[data-theme="scifi-rts"] :is(h1, h2, h3):not([data-user-content]) {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-synthesis: none;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 18px hsl(var(--glow) / 0.35);
+}
+[data-theme="scifi-rts"] h1:not([data-user-content]) { font-size: 1.25rem; line-height: 1.5rem; }
+[data-theme="scifi-rts"] h2:not([data-user-content]) { font-size: 1.1rem; line-height: 1.4rem; }
+/* Small h3s are field labels (e.g. the session details panel); card titles are larger. */
+[data-theme="scifi-rts"] h3:not([data-user-content]) { font-size: 0.8rem; line-height: 1.1rem; }
+[data-theme="scifi-rts"] [data-ui="card-title"]:not([data-user-content]) { font-size: 1rem; line-height: 1.35rem; }
+/* User-supplied text (e.g. a session name) keeps the readable body font. */
+[data-theme="scifi-rts"] [data-user-content] { letter-spacing: normal; }
+
+/* Panels: blue edge with a brighter top rim and a soft outer glow. */
+[data-theme="scifi-rts"] [data-ui="card"] {
+  border-color: hsl(var(--border));
+  border-top-color: hsl(var(--glow) / 0.6);
+  background-image: linear-gradient(180deg, hsl(var(--glow) / 0.09), transparent 45%);
+  box-shadow:
+    0 0 0 1px hsl(var(--background)),
+    0 0 26px hsl(var(--glow) / 0.1),
+    inset 0 1px 0 hsl(var(--glow) / 0.22);
+}
+
+/* Fields: recessed, with a glowing edge on focus. */
+[data-theme="scifi-rts"] [data-ui="input"] {
+  background-color: hsl(var(--background));
+  box-shadow: inset 0 2px 4px hsl(0 0% 0% / 0.55);
+}
+[data-theme="scifi-rts"] [data-ui="input"]:focus-visible {
+  border-color: hsl(var(--ring));
+  box-shadow: inset 0 2px 4px hsl(0 0% 0% / 0.55), 0 0 12px hsl(var(--ring) / 0.45);
+}
+
+/* Badges: rectangular tags rather than pills. Kept in the body font and case so
+   names next to them do not truncate earlier than in the other themes. */
+[data-theme="scifi-rts"] [data-ui="badge"] {
+  border-radius: var(--radius);
+}
+/* Status chips: tinted surface, colored edge, bright text (the shared green/yellow
+   badge colors put white or black text on saturated fills, which is hard to read). */
+[data-theme="scifi-rts"] [data-ui="badge"][data-variant="success"] {
+  color: hsl(var(--success));
+  background-color: hsl(var(--success-surface));
+  border-color: hsl(var(--success-edge));
+  box-shadow: 0 0 10px hsl(var(--success-edge) / 0.25);
+}
+[data-theme="scifi-rts"] [data-ui="badge"][data-variant="warning"] {
+  color: hsl(var(--warning));
+  background-color: hsl(var(--warning-surface));
+  border-color: hsl(var(--warning-edge));
+}
+[data-theme="scifi-rts"] [data-ui="badge"][data-variant="secondary"] {
+  border-color: hsl(var(--border));
+}
+
+/* Buttons: uppercase, beveled, glowing. The default (primary) variant is amber, the
+   way SC2 marks the one main action; everything else is blue. */
+[data-theme="scifi-rts"] [data-ui="button"] {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  transition: filter 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+[data-theme="scifi-rts"] [data-ui="button"][data-variant="default"] {
+  color: hsl(var(--cta-foreground));
+  background-color: hsl(var(--cta-bottom));
+  background-image: linear-gradient(180deg, hsl(var(--cta-top)), hsl(var(--cta-bottom)));
+  border: 1px solid hsl(var(--cta));
+  box-shadow:
+    inset 0 1px 0 hsl(var(--cta) / 0.4),
+    0 0 0 1px hsl(0 0% 0% / 0.55),
+    0 0 14px hsl(var(--cta) / 0.22);
+}
+[data-theme="scifi-rts"] :is(
+  [data-ui="button"][data-variant="outline"],
+  [data-ui="button"][data-variant="secondary"]
+) {
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--input));
+  background-color: hsl(var(--button-bottom));
+  background-image: linear-gradient(180deg, hsl(var(--button-top)), hsl(var(--button-bottom)));
+  box-shadow:
+    inset 0 1px 0 hsl(var(--glow) / 0.3),
+    0 0 0 1px hsl(0 0% 0% / 0.55),
+    0 0 12px hsl(var(--glow) / 0.12);
+}
+[data-theme="scifi-rts"] [data-ui="button"][data-variant="destructive"] {
+  border: 1px solid hsl(var(--destructive-foreground) / 0.35);
+  box-shadow: inset 0 1px 0 hsl(var(--destructive-foreground) / 0.25), 0 0 0 1px hsl(0 0% 0% / 0.55);
+}
+[data-theme="scifi-rts"] [data-ui="button"]:not(:disabled):hover {
+  filter: brightness(1.2);
+}
+[data-theme="scifi-rts"] [data-ui="button"][data-variant="default"]:not(:disabled):hover {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--cta) / 0.5),
+    0 0 0 1px hsl(0 0% 0% / 0.55),
+    0 0 20px hsl(var(--cta) / 0.4);
+}
+[data-theme="scifi-rts"] :is(
+  [data-ui="button"][data-variant="outline"],
+  [data-ui="button"][data-variant="secondary"]
+):not(:disabled):hover {
+  border-color: hsl(var(--ring));
+  box-shadow:
+    inset 0 1px 0 hsl(var(--glow) / 0.4),
+    0 0 0 1px hsl(0 0% 0% / 0.55),
+    0 0 18px hsl(var(--glow) / 0.35);
+}
+/* Ghost buttons (toolbars, icon buttons) stay transparent and only glow on hover. */
+[data-theme="scifi-rts"] [data-ui="button"][data-variant="ghost"] {
+  border: 1px solid transparent;
+}
+[data-theme="scifi-rts"] [data-ui="button"][data-variant="ghost"]:not(:disabled):hover {
+  filter: none;
+  border-color: hsl(var(--input) / 0.7);
+  background-color: hsl(var(--accent) / 0.55);
+  box-shadow: 0 0 14px hsl(var(--glow) / 0.25);
+}
+/* The text link variant stays a plain link. */
+[data-theme="scifi-rts"] [data-ui="button"][data-variant="link"] {
+  text-transform: none;
+  letter-spacing: normal;
+}

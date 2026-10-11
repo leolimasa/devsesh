@@ -3,7 +3,7 @@
 // validThemes (internal/settings/handler.go).
 import type { ITheme } from "@xterm/xterm"
 
-export type ThemeId = "dark-blue" | "one-dark"
+export type ThemeId = "dark-blue" | "one-dark" | "scifi-rts"
 
 export interface ThemeDef {
   id: ThemeId
@@ -17,7 +17,9 @@ export interface ThemeDef {
   // controls (the <select> popup, scrollbars, form widgets): without this a dark
   // theme still gets a light OS "aqua" select popup. Set to the theme's base.
   colorScheme: "light" | "dark"
-  // shadcn CSS variables as "H S% L%" triplets (consumed via hsl(var(--x))).
+  // shadcn CSS variables as "H S% L%" triplets (consumed via hsl(var(--x))). A theme
+  // may also set extra variables (e.g. --radius, --glow, --cta) that only its own
+  // skin in index.css reads; applyTheme removes them again on switching away.
   cssVars: Record<string, string>
   // xterm.js terminal theme.
   terminal: ITheme
@@ -113,6 +115,79 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       brightWhite: "#ffffff",
     },
   },
+
+  // "SciFi RTS": modelled on the StarCraft II front-end. A near-black navy base
+  // lit by electric-blue glow, glowing blue panel edges, and amber reserved for the
+  // one primary action (like the "Ready" button). The look beyond colors (display
+  // font, bevels, glow) lives in the [data-theme="scifi-rts"] block in index.css.
+  // Every foreground/background pair below is checked in themes.test.ts.
+  "scifi-rts": {
+    id: "scifi-rts",
+    label: "SciFi RTS",
+    swatch: ["#050a14", "#3cb4ff", "#eaf4ff"],
+    themeColor: "#050a14",
+    colorScheme: "dark",
+    cssVars: {
+      "--background": "220 60% 4.9%",
+      "--foreground": "211.4 100% 95.9%",
+      "--card": "219.5 65.5% 11.4%",
+      "--card-foreground": "211.4 100% 95.9%",
+      "--popover": "219.5 65.5% 11.4%",
+      "--popover-foreground": "211.4 100% 95.9%",
+      "--primary": "203.1 100% 61.8%",
+      "--primary-foreground": "213.3 77.1% 6.9%",
+      "--secondary": "217.4 62.9% 19%",
+      "--secondary-foreground": "214.3 94.6% 92.7%",
+      "--muted": "217.4 62.9% 19%",
+      "--muted-foreground": "213 36.1% 67.5%",
+      "--accent": "218.6 64.6% 25.5%",
+      "--accent-foreground": "0 0% 100%",
+      "--destructive": "356.6 65% 42.5%",
+      "--destructive-foreground": "0 0% 100%",
+      "--border": "215.3 67.3% 31.2%",
+      "--input": "210.9 72.7% 55.5%",
+      "--ring": "200.2 100% 68%",
+      // Slightly squarer corners than the 0.5rem default.
+      "--radius": "0.25rem",
+      // Skin-only variables, read by index.css.
+      "--glow": "203.1 100% 61.8%",
+      "--cta": "32.6 100% 61.4%",
+      "--cta-foreground": "39.5 100% 92%",
+      "--cta-top": "28.7 82.5% 26.9%",
+      "--cta-bottom": "26.9 82.7% 15.9%",
+      "--button-top": "215.3 72.9% 26.1%",
+      "--button-bottom": "218.9 73% 14.5%",
+      "--success": "139.8 76.9% 74.5%",
+      "--success-surface": "151.3 63.9% 14.1%",
+      "--success-edge": "144.8 50.4% 49.8%",
+      "--warning": "42.1 100% 77.1%",
+      "--warning-surface": "40.9 80.5% 16.1%",
+      "--warning-edge": "42.6 77.9% 47.8%",
+    },
+    terminal: {
+      background: "#040912",
+      foreground: "#d6e6f7",
+      cursor: "#ffb23e",
+      cursorAccent: "#040912",
+      selectionBackground: "#17356b",
+      black: "#0a1730",
+      red: "#ff5c6a",
+      green: "#5fe08a",
+      yellow: "#ffc857",
+      blue: "#4da3ff",
+      magenta: "#c58bff",
+      cyan: "#5fe3ff",
+      white: "#d6e6f7",
+      brightBlack: "#7f98b8",
+      brightRed: "#ff8590",
+      brightGreen: "#8cf0ad",
+      brightYellow: "#ffdc8a",
+      brightBlue: "#80bfff",
+      brightMagenta: "#dbb4ff",
+      brightCyan: "#94eeff",
+      brightWhite: "#ffffff",
+    },
+  },
 }
 
 export const THEME_LIST: ThemeDef[] = Object.values(THEMES)
@@ -127,9 +202,18 @@ export function applyTheme(id: ThemeId): void {
   if (typeof document === "undefined") return
   const t = THEMES[id] ?? THEMES[DEFAULT_THEME_ID]
   const root = document.documentElement
+  // Drop variables another theme set but this one doesn't (e.g. --radius, --glow),
+  // so they fall back to the index.css defaults instead of leaking across switches.
+  for (const theme of THEME_LIST) {
+    for (const k of Object.keys(theme.cssVars)) {
+      if (!(k in t.cssVars)) root.style.removeProperty(k)
+    }
+  }
   for (const [k, v] of Object.entries(t.cssVars)) {
     root.style.setProperty(k, v)
   }
+  // Hook for theme-specific skins in index.css ([data-theme="..."] selectors).
+  root.dataset.theme = t.id
   // Paint native controls (select popup, scrollbars, form widgets) in the
   // theme's base scheme so they don't fall back to the light OS look.
   root.style.colorScheme = t.colorScheme
