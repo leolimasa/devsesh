@@ -1,0 +1,54 @@
+--- src/PasskeyManager.swift.orig	2026-10-10 22:12:46
++++ src/PasskeyManager.swift	2026-10-10 22:12:46
+@@ -17,6 +17,7 @@
+     var authenticators: [AuthenticatorType] = AuthenticatorType.allCases  // Which authenticator types to offer (default: both)
+     var excludeCredentials: [CredentialDescriptor]? = nil       // Optional list of existing credentials to prevent re-registration
+     var userVerification: UserVerificationRequirement = .preferred  // User verification requirement (default: .preferred)
++    var challenge: Data? = nil  // Server-supplied challenge (devsesh patch)
+     var attestation: AttestationPreference = .none              // Attestation preference (default: .none)
+     var largeBlobRequired: Bool = false                         // If true, requires largeBlob support; if false, uses system default (macOS 14.0+)
+                                                                 // ⚠️ Platform keys only - not supported on security keys
+@@ -31,6 +32,7 @@
+     var authenticators: [AuthenticatorType] = AuthenticatorType.allCases  // Which authenticator types to offer (default: both)
+     var allowCredentials: [CredentialDescriptor]? = nil         // Optional list of credentials to allow (if nil, discovers available credentials)
+     var userVerification: UserVerificationRequirement = .preferred   // User verification requirement (default: .preferred)
++    var challenge: Data? = nil  // Server-supplied challenge (devsesh patch)
+     var largeBlobOperation: LargeBlobOperationRequest? = nil    // Optional largeBlob read/write operation (macOS 14.0+, iOS 17.0+)
+                                                                 // ⚠️ Platform keys only - not supported on security keys
+     var prf: PRFAssertionRequest? = nil                         // Optional PRF extension request. Use `.eval` to compute PRF values
+@@ -204,7 +206,7 @@
+         onSuccess: @escaping (RegistrationCredential) -> Void,
+         onError: @escaping (Error) -> Void
+     ) {
+-        let challenge = randomChallenge(length: 32)
++        let challenge = options.challenge ?? randomChallenge(length: 32)
+         guard let userIDData = options.userId.data(using: .utf8) else {
+             let error = NSError(
+                 domain: "PasskeyManager",
+@@ -346,7 +348,7 @@
+         onSuccess: @escaping (AssertionCredential) -> Void,
+         onError: @escaping (Error) -> Void
+     ) {
+-        let challenge = randomChallenge(length: 32)
++        let challenge = options.challenge ?? randomChallenge(length: 32)
+ 
+         let platformProvider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: options.rpId)
+         let platformAssertion = platformProvider.createCredentialAssertionRequest(challenge: challenge)
+--- src/WebAuthnMac.swift.orig	2026-10-10 22:12:46
++++ src/WebAuthnMac.swift	2026-10-10 22:12:46
+@@ -39,6 +39,7 @@
+                 displayName: displayName
+             )
+ 
++            if let ch = optionsDict["challenge"] as? String, let chData = Data(base64Encoded: ch) { options.challenge = chData }
+             // Parse optional fields
+             if let authenticatorsArray = optionsDict["authenticators"] as? [String] {
+                 options.authenticators = authenticatorsArray.compactMap { str in
+@@ -127,6 +128,7 @@
+             // Build options struct
+             var options = PasskeyAssertionOptions(rpId: rpId)
+ 
++            if let ch = optionsDict["challenge"] as? String, let chData = Data(base64Encoded: ch) { options.challenge = chData }
+             // Parse optional fields
+             if let authenticatorsArray = optionsDict["authenticators"] as? [String] {
+                 options.authenticators = authenticatorsArray.compactMap { str in

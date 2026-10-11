@@ -1,0 +1,6 @@
+certs/*.key
+certs/*.pem
+certs/*.cnf
+node_modules/
+dist/
+se-helper/se-helper

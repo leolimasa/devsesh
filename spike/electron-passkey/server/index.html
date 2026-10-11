@@ -1,0 +1,138 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>devsesh passkey spike</title>
+<style>
+  body { font: 14px system-ui; margin: 24px; max-width: 760px }
+  button { font: inherit; padding: 8px 14px; margin: 4px 4px 4px 0 }
+  pre { background: #f3f3f3; padding: 12px; white-space: pre-wrap; border-radius: 6px }
+  @media (prefers-color-scheme: dark) { body { background: #1c1c1e; color: #eee } pre { background: #2c2c2e } }
+</style>
+<h2>devsesh passkey spike</h2>
+<p id="env"></p>
+<button id="reg">1. Register (create + PRF)</button>
+<button id="login">2. Login (get + PRF unwrap)</button>
+<button id="stab">3. PRF stability (get twice)</button>
+<br>
+<button id="sewrap">4. Secure Enclave: create key + wrap master key</button>
+<button id="seunwrap">5. Secure Enclave: unwrap (Touch ID)</button>
+<button id="sedel">6. Delete enclave key</button>
+<pre id="out"></pre>
+<script>
+// Mirrors devsesh: same salt, same HKDF, AES-GCM wrap of a random master key.
+const SALT = new TextEncoder().encode('devsesh-master-key-v1')
+const out = document.getElementById('out')
+const log = (...a) => { out.textContent += a.join(' ') + '\n' }
+const b64u = (u8) => btoa(String.fromCharCode(...new Uint8Array(u8))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))
+const std = (u8) => btoa(String.fromCharCode(...new Uint8Array(u8)))
+const unstd = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
+const native = window.nativeWebAuthn
+document.getElementById('env').textContent =
+  `origin ${location.origin} | engine: ${native ? 'NATIVE addon (Apple AuthenticationServices)' : 'navigator.credentials'} | ${navigator.userAgent.split(' ').slice(-2).join(' ')}`
+
+async function report(step, data) {
+  log('[' + step + ']', JSON.stringify(data))
+  await fetch('/api/log', { method: 'POST', body: JSON.stringify({ step, engine: native ? 'native' : 'browser', ...data }) })
+}
+async function getChallenge() { return (await (await fetch('/api/challenge')).json()) }
+async function deriveKey(prf) {
+  const km = await crypto.subtle.importKey('raw', prf, 'HKDF', false, ['deriveKey'])
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: SALT, info: new TextEncoder().encode('master-key-derivation') },
+    km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+}
+const clientChallenge = (cdj) => JSON.parse(new TextDecoder().decode(typeof cdj === 'string' ? unstd(cdj) : new Uint8Array(cdj))).challenge
+
+// Unified create/get returning { credId, prf, clientChallenge }
+async function create() {
+  const { challenge, rpId } = await getChallenge()
+  if (native) {
+    const r = await native.create({ rpId, userId: 'spike-user', name: 'spike', displayName: 'Spike User',
+      challenge: std(unb64u(challenge)), authenticators: ['platform'], prf: { eval: { first: std(SALT) } } })
+    return { credId: r.credentialID, prf: r.prfFirst ? unstd(r.prfFirst) : null, prfEnabled: r.prfEnabled, clientChallenge: clientChallenge(r.clientDataJSON) }
+  }
+  const c = await navigator.credentials.create({ publicKey: { rp: { id: rpId, name: 'spike' }, challenge: unb64u(challenge),
+    user: { id: new TextEncoder().encode('spike-user'), name: 'spike', displayName: 'Spike User' },
+    pubKeyCredParams: [{ type: 'public-key', alg: -7 }], extensions: { prf: { eval: { first: SALT } } } } })
+  const x = c.getClientExtensionResults()
+  return { credId: std(c.rawId), prf: x.prf?.results?.first ? new Uint8Array(x.prf.results.first) : null, prfEnabled: x.prf?.enabled,
+    clientChallenge: clientChallenge(c.response.clientDataJSON) }
+}
+async function get(credIdB64) {
+  const { challenge, rpId } = await getChallenge()
+  if (native) {
+    const r = await native.get({ rpId, challenge: std(unb64u(challenge)), authenticators: ['platform'],
+      allowCredentials: credIdB64 ? [{ id: credIdB64 }] : undefined, prf: { eval: { first: std(SALT) } } })
+    return { credId: r.credentialID, prf: r.prfFirst ? unstd(r.prfFirst) : null, prfEnabled: r.prfEnabled, clientChallenge: clientChallenge(r.clientDataJSON) }
+  }
+  const a = await navigator.credentials.get({ publicKey: { rpId, challenge: unb64u(challenge), userVerification: 'preferred',
+    allowCredentials: credIdB64 ? [{ type: 'public-key', id: unstd(credIdB64) }] : [],
+    extensions: { prf: credIdB64 ? { evalByCredential: { [b64u(unstd(credIdB64))]: { first: SALT } } } : { eval: { first: SALT } } } } })
+  const x = a.getClientExtensionResults()
+  return { credId: std(a.rawId), prf: x.prf?.results?.first ? new Uint8Array(x.prf.results.first) : null, clientChallenge: clientChallenge(a.response.clientDataJSON) }
+}
+const first4 = (u8) => u8 ? Array.from(u8.slice(0, 4)).join(',') : null
+const guard = (fn) => async () => { try { await fn() } catch (e) { await report('error', { message: String(e && e.message || e) }) } }
+
+document.getElementById('reg').onclick = guard(async () => {
+  let r = await create()
+  await report('create', { prfEnabled: r.prfEnabled, prfFromCreate: first4(r.prf), clientChallenge: r.clientChallenge })
+  // devsesh always does a get() after create() to read the PRF it will wrap with.
+  const g = await get(r.credId)
+  if (!g.prf) return report('create-then-get', { prf: null })
+  const mk = crypto.getRandomValues(new Uint8Array(32))
+  const nonce = crypto.getRandomValues(new Uint8Array(12))
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, await deriveKey(g.prf), mk))
+  localStorage.setItem('spike', JSON.stringify({ credId: r.credId, nonce: std(nonce), ct: std(ct), mk: std(mk) }))
+  await report('create-then-get', { prf: first4(g.prf), wrapped: true, clientChallenge: g.clientChallenge })
+})
+document.getElementById('login').onclick = guard(async () => {
+  const s = JSON.parse(localStorage.getItem('spike') || 'null')
+  const g = await get(s && s.credId)
+  if (!g.prf) return report('login', { prf: null })
+  let unwrapped = false
+  if (s) {
+    try {
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unstd(s.nonce) }, await deriveKey(g.prf), unstd(s.ct))
+      unwrapped = std(new Uint8Array(pt)) === s.mk
+    } catch { unwrapped = false }
+  }
+  await report('login', { prf: first4(g.prf), unwrapped, clientChallenge: g.clientChallenge })
+})
+document.getElementById('stab').onclick = guard(async () => {
+  const s = JSON.parse(localStorage.getItem('spike') || 'null')
+  const a = await get(s && s.credId), b = await get(s && s.credId)
+  await report('stability', { a: first4(a.prf), b: first4(b.prf), same: !!a.prf && first4(a.prf) === first4(b.prf) })
+})
+
+// ---- Secure Enclave unlock (native app only) ----
+// Same idea as devsesh's PRF unwrap, but the wrapping key lives in the Secure Enclave.
+const se = window.nativeSE
+const seNeeded = async () => { if (!se) throw new Error('window.nativeSE missing: not running in the desktop app') }
+document.getElementById('sewrap').onclick = guard(async () => {
+  await seNeeded()
+  const c = await se.call('create')
+  if (!c.ok) return report('se-create', { error: c.error })
+  const mk = crypto.getRandomValues(new Uint8Array(32))
+  const w = await se.call('wrap', std(mk))
+  if (!w.ok) return report('se-wrap', { error: w.error })
+  // Spike only: keep the plain key too, so step 5 can compare. A real app never stores it.
+  localStorage.setItem('spikeSE', JSON.stringify({ blob: w.wrapped, mk: std(mk) }))
+  await report('se-wrap', { keyCreated: c.created, blobBytes: unstd(w.wrapped).length, prompted: false })
+})
+document.getElementById('seunwrap').onclick = guard(async () => {
+  await seNeeded()
+  const s = JSON.parse(localStorage.getItem('spikeSE') || 'null')
+  if (!s) return report('se-unwrap', { error: 'run step 4 first' })
+  const t0 = performance.now()
+  const u = await se.call('unwrap', s.blob, 'Unlock your devsesh master key')
+  const ms = Math.round(performance.now() - t0)
+  if (!u.ok) return report('se-unwrap', { error: u.error, ms })
+  await report('se-unwrap', { matches: u.unwrapped === s.mk, ms, helperMs: u.ms })
+})
+document.getElementById('sedel').onclick = guard(async () => {
+  await seNeeded()
+  localStorage.removeItem('spikeSE')
+  await report('se-delete', await se.call('delete'))
+})
+</script>

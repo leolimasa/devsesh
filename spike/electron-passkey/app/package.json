@@ -1,0 +1,36 @@
+{
+  "name": "devsesh-spike",
+  "version": "0.0.1",
+  "description": "Spike: Electron wrapper loading the devsesh web app with native Mac passkeys",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "CSC_IDENTITY_AUTO_DISCOVERY=true electron-builder --mac dir --config.mac.type=development"
+  },
+  "dependencies": {
+    "electron-webauthn-mac": "file:../../electron-webauthn-mac"
+  },
+  "devDependencies": {
+    "electron": "42.11.12",
+    "electron-builder": "26.3.4"
+  },
+  "build": {
+    "appId": "com.leosa.devseshspike",
+    "productName": "DevseshSpike",
+    "asar": true,
+    "npmRebuild": false,
+    "asarUnpack": ["**/*.node"],
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "spki.json", "node_modules/**/*", "!node_modules/.bin"],
+    "mac": {
+      "target": ["dir"],
+      "type": "development",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.inherit.plist",
+      "provisioningProfile": "embedded.provisionprofile",
+      "notarize": false
+    }
+  }
+}
