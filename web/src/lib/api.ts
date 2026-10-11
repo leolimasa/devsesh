@@ -187,6 +187,15 @@ export async function reorderSessions(sessionIds: string[]): Promise<void> {
   })
 }
 
+// Replace a session's tags. Resolves with the list the server stored (trimmed and
+// de-duplicated), which may differ slightly from what was sent.
+export async function updateSessionTags(id: string, tags: string[]): Promise<{ tags: string[] }> {
+  return fetchApi<{ tags: string[] }>(`/sessions/${id}/tags`, {
+    method: "PUT",
+    body: JSON.stringify({ tags }),
+  })
+}
+
 export async function listPasskeys(): Promise<Passkey[]> {
   return fetchApi<Passkey[]>("/auth/passkeys")
 }

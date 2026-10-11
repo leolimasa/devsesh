@@ -15,6 +15,9 @@ import { GripVertical, RotateCw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { NewSessionButton } from "@/components/NewSessionButton"
+import { TagChips } from "@/components/TagChips"
+import { TagEditor } from "@/components/TagEditor"
+import { TagFilter } from "@/components/TagFilter"
 import { cn } from "@/lib/utils"
 import { isActive, statusMetadata } from "@/lib/session"
 import { useDragReorder } from "@/hooks/useDragReorder"
@@ -42,12 +45,19 @@ export function SessionDetails({
   session,
   showHeader = true,
   onRestart,
+  onTagsChange,
+  tagSuggestions,
 }: {
   session: Session
   showHeader?: boolean
   // Recreate the tmux session on the host (`devsesh start`). Rendered as a
   // Restart button when provided.
   onRestart?: () => void
+  // Save a new tag list for this session. When provided, the Tags field is
+  // editable; otherwise the tags are shown read-only.
+  onTagsChange?: (tags: string[]) => void | Promise<void>
+  // Tags used on other sessions, offered while typing a new one.
+  tagSuggestions?: string[]
 }) {
   const active = isActive(session)
 
@@ -79,6 +89,16 @@ export function SessionDetails({
         <div>
           <h3 className="text-sm font-medium text-muted-foreground">Name</h3>
           <p>{session.name || "-"}</p>
+        </div>
+        <div>
+          <h3 className="mb-1 text-sm font-medium text-muted-foreground">Tags</h3>
+          {onTagsChange ? (
+            <TagEditor tags={session.tags ?? []} suggestions={tagSuggestions} onChange={onTagsChange} />
+          ) : (session.tags ?? []).length > 0 ? (
+            <TagChips tags={session.tags} />
+          ) : (
+            <p>-</p>
+          )}
         </div>
         <div>
           <h3 className="text-sm font-medium text-muted-foreground">Status</h3>
@@ -238,6 +258,7 @@ function SessionListItem({
           <span data-status className="block text-xs text-muted-foreground line-clamp-3">
             {statusMetadata(session.metadata) || "-"}
           </span>
+          <TagChips tags={session.tags} className="mt-1" />
         </span>
       </button>
     </div>
@@ -276,7 +297,8 @@ function SessionsList({
   )
 }
 
-// The desktop panel: name + status header, tab switcher, and the active tab.
+// The desktop panel: tab switcher and the active tab. The Sessions tab opens with
+// a toolbar (new session "+", tag filter funnel) above the list.
 export function SessionDetailPanel({
   session,
   sessions,
@@ -285,42 +307,80 @@ export function SessionDetailPanel({
   onReorderSessions,
   onRestart,
   onNewSession,
+  totalCount,
+  availableTags = [],
+  selectedTags = [],
+  onTagFilterChange,
+  onTagsChange,
 }: {
   session: Session
+  // The sessions to list: already filtered by tag, in display order. The row
+  // numbers are positions in THIS list, so they have no gaps while filtered.
   sessions: Session[]
   currentId: string
   onSelectSession: (sessionId: string) => void
+  // Receives the new order of the listed (visible) sessions only.
   onReorderSessions: (ids: string[]) => void
   onRestart?: () => void
   // Start a brand-new session (host + name from the shared dialog). Rendered as
-  // a "New session" button above the tabs when provided.
+  // a "+" button in the Sessions tab toolbar when provided.
   onNewSession?: (host: Host, name: string) => void
+  // How many sessions exist before filtering (for the "2 of 7" summary).
+  totalCount?: number
+  // Every tag in use, and the ones currently ticked in the filter.
+  availableTags?: string[]
+  selectedTags?: string[]
+  onTagFilterChange?: (selected: string[]) => void
+  // Save the CURRENT session's tags (edited in the Details tab).
+  onTagsChange?: (tags: string[]) => void | Promise<void>
 }) {
   const [activeTab, setActiveTab] = useState<PanelTab>("details")
+  const filtered = selectedTags.length > 0
+  const total = totalCount ?? sessions.length
 
   return (
     <div className="space-y-4" data-testid="session-detail-panel">
       {/* The current session's name and status are intentionally NOT repeated
           here — they already appear in the Details tab and in the Sessions
           list (the current row is highlighted). */}
-      {onNewSession && (
-        <NewSessionButton
-          onCreate={onNewSession}
-          defaultHostId={session.host_id}
-          className="w-full"
-        />
-      )}
       <PanelTabs active={activeTab} onChange={setActiveTab} />
 
       {activeTab === "sessions" ? (
-        <SessionsList
-          sessions={sessions}
-          currentId={currentId}
-          onSelect={onSelectSession}
-          onReorder={onReorderSessions}
-        />
+        <>
+          <div className="flex items-center gap-2" data-testid="sessions-toolbar">
+            {onNewSession && (
+              <NewSessionButton
+                onCreate={onNewSession}
+                defaultHostId={session.host_id}
+                size="icon"
+                label=""
+                className="shrink-0"
+              />
+            )}
+            {onTagFilterChange && (
+              <TagFilter tags={availableTags} selected={selectedTags} onChange={onTagFilterChange} />
+            )}
+            {filtered && (
+              <span data-testid="filter-summary" className="ml-auto text-xs text-muted-foreground">
+                {sessions.length} of {total}
+              </span>
+            )}
+          </div>
+          <SessionsList
+            sessions={sessions}
+            currentId={currentId}
+            onSelect={onSelectSession}
+            onReorder={onReorderSessions}
+          />
+        </>
       ) : (
-        <SessionDetails session={session} showHeader={false} onRestart={onRestart} />
+        <SessionDetails
+          session={session}
+          showHeader={false}
+          onRestart={onRestart}
+          onTagsChange={onTagsChange}
+          tagSuggestions={availableTags}
+        />
       )}
     </div>
   )

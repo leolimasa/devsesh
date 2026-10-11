@@ -3,6 +3,7 @@ package db
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -76,6 +77,22 @@ type Session struct {
 	// Seq is the user-controlled display order (ascending). New sessions append
 	// to the end; drag-to-reorder rewrites it. See ReorderSessions.
 	Seq int `json:"seq"`
+	// Tags are user-assigned labels (see sql/00023). Never nil in API output once
+	// loaded from the database; a freshly built Session may carry nil.
+	Tags []string `json:"tags"`
+}
+
+// decodeTags parses the JSON array stored in sessions.tags. Anything unreadable is
+// treated as "no tags" so one bad row cannot break a session list.
+func decodeTags(raw string) []string {
+	tags := []string{}
+	if raw == "" {
+		return tags
+	}
+	if err := json.Unmarshal([]byte(raw), &tags); err != nil || tags == nil {
+		return []string{}
+	}
+	return tags
 }
 
 func GetConfigValue(db *sql.DB, key string) (string, error) {
@@ -317,9 +334,25 @@ func UpdateSessionMeta(db *sql.DB, id, metadata string) error {
 	return nil
 }
 
+// UpdateSessionTags replaces a session's tag list. The caller validates and
+// normalizes the tags first (see sessions.NormalizeTags).
+func UpdateSessionTags(db *sql.DB, id string, tags []string) error {
+	if tags == nil {
+		tags = []string{}
+	}
+	raw, err := json.Marshal(tags)
+	if err != nil {
+		return fmt.Errorf("encode tags: %w", err)
+	}
+	if _, err := db.Exec("UPDATE sessions SET tags = ? WHERE id = ?", string(raw), id); err != nil {
+		return fmt.Errorf("update session tags: %w", err)
+	}
+	return nil
+}
+
 func GetSessionsByUserID(db *sql.DB, userID int64) ([]Session, error) {
 	rows, err := db.Query(
-		"SELECT id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, ended_at, metadata, seq FROM sessions WHERE user_id = ? ORDER BY seq ASC, started_at DESC",
+		"SELECT id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, ended_at, metadata, seq, tags FROM sessions WHERE user_id = ? ORDER BY seq ASC, started_at DESC",
 		userID,
 	)
 	if err != nil {
@@ -332,9 +365,11 @@ func GetSessionsByUserID(db *sql.DB, userID int64) ([]Session, error) {
 		var s Session
 		var startedAt string
 		var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
-		if err := rows.Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq); err != nil {
+		var tagsJSON string
+		if err := rows.Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq, &tagsJSON); err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}
+		s.Tags = decodeTags(tagsJSON)
 		s.StartedAt, _ = parseTime(startedAt)
 		if lastPingAt.Valid {
 			t, _ := parseTime(lastPingAt.String)
@@ -364,15 +399,16 @@ func GetSession(db *sql.DB, id string) (*Session, error) {
 	var hostID, hostUserID sql.NullInt64
 	var hostLabel, hostHostname, hostSSHUser, hostSSHPrincipal sql.NullString
 	var hostSSHPort sql.NullInt64
+	var tagsJSON string
 	var hostCreatedAt, hostUpdatedAt sql.NullString
 	err := db.QueryRow(`
-		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata, s.seq,
+		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata, s.seq, s.tags,
 		       h.id, h.label, h.hostname, h.ssh_user, h.ssh_port, h.ssh_principal, h.user_id, h.created_at, h.updated_at
 		FROM sessions s
 		LEFT JOIN hosts h ON s.host_id = h.id
 		WHERE s.id = ?`,
 		id,
-	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq,
+	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq, &tagsJSON,
 		&hostID, &hostLabel, &hostHostname, &hostSSHUser, &hostSSHPort, &hostSSHPrincipal, &hostUserID, &hostCreatedAt, &hostUpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -380,6 +416,7 @@ func GetSession(db *sql.DB, id string) (*Session, error) {
 		}
 		return nil, fmt.Errorf("get session: %w", err)
 	}
+	s.Tags = decodeTags(tagsJSON)
 	s.StartedAt, _ = parseTime(startedAt)
 	if lastPingAt.Valid {
 		t, _ := parseTime(lastPingAt.String)
@@ -422,17 +459,19 @@ func GetSessionByHostAndName(db *sql.DB, hostID int64, name string) (*Session, e
 	var s Session
 	var startedAt string
 	var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
+	var tagsJSON string
 	err := db.QueryRow(
-		`SELECT id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, ended_at, metadata, seq
+		`SELECT id, user_id, host_id, name, started_at, last_ping_at, last_activity_at, ended_at, metadata, seq, tags
 		 FROM sessions WHERE host_id = ? AND name = ? ORDER BY started_at DESC LIMIT 1`,
 		hostID, name,
-	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq)
+	).Scan(&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq, &tagsJSON)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get session by host and name: %w", err)
 	}
+	s.Tags = decodeTags(tagsJSON)
 	s.StartedAt, _ = parseTime(startedAt)
 	if lastPingAt.Valid {
 		t, _ := parseTime(lastPingAt.String)
@@ -908,7 +947,7 @@ func GetFirstCredentialWithMasterKey(db *sql.DB, userID int64) (*WebAuthnCredent
 
 func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 	rows, err := db.Query(`
-		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata, s.seq,
+		SELECT s.id, s.user_id, s.host_id, s.name, s.started_at, s.last_ping_at, s.last_activity_at, s.ended_at, s.metadata, s.seq, s.tags,
 		       h.id, h.label, h.hostname, h.ssh_user, h.ssh_port, h.ssh_principal, h.user_id, h.created_at, h.updated_at
 		FROM sessions s
 		LEFT JOIN hosts h ON s.host_id = h.id
@@ -930,14 +969,16 @@ func GetSessionsWithHostByUserID(db *sql.DB, userID int64) ([]Session, error) {
 		var hostSSHPort sql.NullInt64
 		var hostCreatedAt, hostUpdatedAt sql.NullString
 		var startedAt string
+		var tagsJSON string
 		var lastPingAt, lastActivityAt, endedAt, metadata sql.NullString
 
 		if err := rows.Scan(
-			&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq,
+			&s.ID, &s.UserID, &s.HostID, &s.Name, &startedAt, &lastPingAt, &lastActivityAt, &endedAt, &metadata, &s.Seq, &tagsJSON,
 			&hostID, &hostLabel, &hostHostname, &hostSSHUser, &hostSSHPort, &hostSSHPrincipal, &hostUserID, &hostCreatedAt, &hostUpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan session with host: %w", err)
 		}
+		s.Tags = decodeTags(tagsJSON)
 		s.StartedAt, _ = parseTime(startedAt)
 		if lastPingAt.Valid {
 			t, _ := parseTime(lastPingAt.String)

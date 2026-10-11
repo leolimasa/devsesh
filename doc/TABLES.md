@@ -69,6 +69,13 @@ Terminal sessions connecting users to hosts.
 | last_activity_at | DATETIME |                                    |
 | ended_at         | DATETIME |                                    |
 | metadata         | TEXT     |                                    |
+| seq              | INTEGER  | NOT NULL, DEFAULT 0                |
+| tags             | TEXT     | NOT NULL, DEFAULT '[]'          |
+
+`seq` is the user-controlled display order (ascending); a reorder rewrites it, filtering does not.
+`tags` is a JSON array of user-assigned labels (for example `["work","🔥 urgent"]`). It is kept apart from
+`metadata` because the CLI watcher overwrites metadata wholesale, and it is not touched when a session is
+restarted, so tags survive a restart.
 
 ## hosts
 

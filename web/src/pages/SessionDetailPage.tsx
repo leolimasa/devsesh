@@ -2,8 +2,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { getSession, listSessions, reorderSessions } from "@/lib/api"
+import { getSession, listSessions, reorderSessions, updateSessionTags } from "@/lib/api"
 import { sortBySeq } from "@/lib/session"
+import { mergeReorder } from "@/lib/tags"
+import { useTagFilter } from "@/hooks/useTagFilter"
 import { writeClipboard, clipboardBufferFor, type ClipboardBuffer } from "@/lib/clipboard"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useQuickKeys } from "@/hooks/useQuickKeys"
@@ -214,8 +216,17 @@ export default function SessionDetailPage() {
   // The Sessions tab and the Ctrl+N shortcut both use the user's chosen order.
   const orderedSessions = useMemo(() => sortBySeq(sessions), [sessions])
 
+  // The tag filter hides sessions from the Sessions tab and the Ctrl+N shortcut.
+  // Row numbers are positions in the visible list, so they have no gaps. The
+  // stored `seq` is untouched by filtering; only a reorder changes it.
+  const tagFilter = useTagFilter(orderedSessions)
+  const visibleSessions = tagFilter.visible
+
   // Persist a drag reorder: optimistically renumber local state, then save.
-  const handleReorderSessions = useCallback((ids: string[]) => {
+  // `visibleIds` is the new order of the sessions on screen (possibly filtered);
+  // hidden sessions keep their slots and the visible ones shuffle among theirs.
+  const handleReorderSessions = useCallback((visibleIds: string[]) => {
+    const ids = mergeReorder(orderedSessions.map((s) => s.id), visibleIds)
     setSessions((prev) => {
       const byId = new Map(prev.map((s) => [s.id, s]))
       return ids.map((sid, i) => ({ ...(byId.get(sid) as Session), seq: i }))
@@ -224,12 +235,32 @@ export default function SessionDetailPage() {
       console.error("Failed to reorder sessions:", err)
       loadSessions()
     })
-  }, [loadSessions])
+  }, [loadSessions, orderedSessions])
+
+  // Save the current session's tags. The new list shows at once; if the save
+  // fails the previous list is restored and the error is passed on so the
+  // editor can say so. The server's normalized list replaces ours on success.
+  const currentTags = session?.tags
+  const handleTagsChange = useCallback(async (tags: string[]) => {
+    if (!id) return
+    const apply = (next: string[] | undefined) => {
+      setSession((prev) => (prev && prev.id === id ? { ...prev, tags: next } : prev))
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, tags: next } : s)))
+    }
+    apply(tags)
+    try {
+      const saved = await updateSessionTags(id, tags)
+      apply(saved.tags)
+    } catch (err) {
+      apply(currentTags)
+      throw err
+    }
+  }, [id, currentTags])
 
   // Keep the latest ordered sessions available to the (stable) key handler
   // without re-registering the listener on every websocket update.
-  const sessionsRef = useRef<Session[]>(orderedSessions)
-  useEffect(() => { sessionsRef.current = orderedSessions }, [orderedSessions])
+  const sessionsRef = useRef<Session[]>(visibleSessions)
+  useEffect(() => { sessionsRef.current = visibleSessions }, [visibleSessions])
 
   // PWA-only shortcut: Ctrl+1..9 jumps to the Nth session in the Sessions list
   // (same 1-based index the user sees). Gated to standalone mode because a
@@ -348,7 +379,7 @@ export default function SessionDetailPage() {
                     />
                   </div>
                   <div className="mt-4">
-                    <SessionDetails session={session} onRestart={handleRestart} />
+                    <SessionDetails session={session} onRestart={handleRestart} onTagsChange={handleTagsChange} tagSuggestions={tagFilter.tags} />
                   </div>
                 </SheetContent>
               </Sheet>
@@ -363,7 +394,12 @@ export default function SessionDetailPage() {
           <div data-ui="side-pane" className="hidden md:block w-72 border-r bg-card p-4 overflow-y-auto flex-shrink-0">
             <SessionDetailPanel
               session={session}
-              sessions={orderedSessions}
+              sessions={visibleSessions}
+              totalCount={orderedSessions.length}
+              availableTags={tagFilter.tags}
+              selectedTags={tagFilter.selected}
+              onTagFilterChange={tagFilter.setSelected}
+              onTagsChange={handleTagsChange}
               currentId={session.id}
               onSelectSession={handleSelectSession}
               onReorderSessions={handleReorderSessions}

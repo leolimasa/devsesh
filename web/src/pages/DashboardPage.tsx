@@ -23,6 +23,10 @@ import {
 import { Menu } from "lucide-react"
 import { listSessions, deleteStaleSessions, deleteSession, getSSHCAPublicKey, reorderSessions } from "@/lib/api"
 import { NewSessionButton } from "@/components/NewSessionButton"
+import { TagChips } from "@/components/TagChips"
+import { TagFilter } from "@/components/TagFilter"
+import { useTagFilter } from "@/hooks/useTagFilter"
+import { mergeReorder } from "@/lib/tags"
 import { SessionCreator } from "@/components/SessionCreator"
 import { useSessionUpdates } from "@/hooks/useSessionUpdates"
 import { useDragReorder } from "@/hooks/useDragReorder"
@@ -113,10 +117,18 @@ export default function DashboardPage() {
   // Render in the user's chosen order.
   const orderedSessions = useMemo(() => sortBySeq(sessions), [sessions])
 
+  // Tag filter (shared with the session page via localStorage). Only the list on
+  // screen is filtered; stored order (`seq`) never changes by filtering.
+  const tagFilter = useTagFilter(orderedSessions)
+  const visibleSessions = tagFilter.visible
+
   // Apply a drag reorder: optimistically renumber local state so the list
   // reflows immediately, then persist. On failure, reload to resync with the
   // server rather than leave a wrong order on screen.
-  const handleReorder = useCallback((ids: string[]) => {
+  // `visibleIds` is the new order of what is on screen (maybe filtered); hidden
+  // sessions keep their slots and the visible ones shuffle among theirs.
+  const handleReorder = useCallback((visibleIds: string[]) => {
+    const ids = mergeReorder(orderedSessions.map((s) => s.id), visibleIds)
     setSessions((prev) => {
       const byId = new Map(prev.map((s) => [s.id, s]))
       return ids.map((id, i) => ({ ...(byId.get(id) as Session), seq: i }))
@@ -125,10 +137,10 @@ export default function DashboardPage() {
       console.error("Failed to reorder sessions:", err)
       loadSessions()
     })
-  }, [loadSessions])
+  }, [loadSessions, orderedSessions])
 
   // Stable ids array so the reorder hooks don't resync on every render.
-  const orderedIds = useMemo(() => orderedSessions.map((s) => s.id), [orderedSessions])
+  const orderedIds = useMemo(() => visibleSessions.map((s) => s.id), [visibleSessions])
   // Desktop table uses native HTML5 drag; the mobile card list uses pointer
   // events so it also works with touch.
   const dnd = useDragReorder(orderedIds, handleReorder)
@@ -240,6 +252,12 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">Sessions</h1>
             <NewSessionButton onCreate={handleNewSession} />
+            <TagFilter tags={tagFilter.tags} selected={tagFilter.selected} onChange={tagFilter.setSelected} />
+            {tagFilter.selected.length > 0 && (
+              <span data-testid="filter-summary" className="text-sm text-muted-foreground">
+                {visibleSessions.length} of {sessions.length}
+              </span>
+            )}
             {creating && (
               <span className="text-sm text-muted-foreground" role="status">
                 Starting {creating.name}…
@@ -319,7 +337,7 @@ export default function DashboardPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orderedSessions.map((session) => (
+                {visibleSessions.map((session) => (
                   <TableRow
                     key={session.id}
                     className={cn(
@@ -337,7 +355,10 @@ export default function DashboardPage() {
                       <GripVertical className="h-4 w-4" />
                     </TableCell>
                     <Link to={`/sessions/${session.id}`} className="contents">
-                      <TableCell className="font-medium">{session.name || "-"}</TableCell>
+                      <TableCell className="font-medium">
+                        {session.name || "-"}
+                        <TagChips tags={session.tags} className="mt-1 font-normal" />
+                      </TableCell>
                       <TableCell data-status className="font-medium max-w-[240px] truncate">
                         {statusMetadata(session.metadata) || "-"}
                       </TableCell>
@@ -416,6 +437,7 @@ export default function DashboardPage() {
                         {isActive(session) ? "Active" : "Inactive"}
                       </Badge>
                     </div>
+                    <TagChips tags={session.tags} className="mt-2 pl-7 pr-20" />
                   </CardHeader>
                   <CardContent className="text-sm space-y-1">
                     <p data-status className="font-medium"><span className="text-muted-foreground font-normal">Status:</span> {statusMetadata(session.metadata) || "-"}</p>

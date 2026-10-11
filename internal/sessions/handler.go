@@ -101,6 +101,12 @@ func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 			return
 		}
 
+		// Broadcast the stored row, not the partial one built above: a revived
+		// session keeps its tags and seq, which the partial row does not carry.
+		if stored, err := db.GetSession(database, sessionID); err == nil && stored != nil {
+			s = *stored
+		}
+
 		hub.Broadcast(userID, SessionUpdate{
 			Event:     "start",
 			SessionID: sessionID,
@@ -220,6 +226,49 @@ func MetaHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		})
 
 		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// TagsHandler replaces the session's tag list (PUT, body {"tags": [...]}), saves it,
+// and broadcasts a "tags" update so every open browser shows the change at once.
+// Scoped by RequireSessionOwner. The stored list is the normalized one, and it is
+// returned so the client can show exactly what was kept.
+func TagsHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		session, ok := SessionFromContext(r.Context())
+		if !ok {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+
+		var req struct {
+			Tags []string `json:"tags"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Tags == nil {
+			http.Error(w, "bad request: expected {\"tags\": [...]}", http.StatusBadRequest)
+			return
+		}
+		tags, err := NormalizeTags(req.Tags)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err := db.UpdateSessionTags(database, session.ID, tags); err != nil {
+			slog.Error("failed to update session tags", "error", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		session.Tags = tags
+		hub.Broadcast(session.UserID, SessionUpdate{
+			Event:     "tags",
+			SessionID: session.ID,
+			Session:   *session,
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string][]string{"tags": tags})
 	}
 }
 

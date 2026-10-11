@@ -164,6 +164,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	// {session_id} wildcard route below for this exact path.
 	mux.Handle("GET /api/v1/sessions/by-name", jwtMiddleware(RequireValidHost(database)(http.HandlerFunc(sessions.GetSessionByNameHandler(database)))))
 	mux.Handle("POST /api/v1/sessions/reorder", jwtMiddleware(http.HandlerFunc(sessions.ReorderHandler(database))))
+	mux.Handle("PUT /api/v1/sessions/{session_id}/tags", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.TagsHandler(database, hub)))))
 	mux.Handle("POST /api/v1/sessions/{session_id}/clipboard", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.ClipboardHandler(database, hub)))))
 	mux.Handle("GET /api/v1/sessions/{session_id}", jwtMiddleware(http.HandlerFunc(sessions.GetSessionHandler(database))))
 	mux.Handle("DELETE /api/v1/sessions/{session_id}", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.DeleteSessionHandler(database, hub)))))

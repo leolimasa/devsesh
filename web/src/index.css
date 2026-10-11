@@ -369,3 +369,21 @@
   border: 1px solid hsl(var(--border) / 0.7);
   box-shadow: inset 0 2px 4px hsl(0 0% 0% / 0.5);
 }
+
+/* SciFi RTS: session tags. Chips are small lit plates; the filter dropdown is a
+   panel like the cards. Hooks: data-ui="tag", data-ui="tag-filter-panel". */
+[data-theme="scifi-rts"] [data-ui="tag"] {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background-color: hsl(var(--background));
+  background-image: linear-gradient(180deg, hsl(var(--glow) / 0.14), transparent);
+  color: hsl(var(--primary));
+  letter-spacing: 0.03em;
+  box-shadow: 0 0 8px hsl(var(--glow) / 0.15);
+}
+[data-theme="scifi-rts"] [data-ui="tag-filter-panel"] {
+  border-color: hsl(var(--ring) / 0.7);
+  border-radius: var(--radius);
+  background-image: linear-gradient(180deg, hsl(var(--glow) / 0.1), transparent 60%);
+  box-shadow: 0 0 0 1px hsl(var(--background)), 0 8px 28px hsl(0 0% 0% / 0.55), 0 0 22px hsl(var(--glow) / 0.22);
+}

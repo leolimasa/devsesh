@@ -24,6 +24,7 @@ This document describes all API endpoints available in the devsesh server.
 | POST   | /api/v1/sessions/{session_id}/ping  | Update the last ping time for a session                          |
 | POST   | /api/v1/sessions/{session_id}/end   | Mark a session as ended                                          |
 | POST   | /api/v1/sessions/{session_id}/meta  | Update session metadata                                          |
+| PUT    | /api/v1/sessions/{session_id}/tags  | Replace the session's tags (web UI)                             |
 | POST   | /api/v1/sessions/{session_id}/clipboard | Push clipboard text (from `devsesh copy`) to the user's browsers as a `clipboard` event; body is raw UTF-8 text, max 256 KB (413 if larger, 400 if not UTF-8) |
 | DELETE | /api/v1/sessions/stale              | Delete all sessions that haven't been pinged for at least 1 hour |
 | GET    | /api/v1/sessions/updates            | WebSocket endpoint for real-time session updates                 |
@@ -279,6 +280,15 @@ This document describes all API endpoints available in the devsesh server.
 - **Request Body:** JSON object with metadata key-value pairs
 - **Response:** HTTP 200 OK
 
+### Update Session Tags
+- **Endpoint:** `PUT /api/v1/sessions/{session_id}/tags`
+- **Authentication:** Requires JWT token (must own session)
+- **Request Body:** `{"tags": ["work", "🔥 urgent"]}`. The list replaces the session's tags; send `[]` to clear them.
+- **Rules:** each tag is trimmed and must be 1 to 32 characters (an emoji counts as one) with no commas or control characters. Duplicates ignoring case are dropped, keeping the first spelling and the order. At most 20 tags. A broken rule is a 400 and nothing is saved.
+- **Response:** `{"tags": [...]}` with the list as stored (after trimming and de-duplication).
+- **Side effect:** broadcasts a `tags` event on the sessions-updates WebSocket, so every open browser shows the change at once.
+- **Notes:** every session in the API now carries `"tags": [...]`. Tags are separate from `metadata`, so the CLI never overwrites them.
+
 ### Delete Stale Sessions
 - **Endpoint:** `DELETE /api/v1/sessions/stale`
 - **Authentication:** Requires JWT token
@@ -298,7 +308,7 @@ This document describes all API endpoints available in the devsesh server.
 - **Message Format:**
 ```json
 {
-  "event": "start|ping|activity|end|meta",
+  "event": "start|ping|activity|end|meta|tags|delete|clipboard",
   "session_id": "session-uuid",
   "session": { ... }
 }

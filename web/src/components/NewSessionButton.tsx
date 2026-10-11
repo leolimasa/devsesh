@@ -49,6 +49,7 @@ export function NewSessionButton({
         className={cn("gap-2", className)}
         onClick={() => setOpen(true)}
         aria-label="New session"
+        title="New session"
       >
         <Plus className="h-4 w-4" />
         {label}

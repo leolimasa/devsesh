@@ -229,12 +229,11 @@ test.describe('New session button', () => {
       // block the panel; clear it so the "New session" button is clickable.
       await clearAutoConnect(page);
 
-      // The side panel's "New session" button (defaults the host to this
-      // session's host, i.e. the container).
-      await page
-        .getByTestId('session-detail-panel')
-        .getByRole('button', { name: 'New session' })
-        .click();
+      // The side panel's "+" (New session) button lives in the Sessions tab's
+      // toolbar; it defaults the host to this session's host, i.e. the container.
+      const panel = page.getByTestId('session-detail-panel');
+      await panel.getByRole('tab', { name: 'Sessions' }).click();
+      await panel.getByRole('button', { name: 'New session' }).click();
       await fillNewSessionDialog(page, newName);
 
       // Lands on the dedicated create page with a live terminal.

@@ -24,10 +24,13 @@ export interface Session {
   // User-controlled display order (ascending). Always present from the API;
   // optional here only so older test fixtures don't need to set it.
   seq?: number;
+  // User-assigned labels. Always present from the API; optional here for the same
+  // reason as seq.
+  tags?: string[];
 }
 
 export interface SessionUpdate {
-  event: "start" | "ping" | "activity" | "end" | "meta" | "clipboard";
+  event: "start" | "ping" | "activity" | "end" | "meta" | "tags" | "clipboard";
   session_id: string;
   session: Session;
   // Present on "clipboard" events (from `devsesh copy`): the copied text to

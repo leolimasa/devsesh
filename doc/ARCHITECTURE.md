@@ -90,12 +90,20 @@ A React SPA embedded in the Go binary and served by the server.
 - Device pairing interface
 - Passkey management
 
+#### Session tags
+
+Each session has a list of tags (`sessions.tags`), edited in the Details pane of the session page (`TagEditor`, saved through `PUT /api/v1/sessions/{id}/tags`). They show on every row of the Sessions pane and the dashboard (`TagChips`), and a funnel button (`TagFilter`) filters both lists to sessions with ANY of the ticked tags.
+
+- **Filtering is only a view.** `useTagFilter` hides sessions on screen; the stored order (`seq`) never changes by filtering. Row numbers in the Sessions pane (and the Ctrl+N shortcut) count the visible list, so they have no gaps. The selection is saved in the browser (`localStorage` key `tagFilter`) and shared by the dashboard and the session page. Tags that no session has any more are ignored.
+- **Reordering a filtered list** (`mergeReorder` in `lib/tags.ts`): hidden sessions keep their slots and the visible ones shuffle among theirs, so only then does `seq` change.
+- **New session and filter** share one toolbar at the top of the Sessions tab: a `+` icon (new session) and the funnel.
+
 #### Themes
 
 The UI and the xterm.js terminal share one theme, chosen per user in Settings and stored server-side (`user_settings.theme`, cached in `localStorage`). Themes live in `web/src/lib/themes.ts`; the backend's `validThemes` (`internal/settings/handler.go`) must list the same ids.
 
 - **Colors:** each theme sets the shadcn CSS variables (HSL triplets) plus an xterm palette. `applyTheme()` writes them on `<html>`, removes variables that another theme set but the new one does not (so nothing leaks across switches), and sets `data-theme="<id>"`.
-- **Skins:** a theme that needs more than colors (display font, glow, bevels) adds a `[data-theme="<id>"]` block to `web/src/index.css`. Components expose `data-ui` / `data-variant` hooks (`Button`, `Card`, `Badge`, `Input`, and the session side pane: `side-pane`, `panel-tabs`, `panel-tab`, `session-item`, `session-index`, `session-dot`) for it; text a user typed (e.g. a session name) is marked `data-user-content` so skins keep it in the readable body font. Themes without a skin block are unaffected.
+- **Skins:** a theme that needs more than colors (display font, glow, bevels) adds a `[data-theme="<id>"]` block to `web/src/index.css`. Components expose `data-ui` / `data-variant` hooks (`Button`, `Card`, `Badge`, `Input`, and the session side pane: `side-pane`, `panel-tabs`, `panel-tab`, `session-item`, `session-index`, `session-dot`, `tag`, `tag-filter-panel`) for it; text a user typed (e.g. a session name) is marked `data-user-content` so skins keep it in the readable body font. Themes without a skin block are unaffected.
 - **Themes:** `dark-blue` (default), `one-dark`, and `scifi-rts` (StarCraft II front-end look: navy-black, electric blue, amber primary action, Michroma headings).
 - **Accessibility:** `themes.test.ts` checks every `scifi-rts` text pair for 4.5:1 contrast and every UI-edge pair for 3:1. Do the same for a new theme's palette.
 - **Terminal companions:** `scifi-rts` has matching tmux and neovim themes in the `home-manager` repo (`terminalTheme` option); keep the palettes in sync.
