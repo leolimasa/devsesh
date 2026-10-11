@@ -52,6 +52,11 @@
             echo "Copying web dist..."
             mkdir -p web/dist
             cp -r ${webDist}/* web/dist/
+
+            # The browser fetches /sshclient.wasm, so it has to be in dist. webDist
+            # cannot supply it: the file is gitignored, and the web build only sees
+            # tracked files when the flake is used from a git input.
+            cp web/public/sshclient.wasm web/dist/sshclient.wasm
           '';
 
           # Build only the main binary (not the WASM client)
