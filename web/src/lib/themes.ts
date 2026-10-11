@@ -166,7 +166,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
     },
     terminal: {
       background: "#040912",
-      foreground: "#d6e6f7",
+      foreground: "#aec2da",
       cursor: "#ffb23e",
       cursorAccent: "#040912",
       selectionBackground: "#17356b",
@@ -177,7 +177,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       blue: "#4da3ff",
       magenta: "#c58bff",
       cyan: "#5fe3ff",
-      white: "#d6e6f7",
+      white: "#aec2da",
       brightBlack: "#7f98b8",
       brightRed: "#ff8590",
       brightGreen: "#8cf0ad",
@@ -185,7 +185,7 @@ export const THEMES: Record<ThemeId, ThemeDef> = {
       brightBlue: "#80bfff",
       brightMagenta: "#dbb4ff",
       brightCyan: "#94eeff",
-      brightWhite: "#ffffff",
+      brightWhite: "#d3e1f0",
     },
   },
 }
