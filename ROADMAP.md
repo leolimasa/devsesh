@@ -14,6 +14,7 @@
 # Features
 
 * [ ] LOCAL APP (self signed on mac)
+	* [ ] Review requirements.md 
 * [ ] TAGS and FILTERING BY TAGS
 * [ ] Port forwarding and reverse forward
 * [ ] Agent forwarding (key icon on session name)
