@@ -156,11 +156,18 @@ func runWatch(sessionName, sessionID string) error {
 
 	// Activity signal: throttled to at most once per second, fed by pane output
 	// observed over control mode.
-	throttle := util.NewThrottle(1*time.Second, func() {
-		if err := apiClient.SendActivity(sessionID); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to send activity: %v\n", err)
-		}
-	})
+	// Output that leaves the screen unchanged (e.g. nvim redrawing its status
+	// line on a timer) is not activity, so each throttled signal is checked
+	// against a fingerprint of what the session currently shows.
+	sendActivity := client.NewChangeFilter(
+		func() (string, error) { return client.SessionScreenFingerprint(sessionName) },
+		func() {
+			if err := apiClient.SendActivity(sessionID); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to send activity: %v\n", err)
+			}
+		},
+	)
+	throttle := util.NewThrottle(1*time.Second, sendActivity)
 
 	// Ping heartbeat: fires every 5 seconds for as long as the tmux session is
 	// alive (i.e. until ctx is cancelled when the watch loop exits below).

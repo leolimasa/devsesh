@@ -39,7 +39,7 @@ but is excluded from window-size calculations, so it never disturbs the
 interactive client's size), and:
 - **Registers the session** via `POST /api/v1/sessions/{id}/start`
 - **Pings the server** every 5 seconds to signal liveness (drives `last_ping_at`, used for stale session cleanup)
-- **Sends activity events** for pane output observed over control mode (throttled to at most 1/sec, drives `last_activity_at`, used for the Active indicator)
+- **Sends activity events** for pane output observed over control mode (throttled to at most 1/sec, drives `last_activity_at`, used for the Active indicator). Output that leaves what the session shows unchanged (e.g. nvim redrawing its status line on a timer) is ignored: each throttled signal is compared against a hash of every pane's visible content
 - **Watches the session file** for changes and syncs metadata to the server
 - **Notifies the server that the session ended** (`POST /api/v1/sessions/{id}/end`) only when the tmux session itself is gone — detaching or an SSH drop does **not** end the session
 
