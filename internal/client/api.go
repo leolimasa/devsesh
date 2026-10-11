@@ -9,13 +9,20 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
 type APIClient struct {
-	serverURL string
-	jwtToken  string
+	serverURL  string
+	jwtToken   string
 	httpClient *http.Client
+
+	// reloadToken, when set, returns the current token from its source of truth
+	// (the config file). Long-lived processes use it to recover from a 401 after
+	// the user logs in again.
+	reloadToken func() string
+	tokenMu     sync.Mutex
 }
 
 type PairingResponse struct {
@@ -27,11 +34,11 @@ type JWTResponse struct {
 }
 
 type SessionStartRequest struct {
-	SessionID string    `json:"session_id"`
-	Name      string    `json:"name"`
-	StartTime time.Time `json:"start_time"`
-	Hostname  string    `json:"hostname"`
-	Cwd       string    `json:"cwd"`
+	SessionID string            `json:"session_id"`
+	Name      string            `json:"name"`
+	StartTime time.Time         `json:"start_time"`
+	Hostname  string            `json:"hostname"`
+	Cwd       string            `json:"cwd"`
 	Extra     map[string]string `json:"extra,omitempty"`
 }
 
@@ -65,33 +72,33 @@ func NewAPIClient(serverURL, jwtToken string) *APIClient {
 
 func (c *APIClient) RequestPairingCode() (string, error) {
 	url := c.serverURL + "/api/v1/auth/pair/start"
-	
+
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		slog.Error("failed to create request", "error", err, "url", url)
 		return "", err
 	}
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		slog.Error("failed to execute request", "error", err, "url", url)
 		return "", err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 		slog.Error("request failed", "error", err, "status", resp.StatusCode)
 		return "", err
 	}
-	
+
 	var pairingResp PairingResponse
 	if err := json.NewDecoder(resp.Body).Decode(&pairingResp); err != nil {
 		slog.Error("failed to decode pairing response", "error", err)
 		return "", err
 	}
-	
+
 	return pairingResp.Code, nil
 }
 
@@ -99,14 +106,14 @@ func (c *APIClient) PollForJWT(code string, timeout time.Duration) (string, erro
 	pollURL := c.serverURL + "/api/v1/auth/pair/complete"
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	timeoutCh := time.After(timeout)
-	
+
 	token, err := c.pollJWTOnce(pollURL, code)
 	if err == nil {
 		return token, nil
 	}
-	
+
 	for {
 		select {
 		case <-timeoutCh:
@@ -122,66 +129,112 @@ func (c *APIClient) PollForJWT(code string, timeout time.Duration) (string, erro
 
 func (c *APIClient) pollJWTOnce(url, code string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"code": code})
-	
+
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
 		slog.Error("failed to create JWT poll request", "error", err, "url", url)
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		slog.Error("failed to execute JWT poll request", "error", err, "url", url)
 		return "", err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		// Don't log - 400 is expected while waiting for code approval
 		return "", fmt.Errorf("server returned status %d", resp.StatusCode)
 	}
-	
+
 	var jwtResp JWTResponse
 	if err := json.NewDecoder(resp.Body).Decode(&jwtResp); err != nil {
 		slog.Error("failed to decode JWT response", "error", err)
 		return "", err
 	}
-	
+
 	return jwtResp.Token, nil
 }
 
+// SetTokenReloader makes the client re-read its token via fn when the server
+// answers 401, retrying the request once if the token changed. This keeps a
+// long-running `devsesh watch` working after the user logs in again.
+func (c *APIClient) SetTokenReloader(fn func() string) {
+	c.reloadToken = fn
+}
+
+func (c *APIClient) token() string {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	return c.jwtToken
+}
+
+// refreshToken reloads the token and reports whether it differs from old.
+func (c *APIClient) refreshToken(old string) bool {
+	if c.reloadToken == nil {
+		return false
+	}
+	fresh := c.reloadToken()
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	if fresh == "" || fresh == old {
+		return false
+	}
+	c.jwtToken = fresh
+	return true
+}
+
 func (c *APIClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
-	var bodyBuf io.Reader
+	var data []byte
 	if body != nil {
-		data, err := json.Marshal(body)
+		var err error
+		data, err = json.Marshal(body)
 		if err != nil {
 			slog.Error("failed to marshal request body", "error", err, "path", path)
 			return nil, err
 		}
-		bodyBuf = bytes.NewBuffer(data)
 	}
-	
+
+	token := c.token()
+	resp, err := c.sendRequest(ctx, method, path, data, token)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		return resp, err
+	}
+	if !c.refreshToken(token) {
+		return resp, nil
+	}
+	resp.Body.Close()
+	return c.sendRequest(ctx, method, path, data, c.token())
+}
+
+func (c *APIClient) sendRequest(ctx context.Context, method, path string, data []byte, token string) (*http.Response, error) {
+	var bodyBuf io.Reader
+	if data != nil {
+		bodyBuf = bytes.NewReader(data)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, method, c.serverURL+path, bodyBuf)
 	if err != nil {
 		slog.Error("failed to create request", "error", err, "method", method, "path", path)
 		return nil, err
 	}
-	
-	if body != nil {
+
+	if data != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	
-	if c.jwtToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.jwtToken)
+
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	
+
 	return c.httpClient.Do(req)
 }
 
 func (c *APIClient) NotifySessionStart(sessionID string, sessionData SessionFile) error {
 	ctx := context.Background()
-	
+
 	reqBody := SessionStartRequest{
 		SessionID: sessionData.SessionID,
 		Name:      sessionData.Name,
@@ -190,14 +243,14 @@ func (c *APIClient) NotifySessionStart(sessionID string, sessionData SessionFile
 		Cwd:       sessionData.Cwd,
 		Extra:     sessionData.Extra,
 	}
-	
+
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/sessions/"+sessionID+"/start", reqBody)
 	if err != nil {
 		slog.Error("failed to send session start notification", "error", err, "session_id", sessionID)
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
@@ -210,21 +263,21 @@ func (c *APIClient) NotifySessionStart(sessionID string, sessionData SessionFile
 
 func (c *APIClient) PingSession(sessionID string) error {
 	ctx := context.Background()
-	
+
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/sessions/"+sessionID+"/ping", nil)
 	if err != nil {
 		slog.Error("failed to send ping", "error", err, "session_id", sessionID)
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 		slog.Error("ping failed", "error", err, "session_id", sessionID, "status", resp.StatusCode)
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -250,41 +303,41 @@ func (c *APIClient) SendActivity(sessionID string) error {
 
 func (c *APIClient) NotifySessionEnd(sessionID string) error {
 	ctx := context.Background()
-	
+
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/sessions/"+sessionID+"/end", nil)
 	if err != nil {
 		slog.Error("failed to send session end notification", "error", err, "session_id", sessionID)
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 		slog.Error("session end notification failed", "error", err, "session_id", sessionID, "status", resp.StatusCode)
 		return err
 	}
-	
+
 	return nil
 }
 
 func (c *APIClient) UpdateSessionMeta(sessionID string, meta map[string]any) error {
 	ctx := context.Background()
-	
+
 	resp, err := c.doRequest(ctx, "POST", "/api/v1/sessions/"+sessionID+"/meta", meta)
 	if err != nil {
 		slog.Error("failed to update session meta", "error", err, "session_id", sessionID)
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 		slog.Error("session meta update failed", "error", err, "session_id", sessionID, "status", resp.StatusCode)
 		return err
 	}
-	
+
 	return nil
 }
 

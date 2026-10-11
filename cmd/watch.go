@@ -110,6 +110,14 @@ func runWatch(sessionName, sessionID string) error {
 	}
 
 	apiClient := client.NewAPIClient(cfg.ServerURL, cfg.JWTToken)
+	// This process outlives the token it started with; pick up a re-login from
+	// config.yml when the server starts answering 401.
+	apiClient.SetTokenReloader(func() string {
+		if c, err := client.LoadConfig(); err == nil {
+			return c.JWTToken
+		}
+		return ""
+	})
 	if err := apiClient.NotifySessionStart(sessionID, *sf); err != nil {
 		// Non-fatal: keep monitoring even if the initial registration failed;
 		// pings may still bring the session online.

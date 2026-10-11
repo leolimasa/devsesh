@@ -14,6 +14,8 @@ export interface ServerInstance {
 
 export interface ServerOptions {
   timeout?: number;
+  // Extra environment variables for the server process (e.g. DEVSESH_JWT_SECRET).
+  env?: Record<string, string>;
 }
 
 const DEFAULT_TIMEOUT = 30000;
@@ -70,6 +72,7 @@ export async function startServer(options: ServerOptions = {}): Promise<ServerIn
     DEVSESH_RP_ORIGIN: url,
     DEVSESH_ALLOW_USER_CREATION: 'true',
     DEVSESH_SESSION_DIR: sessionDir,
+    ...(options.env ?? {}),
   });
 
   // Log all output from the server process
