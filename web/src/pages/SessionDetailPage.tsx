@@ -360,7 +360,7 @@ export default function SessionDetailPage() {
 
       <div className="flex flex-1 min-h-0">
         {session.host && panelOpen && (
-          <div className="hidden md:block w-72 border-r bg-card p-4 overflow-y-auto flex-shrink-0">
+          <div data-ui="side-pane" className="hidden md:block w-72 border-r bg-card p-4 overflow-y-auto flex-shrink-0">
             <SessionDetailPanel
               session={session}
               sessions={orderedSessions}

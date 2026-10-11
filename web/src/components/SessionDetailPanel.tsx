@@ -140,13 +140,14 @@ function PanelTabs({
     { key: "details", label: "Details" },
   ]
   return (
-    <div className="flex gap-1 rounded-md bg-muted p-1" role="tablist">
+    <div data-ui="panel-tabs" className="flex gap-1 rounded-md bg-muted p-1" role="tablist">
       {tabs.map((tab) => {
         const selected = tab.key === active
         return (
           <button
             key={tab.key}
             type="button"
+            data-ui="panel-tab"
             role="tab"
             aria-selected={selected}
             onClick={() => onChange(tab.key)}
@@ -190,6 +191,9 @@ function SessionListItem({
       // the item.
       data-testid={`session-item-${session.id}`}
       aria-current={isCurrent ? "true" : undefined}
+      data-ui="session-item"
+      data-current={isCurrent}
+      data-active={active}
       className={cn(
         "flex items-stretch rounded-md transition-colors",
         dnd.draggingId === session.id && "opacity-40",
@@ -200,12 +204,13 @@ function SessionListItem({
       {/* Compact left column: index number and activity dot stacked ABOVE the
           drag handle, so the row is a single narrow column instead of three. */}
       <div className="flex shrink-0 flex-col items-center justify-center gap-1 px-1 py-2">
-        <span className="text-sm leading-none tabular-nums text-muted-foreground">
+        <span data-ui="session-index" className="text-sm leading-none tabular-nums text-muted-foreground">
           {index}
         </span>
         <span
           // Activity indicator: green when active (terminal output seen in the
           // last 5s), gray otherwise.
+          data-ui="session-dot"
           className={cn(
             "h-2 w-2 rounded-full",
             active ? "bg-green-500" : "bg-muted-foreground/40"
