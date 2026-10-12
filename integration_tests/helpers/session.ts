@@ -325,12 +325,21 @@ export async function sendTmuxCommand(sessionId: string, command: string): Promi
  *   isolateTmux, so the session is killed on that test's private tmux server
  */
 export async function killTmuxSession(sessionId: string, isolatedSessionDir?: string): Promise<void> {
+  const env = isolatedSessionDir ? { ...process.env, ...isolatedTmuxEnv(isolatedSessionDir) } : process.env;
   try {
-    await execAsync(`tmux kill-session -t "${sessionId}"`, {
-      env: isolatedSessionDir ? { ...process.env, ...isolatedTmuxEnv(isolatedSessionDir) } : process.env,
-    });
+    await execAsync(`tmux kill-session -t "${sessionId}"`, { env });
   } catch {
     // Session might already be dead, ignore errors
+  }
+  if (isolatedSessionDir) {
+    // The private tmux server belongs to this test alone, so stop it outright, and stop
+    // the `devsesh watch` process that `devsesh start` left behind for this session.
+    // Both keep touching the socket directory under the test's temp dir for a moment
+    // after kill-session; left running they made removing that directory fail with
+    // ENOTEMPTY.
+    try { await execAsync(`tmux kill-server`, { env }); } catch { /* already gone */ }
+    try { await execAsync(`pkill -f -- "[d]evsesh watch ${sessionId} "`); } catch { /* none running */ }
+    await new Promise((r) => setTimeout(r, 300));
   }
 }
 

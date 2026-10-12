@@ -45,7 +45,7 @@ async function teardown(ctx: Ctx | undefined) {
   if (!ctx) return;
   for (const s of ctx.sessions) await killTmuxSession(s.name, ctx.sessionDir);
   await stopServer(ctx.server);
-  if (fs.existsSync(ctx.tempDir)) fs.rmSync(ctx.tempDir, { recursive: true, force: true });
+  if (fs.existsSync(ctx.tempDir)) fs.rmSync(ctx.tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 }
 
 const auth = (ctx: Ctx) => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.token}` });

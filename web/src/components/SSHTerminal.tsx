@@ -545,7 +545,7 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
 
     // --- Create the terminal + SSH client ONCE. The connection pool lives in
     // the wasm client and is keyed by host, so we do NOT tear it down when the
-    // host or session changes — only on unmount (disconnectAll). ---
+    // host or session changes — only on unmount (which keeps established connections pooled). ---
     useEffect(() => {
       if (!terminalRef.current) return
 
@@ -672,13 +672,21 @@ export const SSHTerminal = forwardRef<TerminalHandle, SSHTerminalProps>(
       })
 
       return () => {
-        // Mark this teardown as intentional so the "disconnected" event that
-        // disconnect may emit does not schedule a reconnect. Tear down every
-        // pooled connection so no host is left connected after we leave.
+        // Mark this teardown as intentional so a status event from a connection we
+        // let go of does not schedule a reconnect.
         userDisconnectedRef.current = true
         if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
         if (attachTimeoutRef.current) clearTimeout(attachTimeoutRef.current)
-        try { client.disconnectAll() } catch { /* ignore */ }
+        // Leave ESTABLISHED connections pooled. The wasm client outlives this
+        // component, so the next session (from the dashboard, a route change, a
+        // remount) reuses the connection to its host instead of opening a new one and
+        // asking for a new certificate and unlock, which took seconds each time. The
+        // pool bounds itself (pool.go: a small cap, idle release).
+        // A handshake still waiting for an unlock nobody can answer now IS abandoned,
+        // or it would hold the browser's connect lock and leave the next connect
+        // stuck at "Connecting".
+        try { client.detach() } catch { /* ignore */ }
+        try { client.disconnectPending() } catch { /* ignore */ }
         try { term.dispose() } catch { /* ignore */ }
       }
       // Mount once — the pooled connection survives host/session changes.

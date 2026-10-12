@@ -40,6 +40,8 @@ const mockInit = vi.fn().mockResolvedValue(undefined)
 const mockConnect = vi.fn()
 const mockDisconnect = vi.fn()
 const mockDisconnectAll = vi.fn()
+const mockDisconnectPending = vi.fn()
+const mockDetach = vi.fn()
 const mockExec = vi.fn()
 const mockSendInput = vi.fn()
 const mockResize = vi.fn()
@@ -57,6 +59,8 @@ vi.mock("@/lib/ssh-client", () => {
       connect = mockConnect
       disconnect = mockDisconnect
       disconnectAll = mockDisconnectAll
+      disconnectPending = mockDisconnectPending
+      detach = mockDetach
       exec = mockExec
       sendInput = mockSendInput
       resize = mockResize
@@ -512,7 +516,11 @@ describe("SSHTerminal", () => {
 
     unmount()
 
-    // Unmount tears down every pooled connection.
-    expect(mockDisconnectAll).toHaveBeenCalled()
+    // Unmount keeps established connections pooled for the next session: it must
+    // NOT tear them all down, but it stops delivering events to this terminal and
+    // abandons any handshake still waiting for an unlock.
+    expect(mockDisconnectAll).not.toHaveBeenCalled()
+    expect(mockDetach).toHaveBeenCalled()
+    expect(mockDisconnectPending).toHaveBeenCalled()
   })
 })

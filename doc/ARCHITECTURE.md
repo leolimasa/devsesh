@@ -90,6 +90,15 @@ A React SPA embedded in the Go binary and served by the server.
 - Device pairing interface
 - Passkey management
 
+#### Browser SSH connections
+
+The terminal runs a Go/wasm SSH client (`web/wasm/sshclient`) that is loaded once per page and outlives any one terminal component. It keeps a pool of SSH connections, one per host, each over its own WebSocket to the server's SSH proxy (`internal/ssh`).
+
+- **Reuse.** Switching sessions on the same host, or opening a session from the dashboard or after a route change, reuses the pooled connection: no new WebSocket, no new certificate, no new unlock. When the terminal unmounts it keeps established connections pooled (`SSHClient.detach()` stops event delivery) and only abandons handshakes that are still waiting for an unlock (`disconnectPending()`).
+- **Bounded pool** (`pool.go`). At most `maxPooledConns` (3, always below the server's default per-user limit of 5) connections are kept; one that has not been the active host for 10 minutes is released, checked on every connect and once a minute. Releasing only drops the SSH link; the tmux session keeps running on the host.
+- **One handshake at a time.** Handshakes take turns on `connectSem` (the unlock resolvers are global). The wait is cancellable: tearing a connection down aborts a handshake that is waiting for its turn or for the unlock, so one abandoned unlock cannot leave every other connect stuck at "Connecting".
+- **Server limit.** `DEVSESH_SSH_MAX_CONNECTIONS` (default 5; 20 on apps1 via `services.apps-custom.devsesh.sshMaxConnections`) caps a user's simultaneous proxy connections across all tabs and devices. An over-limit attempt is currently dropped without a message (known gap, see the skipped `TestRefusalIsExplainedToTheClient`).
+
 #### Session tags
 
 Each session has a list of tags (`sessions.tags`), edited in the Details pane of the session page (`TagEditor`, saved through `PUT /api/v1/sessions/{id}/tags`). They show on every row of the Sessions pane and the dashboard (`TagChips`), and a funnel button (`TagFilter`) filters both lists to sessions with ANY of the ticked tags.

@@ -5,6 +5,7 @@ declare global {
     sshConnect: (hostKey: string, wsURL: string, user: string, token: string) => void
     sshDisconnect: (hostKey: string) => void
     sshDisconnectAll: () => void
+    sshDisconnectPending: () => void
     sshExec: (hostKey: string, command: string) => void
     sshSendInput: (data: Uint8Array | string) => void
     sshResize: (rows: number, cols: number) => void
@@ -186,6 +187,30 @@ export class SSHClient extends EventEmitter {
   disconnectAll(): void {
     window.sshDisconnectAll()
     this.status = "disconnected"
+  }
+
+  // Abandon connections that are still being set up (waiting for the unlock or a
+  // password) and keep the established ones pooled. Called when the terminal goes
+  // away, so a handshake nobody can answer any more does not hold the connect lock.
+  disconnectPending(): void {
+    if (typeof window.sshDisconnectPending === "function") window.sshDisconnectPending()
+  }
+
+  // Stop delivering wasm events to this instance. The wasm client (and its pool of
+  // SSH connections) is shared by every terminal in the page and outlives them, so
+  // when a terminal unmounts it must stop receiving status/output/unlock requests;
+  // the next terminal registers its own callbacks in init().
+  detach(): void {
+    const noop = () => {}
+    try {
+      window.sshSetPasswordCallback(noop)
+      window.sshSetOutputCallback(noop)
+      window.sshSetStatusCallback(noop)
+      window.sshSetCertificateCallback(noop)
+      window.sshSetCertAuthFailedCallback(noop)
+    } catch (e) {
+      console.error("[SSHClient] Error detaching callbacks:", e)
+    }
   }
 
   // Run a command (a tmux attach) on a host's pooled connection.

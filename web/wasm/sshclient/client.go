@@ -47,6 +47,14 @@ type hostConn struct {
 	connectingSince time.Time
 	connected       bool
 	executing       bool
+	// lastActive is when this host was last the one the terminal showed (set on
+	// activation and again when another host takes over). Drives idle release in
+	// pool.go.
+	lastActive time.Time
+	// cancel is closed by closeConn to abort a handshake that is still waiting (for
+	// its turn on connectSem, or for the unlock to be answered).
+	cancel    chan struct{}
+	cancelled bool
 	// switching marks that the current session channel is being closed to run a
 	// new command on the SAME connection (a same-host session switch), so the
 	// preempted goroutine does not report an error (which would trigger a full
@@ -80,7 +88,11 @@ var (
 	certResolver           chan certData
 	certRejecter           chan struct{}
 	mu                     sync.Mutex // guards pool, activeKey and hostConn fields
-	connectMu              sync.Mutex // serializes handshakes (auth resolvers are global)
+	// connectSem serializes handshakes (the auth resolvers are global). It is a
+	// channel rather than a mutex so a connect that is merely WAITING for its turn can
+	// be cancelled: with a mutex, one handshake stuck on an unanswered unlock kept
+	// every other host at "connecting" until it timed out.
+	connectSem = make(chan struct{}, 1)
 	lastCertPrincipals     []string
 )
 
@@ -257,7 +269,8 @@ func Connect(this js.Value, args []js.Value) interface{} {
 	if c, ok := pool[key]; ok {
 		if canReuse(c, now) {
 			// Reuse: just make this host active. No reconnect, no re-auth.
-			activeKey = key
+			makeActive(key, now)
+			releaseIdleConns(now)
 			wasConnected := c.connected
 			mu.Unlock()
 			if wasConnected {
@@ -274,10 +287,14 @@ func Connect(this js.Value, args []js.Value) interface{} {
 		// connectMu for the fresh attempt below.
 		closeConn(c)
 	}
-	c := &hostConn{key: key, connecting: true, connectingSince: now}
+	c := &hostConn{key: key, connecting: true, connectingSince: now, cancel: make(chan struct{})}
 	pool[key] = c
-	activeKey = key
+	makeActive(key, now)
+	// Let go of idle host connections so this new one does not push the pool past
+	// its cap (and the user past the server's per-user connection limit).
+	releaseIdleConns(now)
 	mu.Unlock()
+	startPoolSweeper()
 
 	go func() {
 		defer func() {
@@ -287,8 +304,17 @@ func Connect(this js.Value, args []js.Value) interface{} {
 		}()
 
 		// Serialize handshakes: the cert/password resolvers are global.
-		connectMu.Lock()
-		defer connectMu.Unlock()
+		select {
+		case connectSem <- struct{}{}:
+			defer func() { <-connectSem }()
+		case <-c.cancel:
+			return // torn down while waiting for its turn
+		}
+		select {
+		case <-c.cancel:
+			return
+		default:
+		}
 
 		emitStatus(key, "connecting")
 
@@ -347,6 +373,15 @@ func Connect(this js.Value, args []js.Value) interface{} {
 				}
 			case <-certRejecter:
 				js.Global().Get("console").Call("log", "[SSH WASM] Certificate auth rejected, using password")
+			case <-c.cancel:
+				// The host was released while the unlock was pending (the user left the
+				// page, or the pool let it go). Abandon this handshake so the next
+				// connect is not stuck behind it.
+				transport.Close()
+				mu.Lock()
+				c.connecting = false
+				mu.Unlock()
+				return
 			case <-time.After(60 * time.Second):
 				js.Global().Get("console").Call("warn", "[SSH WASM] Certificate callback timeout, falling back to password")
 			}
@@ -387,6 +422,8 @@ func Connect(this js.Value, args []js.Value) interface{} {
 			case pwd := <-passwordResolver:
 				return pwd, nil
 			case <-passwordRejecter:
+				return "", fmt.Errorf("authentication cancelled")
+			case <-c.cancel:
 				return "", fmt.Errorf("authentication cancelled")
 			}
 		}))
@@ -495,6 +532,10 @@ func startKeepalive(c *hostConn, client *ssh.Client) {
 
 // closeConn tears down a hostConn's channel/client/transport. Caller holds mu.
 func closeConn(c *hostConn) {
+	if c.cancel != nil && !c.cancelled {
+		close(c.cancel)
+		c.cancelled = true
+	}
 	if c.stdin != nil {
 		close(c.stdin)
 		c.stdin = nil
@@ -944,6 +985,66 @@ func RejectCertificate(this js.Value, args []js.Value) interface{} {
 		select {
 		case certRejecter <- struct{}{}:
 		default:
+		}
+	}
+	return nil
+}
+
+// makeActive switches the terminal to host key. It stamps when the host that was
+// showing stops being active, so pool.go can tell how long each one has been idle.
+// Caller holds mu.
+func makeActive(key string, now time.Time) {
+	if prev, ok := pool[activeKey]; ok && activeKey != key {
+		prev.lastActive = now
+	}
+	activeKey = key
+	if c, ok := pool[key]; ok {
+		c.lastActive = now
+	}
+}
+
+// releaseIdleConns closes and removes the pooled connections poolEvictions picks
+// (idle too long, or beyond the cap). Caller holds mu.
+func releaseIdleConns(now time.Time) {
+	for _, key := range poolEvictions(pool, activeKey, now, maxPooledConns, idleReleaseAfter) {
+		js.Global().Get("console").Call("log", "[SSH WASM] releasing idle connection to host", key)
+		if c, ok := pool[key]; ok {
+			closeConn(c)
+			delete(pool, key)
+		}
+	}
+}
+
+var poolSweeperOnce sync.Once
+
+// startPoolSweeper releases connections that go idle while nobody is switching
+// hosts (the only other time releaseIdleConns runs is on a switch).
+func startPoolSweeper() {
+	poolSweeperOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				mu.Lock()
+				releaseIdleConns(time.Now())
+				mu.Unlock()
+			}
+		}()
+	})
+}
+
+// DisconnectPending abandons every host connection that is still being set up
+// (waiting for its turn, for the unlock, for the password) and keeps the ones that
+// are fully connected. The terminal calls it when it goes away: established
+// connections stay pooled for the next session, but a handshake nobody can answer
+// any more must not keep the connect lock.
+func DisconnectPending(this js.Value, args []js.Value) interface{} {
+	mu.Lock()
+	defer mu.Unlock()
+	for _, key := range poolPending(pool) {
+		if c, ok := pool[key]; ok {
+			closeConn(c)
+			delete(pool, key)
 		}
 	}
 	return nil
