@@ -6,21 +6,25 @@
 * [ ] Need to refresh the browser when restarting a session
 * [ ] Using the "reconnect session" button starts a session fine, but the frontend flickers and glitches and sometimes goes back to the dashboard view instead of cleanly connecting
 * [ ] Copying large buffers fails
+* [ ] Make the SSH connection limit explicit for clients: when the server refuses a connection (over `DEVSESH_SSH_MAX_CONNECTIONS`), the browser only sees a dropped socket and cycles Connecting/Error. Send a clear "too many connections" message and show it in the UI
 * [ ] Fix SSH trust on first use (if the target machine ssh key changes, the app won't say anythjing)
 * [ ] Details panel font size is not consistent with rest of the app
+* [ ] Ending a session should also kill the tmux session on the host
 * [ ] When a session is connected, we should check that the JWT is not expired. If it is close to expiring, create a way to automatically renew it FROM THE FRONTEND (since the frontend is authenticated)                         
 * [ ] REMOVE AUTO CORRECT FROM ALL TEXTBOXES
+* [ ] When a session is created but there is an error, nothing is shown
 
 # Features
 
 * [ ] LOCAL APP (self signed on mac)
 	* [ ] Review requirements.md 
-* [ ] TAGS and FILTERING BY TAGS
+* [x] TAGS and FILTERING BY TAGS
 * [ ] Port forwarding and reverse forward
 * [ ] Agent forwarding (key icon on session name)
 * [ ] Support for spawning local daemons 
 * [ ] File browser
 * [ ] Scroll terminal window with finger
+* [ ] Button to end session in the
 
 * [ ] Display a "pair" button in the dashboard
 * [ ] Display metadata as a formatted tree in the details panel
