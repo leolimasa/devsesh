@@ -60,7 +60,7 @@ The Go server provides the backend API, serves the embedded web client, and mana
 
 **Key Responsibilities:**
 - REST API for authentication, session management, and pairing
-- WebSocket server for real-time session updates
+- SQLite database for persistent storage (WAL mode with `synchronous=NORMAL`; the `-wal` file must be copied along with the database)
 - SQLite database for persistent storage
 - JWT token management
 - SSH tunnel handling
@@ -150,6 +150,10 @@ The UI and the xterm.js terminal share one theme, chosen per user in Settings an
 7. CLI polls `POST /api/v1/auth/pair/complete` until code approved
 8. On success, CLI receives JWT token (30-day expiry)
 9. CLI saves token and server URL to config file
+
+## Batched session writes
+
+Pings (every 5 s per watcher) and activity (up to 1 per second per busy session) are the most frequent writes. `PingHandler` and `ActivityHandler` only record the newest time per session in memory (`sessions.Touches`); a loop writes everything pending in one transaction every 2 seconds (`sessions.DefaultTouchFlushInterval`) and once more on shutdown. The live WebSocket broadcast carries the fresh time at once, so open dashboards are not delayed. Reads from the database can lag by up to the flush interval, which is invisible because every consumer uses a window of 5 s or more. A crash loses at most the last interval of pings and activity. A failed flush is logged and retried on the next tick.
 
 ## Database Schema
 

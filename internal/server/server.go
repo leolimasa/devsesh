@@ -32,6 +32,9 @@ type Server struct {
 	wa            *webauthn.WebAuthn
 	cs            *auth.ChallengeStore
 	hub           *sessions.Hub
+	touches       *sessions.Touches
+	stopTouches   context.CancelFunc
+	touchesDone   chan struct{}
 	enrollmentHub *auth.EnrollmentHub
 	mux           *http.ServeMux
 	srv           *http.Server
@@ -86,6 +89,7 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	}
 
 	hub := sessions.NewHub()
+	touches := sessions.NewTouches(database)
 	enrollmentHub := auth.NewEnrollmentHub()
 	mux := http.NewServeMux()
 
@@ -155,8 +159,8 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 	mux.Handle("POST /api/v1/auth/passkeys/auth-finish", jwtMiddleware(http.HandlerFunc(auth.AuthFinishWithJWTHandler(wa, database, cs, cfg))))
 
 	mux.Handle("POST /api/v1/sessions/{session_id}/start", jwtMiddleware(RequireValidHost(database)(http.HandlerFunc(sessions.StartHandler(database, hub)))))
-	mux.Handle("POST /api/v1/sessions/{session_id}/ping", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.PingHandler(database, hub)))))
-	mux.Handle("POST /api/v1/sessions/{session_id}/activity", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.ActivityHandler(database, hub)))))
+	mux.Handle("POST /api/v1/sessions/{session_id}/ping", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.PingHandler(touches, hub)))))
+	mux.Handle("POST /api/v1/sessions/{session_id}/activity", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.ActivityHandler(touches, hub)))))
 	mux.Handle("POST /api/v1/sessions/{session_id}/end", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.EndHandler(database, hub)))))
 	mux.Handle("POST /api/v1/sessions/{session_id}/meta", jwtMiddleware(RequireSessionOwner(database)(http.HandlerFunc(sessions.MetaHandler(database, hub)))))
 	mux.Handle("GET /api/v1/sessions", jwtMiddleware(http.HandlerFunc(sessions.ListHandler(database))))
@@ -201,12 +205,20 @@ func New(cfg config.Config, database *sql.DB, cs *auth.ChallengeStore) (*Server,
 		wa:            wa,
 		cs:            cs,
 		hub:           hub,
+		touches:       touches,
 		enrollmentHub: enrollmentHub,
 		mux:           mux,
 	}, nil
 }
 
 func (s *Server) Start() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.stopTouches = cancel
+	s.touchesDone = make(chan struct{})
+	go func() {
+		defer close(s.touchesDone)
+		s.touches.Run(ctx, sessions.DefaultTouchFlushInterval)
+	}()
 	host := s.cfg.Host
 	if host == "" {
 		host = "localhost"
@@ -223,5 +235,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.srv == nil {
 		return nil
 	}
-	return s.srv.Shutdown(ctx)
+	err := s.srv.Shutdown(ctx)
+	// Handlers are done; write whatever pings and activity are still pending.
+	if s.stopTouches != nil {
+		s.stopTouches()
+		<-s.touchesDone
+	}
+	return err
 }

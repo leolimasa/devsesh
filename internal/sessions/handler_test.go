@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/leolimasa/devsesh/internal/config"
 	"github.com/leolimasa/devsesh/internal/ctxutil"
 	"github.com/leolimasa/devsesh/internal/db"
 	_ "modernc.org/sqlite"
@@ -95,7 +96,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { os.Remove(f.Name()) })
 
-	dbConn, err := sql.Open("sqlite", f.Name())
+	dbConn, err := db.Open(config.Config{DBPath: f.Name()})
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
@@ -232,7 +233,8 @@ func TestPingHandler(t *testing.T) {
 	}
 	hub.mu.Unlock()
 
-	handler := PingHandler(dbConn, hub)
+	touches := NewTouches(dbConn)
+	handler := PingHandler(touches, hub)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/ping-session/ping", nil)
 	req = req.WithContext(context.WithValue(req.Context(), ctxutil.ContextKeySession, &s))
@@ -244,6 +246,12 @@ func TestPingHandler(t *testing.T) {
 		t.Errorf("expected status 200, got %d", w.Code)
 	}
 
+	if before, _ := db.GetSession(dbConn, "ping-session"); before.LastPingAt != nil {
+		t.Error("ping must be batched, not written by the handler")
+	}
+	if err := touches.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
 	updated, _ := db.GetSession(dbConn, "ping-session")
 	if updated.LastPingAt == nil {
 		t.Error("expected last_ping_at to be set")
@@ -288,7 +296,8 @@ func TestActivityHandler(t *testing.T) {
 	}
 	hub.mu.Unlock()
 
-	handler := ActivityHandler(dbConn, hub)
+	touches := NewTouches(dbConn)
+	handler := ActivityHandler(touches, hub)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/activity-session/activity", nil)
 	req = req.WithContext(context.WithValue(req.Context(), ctxutil.ContextKeySession, &s))
@@ -300,6 +309,9 @@ func TestActivityHandler(t *testing.T) {
 		t.Errorf("expected status 200, got %d", w.Code)
 	}
 
+	if err := touches.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
 	updated, _ := db.GetSession(dbConn, "activity-session")
 	if updated.LastActivityAt == nil {
 		t.Error("expected last_activity_at to be set")

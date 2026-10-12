@@ -117,7 +117,9 @@ func StartHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 	}
 }
 
-func PingHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
+// PingHandler records a liveness ping. The time is batched into the database by
+// Touches; the broadcast below carries it to live dashboards immediately.
+func PingHandler(touches *Touches, hub *Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		session, ok := SessionFromContext(r.Context())
 		if !ok {
@@ -126,11 +128,7 @@ func PingHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		}
 
 		now := time.Now()
-		if err := db.UpdateSessionPing(database, session.ID, now); err != nil {
-			slog.Error("failed to update session ping", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
+		touches.Ping(session.ID, now)
 
 		session.LastPingAt = &now
 		hub.Broadcast(session.UserID, SessionUpdate{
@@ -143,7 +141,8 @@ func PingHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 	}
 }
 
-func ActivityHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
+// ActivityHandler records terminal output activity, batched like PingHandler.
+func ActivityHandler(touches *Touches, hub *Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		session, ok := SessionFromContext(r.Context())
 		if !ok {
@@ -152,11 +151,7 @@ func ActivityHandler(database *sql.DB, hub *Hub) http.HandlerFunc {
 		}
 
 		now := time.Now()
-		if err := db.UpdateSessionActivity(database, session.ID, now); err != nil {
-			slog.Error("failed to update session activity", "error", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
+		touches.Activity(session.ID, now)
 
 		session.LastActivityAt = &now
 		hub.Broadcast(session.UserID, SessionUpdate{

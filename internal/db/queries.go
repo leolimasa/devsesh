@@ -301,6 +301,44 @@ func UpdateSessionPing(db *sql.DB, id string, t time.Time) error {
 	return nil
 }
 
+// SessionTouch is a pending ping and/or activity time for one session. A nil
+// field leaves the stored value unchanged.
+type SessionTouch struct {
+	ID       string
+	Ping     *time.Time
+	Activity *time.Time
+}
+
+// TouchSessions writes many pings and activity times in one transaction.
+func TouchSessions(db *sql.DB, touches []SessionTouch) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("touch sessions: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(
+		"UPDATE sessions SET last_ping_at = COALESCE(?, last_ping_at), last_activity_at = COALESCE(?, last_activity_at) WHERE id = ?",
+	)
+	if err != nil {
+		return fmt.Errorf("touch sessions: %w", err)
+	}
+	defer stmt.Close()
+
+	format := func(t *time.Time) any {
+		if t == nil {
+			return nil
+		}
+		return t.UTC().Format(timeFormat)
+	}
+	for _, tc := range touches {
+		if _, err := stmt.Exec(format(tc.Ping), format(tc.Activity), tc.ID); err != nil {
+			return fmt.Errorf("touch session %s: %w", tc.ID, err)
+		}
+	}
+	return tx.Commit()
+}
+
 func UpdateSessionActivity(db *sql.DB, id string, t time.Time) error {
 	_, err := db.Exec(
 		"UPDATE sessions SET last_activity_at = ? WHERE id = ?",

@@ -259,13 +259,13 @@ This document describes all API endpoints available in the devsesh server.
 ### Ping Session
 - **Endpoint:** `POST /api/v1/sessions/{session_id}/ping`
 - **Authentication:** Requires JWT token (must own session)
-- **Description:** Update the last ping time for a session. Pings are sent by the CLI every 5 seconds to signal liveness.
+- **Description:** Update the last ping time for a session. Pings are sent by the CLI every 5 seconds to signal liveness. The time is batched into the database (see ARCHITECTURE.md, "Batched session writes"), so the stored value can lag by up to 2 seconds.
 - **Response:** HTTP 200 OK
 
 ### Update Session Activity
 - **Endpoint:** `POST /api/v1/sessions/{session_id}/activity`
 - **Authentication:** Requires JWT token (must own session)
-- **Description:** Update the last activity time for a session. Sent by the CLI when terminal output is detected (throttled to at most 1/sec). Drives the "Active" indicator in the web UI.
+- **Description:** Update the last activity time for a session. Sent by the CLI when terminal output is detected (throttled to at most 1/sec). Drives the "Active" indicator in the web UI. Batched into the database like pings.
 - **Response:** HTTP 200 OK
 
 ### End Session
