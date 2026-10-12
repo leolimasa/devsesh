@@ -3,9 +3,12 @@ package db
 import (
 	"database/sql"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/leolimasa/devsesh/internal/config"
 )
 
 func openTestDB(t *testing.T) *sql.DB {
@@ -405,5 +408,29 @@ func TestSessionActivityRoundTrip(t *testing.T) {
 	}
 	if sessionsWithHost[0].LastActivityAt == nil {
 		t.Fatal("expected last_activity_at in session-with-host query")
+	}
+}
+
+func TestOpenUsesWALWithNormalSync(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devsesh.db")
+	database, err := Open(config.Config{DBPath: path})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	var mode string
+	if err := database.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+		t.Fatalf("journal_mode: %v", err)
+	}
+	if mode != "wal" {
+		t.Errorf("journal_mode = %q, want wal", mode)
+	}
+	var sync int
+	if err := database.QueryRow("PRAGMA synchronous").Scan(&sync); err != nil {
+		t.Fatalf("synchronous: %v", err)
+	}
+	if sync != 1 { // 1 = NORMAL
+		t.Errorf("synchronous = %d, want 1 (NORMAL)", sync)
 	}
 }

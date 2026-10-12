@@ -5,13 +5,27 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/leolimasa/devsesh/internal/config"
 	_ "modernc.org/sqlite"
 )
 
+// dsn adds the connection pragmas to a database path. WAL with synchronous=NORMAL
+// makes each small write one cheap log append instead of several fsyncs. After an
+// OS crash or power loss the last moments of writes can be lost; the database
+// itself stays intact. Anything that copies the database must also copy its -wal
+// file.
+func dsn(path string) string {
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
+}
+
 func Open(cfg config.Config) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", cfg.DBPath)
+	db, err := sql.Open("sqlite", dsn(cfg.DBPath))
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
